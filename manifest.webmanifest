@@ -1,0 +1,18 @@
+{
+  "name": "StockVoz - Inventario por voz",
+  "short_name": "StockVoz",
+  "description": "Inventario local por voz con exportación y copias de seguridad.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#08111f",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,585 +1,213 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario por Voz v3.1 - Micrófono Inmune a Fallos</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- SheetJS (XLSX) -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <style>
-        @keyframes pulse-ring {
-            0% { transform: scale(0.95); opacity: 0.8; }
-            50% { transform: scale(1.15); opacity: 0.3; }
-            100% { transform: scale(0.95); opacity: 0.8; }
-        }
-        .animate-pulse-ring { animation: pulse-ring 2s infinite ease-in-out; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="description" content="StockVoz: inventario local por voz, escáner de códigos y exportación a Excel.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<title>StockVoz v5.1</title>
+<style>
+:root{color-scheme:dark;--bg:#08111f;--panel:#101c2e;--panel2:#0c1727;--line:#29394f;--text:#e5edf8;--muted:#9aabc2;--blue:#3979f6;--green:#0e9f6e;--amber:#b7791f;--red:#be3150}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}button,input,select,textarea{font:inherit}input,select,textarea{font-size:16px!important}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.wrap{max-width:1200px;margin:auto;padding:16px}.top{position:sticky;top:0;z-index:5;background:#0b1525f5;border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}.topin{max-width:1200px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{display:flex;align-items:center;gap:12px}.logo{width:42px;height:42px;border-radius:13px;background:#1c3c77;display:grid;place-items:center;font-size:22px}.sub{color:var(--muted);font-size:12px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}.grid{display:grid;gap:12px}.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat{text-align:center;padding:13px}.stat label{display:block;font-size:11px;color:var(--muted);font-weight:800}.stat strong{font-size:clamp(20px,4vw,31px)}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.between{justify-content:space-between}.fieldgrid{grid-template-columns:repeat(3,minmax(0,1fr))}.field label,.fieldlabel{display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}.input{width:100%;min-width:0;background:var(--panel2);color:var(--text);border:1px solid #3a4a60;border-radius:10px;padding:11px 12px}.input:focus{outline:2px solid #75a5ff;outline-offset:1px}.btn{border:0;border-radius:10px;padding:10px 14px;min-height:44px;font-weight:750;display:inline-flex;justify-content:center;align-items:center;gap:8px}.primary{background:var(--blue);color:white}.good{background:var(--green);color:white}.muted{background:#304157;color:#f2f6fc}.warn{background:var(--amber);color:white}.danger{background:var(--red);color:white}.soft{background:#18304c;color:#c8dcff;border:1px solid #31577f}.mic{width:78px;height:78px;border-radius:50%;background:var(--blue);color:white;border:5px solid #263b5c;font-size:28px}.mic.listening{background:var(--red)}.center{text-align:center}.mutedtext{color:var(--muted)}.hidden{display:none!important}.small{font-size:12px}.notice{padding:11px 13px;border:1px solid #6c5628;background:#2b2416;border-radius:10px;color:#ffe1a1;margin-top:10px}.goodnotice{padding:11px 13px;border:1px solid #27644e;background:#102a23;border-radius:10px;color:#a9f5d3;margin-top:10px}.list{display:grid;gap:10px;margin-top:12px}.item{background:#0b1626;border:1px solid var(--line);border-radius:12px;padding:13px}.itemhead{display:flex;justify-content:space-between;gap:10px}.sku{font-weight:900;font-size:18px;overflow-wrap:anywhere}.pill{font-size:11px;background:#22344b;padding:4px 8px;border-radius:99px;color:#c6d8f1}.itemactions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.itemactions .btn{flex:1;padding:8px}.tablewrap{overflow:auto;margin-top:12px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:11px;text-align:left;border-bottom:1px solid #26364b;white-space:nowrap}th{color:var(--muted);font-size:11px;text-transform:uppercase}td input{min-width:90px;background:#08111f;border:1px solid var(--line);border-radius:6px;color:white;padding:6px}.tabbar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.tab{background:#17263a;color:#cbd8ea;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-weight:700}.tab.active{background:#1c4e9a;color:white;border-color:#4f8df5}.toast{position:fixed;bottom:18px;left:16px;right:16px;max-width:480px;margin:auto;padding:13px 16px;border-radius:12px;z-index:20;background:#176c4e;color:white;box-shadow:0 12px 40px #0008;font-weight:700}.toast.err{background:#9f2941}.toast.warn{background:#946317}.divider{border:0;border-top:1px solid var(--line);margin:16px 0}.right{margin-left:auto}.checkbox{display:flex;align-items:center;gap:8px}.checkbox input{width:18px;height:18px}.footer{text-align:center;color:#71839d;font-size:12px;padding:12px 16px 30px}.mobileOnly{display:none}.empty{text-align:center;padding:30px 12px;color:var(--muted)}dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:16px;width:min(620px,calc(100% - 24px));padding:18px}dialog::backdrop{background:#000a}.dialogbody{max-height:70vh;overflow:auto}
+@media(max-width:760px){.wrap{padding:10px}.panel{padding:13px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fieldgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.desktopOnly{display:none!important}.mobileOnly{display:block}.topin{padding:10px 12px}.headerStatus{display:none}.btn{padding:10px 11px}.fullMobile{width:100%}.row.mobileStack{align-items:stretch;flex-direction:column}.row.mobileStack .btn{width:100%}}
+@media(max-width:430px){.fieldgrid{grid-template-columns:1fr}.stat{padding:10px}.brand h1{font-size:18px}.panel h2{font-size:18px}}
+</style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col justify-between">
+<body>
+<header class="top"><div class="topin">
+ <div class="brand"><div class="logo">🎙️</div><div><h1 style="margin:0;font-size:20px">StockVoz <span class="pill">v5.1</span></h1><div class="sub">Inventario por voz · local · instalable</div></div></div>
+ <div class="row"><span id="saveStatus" class="sub headerStatus">Guardado local</span><button id="installBtn" class="btn soft hidden">＋ Instalar</button><button id="backupTop" class="btn muted" title="Descargar copia JSON">↧ Copia</button></div>
+</div></header>
+<main class="wrap">
+ <section class="grid stats">
+  <div class="panel stat"><label>ARTÍCULOS</label><strong id="statItems">0</strong></div>
+  <div class="panel stat"><label>CANTIDAD TOTAL*</label><strong id="statUnits" style="color:#6fcfff">0</strong></div>
+  <div class="panel stat"><label>EQUIVALENTE EN DOCENAS*</label><strong id="statDozens" style="color:#70e2ad">0</strong></div>
+  <div class="panel stat"><label>MOVIMIENTOS</label><strong id="statMoves" style="color:#b9a5ff">0</strong></div>
+ </section>
 
-    <!-- Header -->
-    <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-50 shadow-md">
-        <div class="max-w-6xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center font-bold text-xl border border-emerald-500/30">
-                    <i class="fa-solid fa-microphone"></i>
-                </div>
-                <div>
-                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v3.1</span></h1>
-                    <p class="text-xs text-slate-400">Control de Stock por Voz & Multicategoría</p>
-                </div>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full hidden sm:inline-flex items-center gap-1">
-                    <i class="fa-solid fa-hard-drive"></i> Auto-guardado Local
-                </span>
-                <button id="btnTTS" onclick="toggleTTS()" class="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 text-xs flex items-center gap-2">
-                    <i id="iconTTS" class="fa-solid fa-volume-high text-emerald-400"></i>
-                </button>
-            </div>
-        </div>
-    </header>
+ <section class="panel center">
+  <h2 style="margin:0 0 5px">Registrar un producto por voz</h2>
+  <p class="mutedtext small" style="margin:0 0 13px">Dictá un artículo por vez. Después revisá cada campo y confirmá para guardar.</p>
+  <button id="micBtn" class="mic" aria-label="Iniciar dictado">🎙</button>
+  <div id="micStatus" class="small" style="margin:8px 0;color:#9dc2ff">Tocá el micrófono y hablá con claridad</div>
+  <textarea id="transcript" class="input" rows="2" placeholder="Ejemplo: Marca URUS, prenda short, código N115, 18 docenas. También podés escribir aquí."></textarea>
+  <div class="row" style="justify-content:center;margin-top:10px"><button id="interpretBtn" class="btn primary">Interpretar y revisar</button><button id="clearTextBtn" class="btn muted">Limpiar</button></div>
+  <p class="mutedtext small" style="margin-bottom:0">El dictado depende del navegador y puede requerir conexión. No se guarda nada hasta que confirmes.</p>
+ </section>
 
-    <main class="max-w-6xl mx-auto p-4 sm:p-6 w-full flex-1 space-y-6">
+ <section id="reviewPanel" class="panel hidden">
+  <div class="row between"><div><h2 style="margin:0">Revisá antes de guardar</h2><div class="sub">Corregí cualquier campo que se haya interpretado mal.</div></div><button id="cancelReview" class="btn muted">Cancelar</button></div>
+  <div class="fieldgrid grid" style="margin-top:14px">
+   <div class="field"><label for="rBrand">Marca</label><input id="rBrand" class="input" maxlength="80" placeholder="Ej. URUS"></div>
+   <div class="field"><label for="rType">Prenda / tipo</label><input id="rType" class="input" maxlength="80" placeholder="Ej. Short"></div>
+   <div class="field"><label for="rStockType">Tipo de stock</label><select id="rStockType" class="input"><option value="inventario">Inventario general</option><option value="entrada">Entrada de mercadería</option><option value="salida">Salida de mercadería</option><option value="local">Stock de local</option><option value="deposito">Stock de depósito</option><option value="produccion">Producción</option><option value="transferencia">Transferencia entre ubicaciones</option><option value="ajuste">Ajuste de stock</option><option value="otro">Otro</option></select></div>
+   <div class="field"><label for="rSku">Código / SKU *</label><input id="rSku" class="input" maxlength="80" required placeholder="Ej. N115"></div>
+   <div class="field"><label for="rQty">Cantidad *</label><input id="rQty" class="input" type="number" min="0.01" step="any" required></div>
+   <div class="field"><label for="rUnit">Unidad</label><select id="rUnit" class="input"><option value="unit">Unidades</option><option value="dozen">Docenas (12 unidades)</option><option value="box">Cajas</option><option value="package">Paquetes</option><option value="pair">Pares</option><option value="roll">Rollos</option><option value="kg">Kilogramos (kg)</option><option value="g">Gramos (g)</option><option value="m">Metros (m)</option><option value="l">Litros (L)</option><option value="other">Otra unidad</option></select></div>
+   <div class="field"><label for="rMode">Modo de inventario</label><select id="rMode" class="input"><option value="movement">Movimiento (sumar/restar)</option><option value="count">Conteo físico (reemplazar stock)</option></select></div>
+   <div class="field"><label for="rOperation">Operación</label><select id="rOperation" class="input"><option value="sumar">Sumar al stock</option><option value="restar">Restar del stock</option><option value="establecer">Establecer stock exacto</option></select></div>
+  </div>
+  <div id="reviewNotice" class="notice"></div>
+  <div class="row mobileStack" style="margin-top:12px"><button id="speakReview" class="btn muted">🔊 Escuchar resumen</button><button id="confirmReview" class="btn good" style="flex:1">✓ Confirmar y guardar</button></div>
+ </section>
 
-        <!-- Métricas Rápidas -->
-        <div class="grid grid-cols-3 gap-3 sm:gap-4">
-            <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">CÓDIGOS / SKUs</p>
-                <p id="statSKUs" class="text-2xl sm:text-3xl font-extrabold text-indigo-400">0</p>
-            </div>
-            <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">TOTAL DOCENAS</p>
-                <p id="statDocenas" class="text-2xl sm:text-3xl font-extrabold text-emerald-400">0.0</p>
-            </div>
-            <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">TOTAL UNIDADES</p>
-                <p id="statUnidades" class="text-2xl sm:text-3xl font-extrabold text-cyan-400">0</p>
-            </div>
-        </div>
+ <section class="panel">
+  <div class="row between"><div><h2 style="margin:0">Agregar manualmente</h2><div class="sub">Alternativa al micrófono</div></div><button id="toggleManual" class="btn muted">Mostrar</button></div>
+  <form id="manualForm" class="fieldgrid grid hidden" style="margin-top:14px">
+   <div class="field"><label>Marca</label><input id="mBrand" class="input" placeholder="URUS"></div>
+   <div class="field"><label>Prenda / tipo</label><input id="mType" class="input" placeholder="Short"></div>
+   <div class="field"><label>Tipo de stock</label><select id="mStockType" class="input"><option value="inventario">Inventario general</option><option value="entrada">Entrada de mercadería</option><option value="salida">Salida de mercadería</option><option value="local">Stock de local</option><option value="deposito">Stock de depósito</option><option value="produccion">Producción</option><option value="transferencia">Transferencia entre ubicaciones</option><option value="ajuste">Ajuste de stock</option><option value="otro">Otro</option></select></div>
+   <div class="field"><label>Código / SKU *</label><input id="mSku" class="input" required></div>
+   <div class="field"><label>Cantidad *</label><input id="mQty" class="input" type="number" min=".01" step="any" required></div>
+   <div class="field"><label>Unidad</label><select id="mUnit" class="input"><option value="unit">Unidades</option><option value="dozen">Docenas (12 unidades)</option><option value="box">Cajas</option><option value="package">Paquetes</option><option value="pair">Pares</option><option value="roll">Rollos</option><option value="kg">Kilogramos (kg)</option><option value="g">Gramos (g)</option><option value="m">Metros (m)</option><option value="l">Litros (L)</option><option value="other">Otra unidad</option></select></div>
+   <div class="field"><label>Modo</label><select id="mMode" class="input"><option value="movement">Movimiento</option><option value="count">Conteo físico</option></select></div>
+   <div class="field"><label>Operación</label><select id="mOperation" class="input"><option value="sumar">Sumar</option><option value="restar">Restar</option><option value="establecer">Establecer exacto</option></select></div>
+   <div class="field" style="display:flex;align-items:end"><button class="btn primary fullMobile" type="submit" style="width:100%">Revisar y guardar</button></div>
+  </form>
+ </section>
 
-        <!-- Módulo de Voz Principal -->
-        <section class="bg-slate-800 border border-slate-700 rounded-2xl p-5 sm:p-8 text-center relative overflow-hidden shadow-xl">
-            <div id="micPulse" class="hidden absolute inset-0 bg-emerald-500/5 pointer-events-none animate-pulse-ring"></div>
-            
-            <div class="relative z-10 flex flex-col items-center">
-                <button id="btnMic" onclick="toggleListening()" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg transition-all flex items-center justify-center mb-4 border-4 border-slate-700">
-                    <i id="micIcon" class="fa-solid fa-microphone"></i>
-                </button>
-                <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Presiona el micrófono para ACTIVAR / DESACTIVAR</p>
-                
-                <div class="w-full max-w-xl my-3">
-                    <div id="micTranscript" class="bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-200 text-sm sm:text-base min-h-[3rem] text-center font-medium italic">
-                        Presiona el micrófono y habla tranquilo. Toca de nuevo al terminar.
-                    </div>
-                </div>
+ <section class="panel">
+  <div class="row between"><div><h2 style="margin:0">Inventario</h2><div id="countLabel" class="sub">0 artículos</div></div><button id="bulkEditBtn" class="btn soft">Edición múltiple</button></div>
+  <div class="grid" style="grid-template-columns:minmax(0,1fr) auto;margin-top:12px">
+   <input id="search" class="input" placeholder="Buscar por marca, prenda o código…">
+   <select id="sort" class="input" aria-label="Ordenar"><option value="sku">Código A-Z</option><option value="brand">Marca A-Z</option><option value="units">Mayor stock</option><option value="recent">Modificados recientemente</option></select>
+  </div>
+  <div class="row" style="margin-top:12px">
+   <button id="exportXlsx" class="btn good">⇩ Excel XLSX</button><button id="exportCsv" class="btn muted">⇩ CSV</button><button id="backupBtn" class="btn muted">⇩ Copia JSON</button>
+   <label class="btn muted" style="cursor:pointer">⇧ Importar<input id="importInput" type="file" accept=".json,.csv,.xlsx,.xls" hidden></label>
+   <button id="undoBtn" class="btn muted" disabled>↶ Deshacer</button>
+   <button id="historyBtn" class="btn muted">Historial</button>
+  </div>
+  <div id="backupReminder" class="notice hidden"></div>
+  <div id="storageWarning" class="notice hidden"></div>
+  <div id="inventoryList" class="list"></div>
+  <div class="sub" style="margin-top:12px">* Los totales globales solo son comparables si todos los artículos usan la misma unidad. Los datos viven en este navegador y dispositivo. Exportá una copia JSON regularmente; no se sincronizan automáticamente entre dispositivos.</div>
+ </section>
 
-                <div id="actionButtons" class="hidden flex gap-2">
-                    <button onclick="processCurrentTranscript()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-                        <i class="fa-solid fa-check"></i> Guardar Registro
-                    </button>
-                    <button onclick="clearTranscript()" class="bg-slate-700 hover:bg-slate-600 text-slate-300 font-semibold px-3 py-2 rounded-lg text-sm">
-                        Borrar
-                    </button>
-                </div>
-                
-                <div class="mt-4 flex flex-wrap justify-center gap-2">
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca URUS, prenda short, código N115, 18 docenas"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"SSJ remeras código N1014 30 docenas"</span>
-                </div>
-            </div>
-        </section>
+ <section id="historyPanel" class="panel hidden">
+  <div class="row between"><div><h2 style="margin:0">Historial de movimientos</h2><div class="sub">Ingresos, descuentos, conteos y ediciones.</div></div><button id="closeHistory" class="btn muted">Cerrar</button></div>
+  <div id="historyList" class="list"></div>
+  <div class="row" style="margin-top:12px"><button id="exportHistory" class="btn muted">Exportar historial CSV</button><button id="clearHistory" class="btn danger">Borrar historial</button></div>
+ </section>
 
-        <!-- Barra de Herramientas -->
-        <section class="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-wrap gap-3 items-center justify-between">
-            <div class="flex flex-wrap gap-2 w-full sm:w-auto">
-                <button onclick="exportToExcel()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2 shadow">
-                    <i class="fa-solid fa-file-excel"></i> Exportar Excel (.xlsx)
-                </button>
-                <label class="flex-1 sm:flex-none bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2 cursor-pointer border border-slate-600">
-                    <i class="fa-solid fa-file-import"></i> Cargar Excel
-                    <input type="file" id="inputExcel" accept=".xlsx, .xls, .csv" onchange="importExcel(event)" class="hidden">
-                </label>
-            </div>
-            
-            <button onclick="clearStock()" class="text-rose-400 hover:text-rose-300 text-xs px-3 py-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 flex items-center gap-1">
-                <i class="fa-solid fa-trash-can"></i> Vaciar Tabla
-            </button>
-        </section>
+ <section id="bulkPanel" class="panel hidden">
+  <div class="row between"><div><h2 style="margin:0">Edición múltiple</h2><div class="sub">Seleccioná artículos y aplicá un cambio a todos.</div></div><button id="closeBulk" class="btn muted">Cerrar</button></div>
+  <div id="bulkList" class="list"></div>
+  <div class="grid fieldgrid" style="margin-top:12px">
+   <div class="field"><label>Campo a cambiar</label><select id="bulkField" class="input"><option value="brand">Marca</option><option value="type">Prenda / tipo</option><option value="stockType">Tipo de stock</option><option value="unitName">Unidad de stock</option></select></div>
+   <div class="field"><label>Nuevo valor</label><input id="bulkValue" class="input"></div>
+   <div class="field" style="display:flex;align-items:end"><button id="applyBulk" class="btn primary" style="width:100%">Aplicar a seleccionados</button></div>
+  </div>
+ </section>
+ <div class="footer">StockVoz v5.1 · Aplicación local · Sin cuenta ni base de datos obligatoria</div>
+</main>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-        <!-- Formulario Manual Completo -->
-        <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
-            <p class="text-xs font-semibold text-slate-400 uppercase mb-3">Carga Manual Rápida</p>
-            <form onsubmit="handleManualAdd(event)" class="grid grid-cols-2 sm:grid-cols-6 gap-3">
-                <input type="text" id="manualBrand" placeholder="Marca (ej. URUS)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <input type="text" id="manualType" placeholder="Prenda (ej. Short)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <input type="text" id="manualCode" placeholder="Código (ej. N115)" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <input type="number" step="0.5" id="manualQty" placeholder="Cantidad" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <select id="manualUnitType" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                    <option value="docenas">Docenas (x12)</option>
-                    <option value="unidades">Unidades Sueltas</option>
-                </select>
-                <button type="submit" class="col-span-2 sm:col-span-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-sm py-2 px-3 transition">
-                    + Guardar
-                </button>
-            </form>
-        </section>
+<dialog id="barcodeDialog">
+ <div class="row between"><div><h2 style="margin:0">Escanear código</h2><div class="sub">Apuntá la cámara a un código de barras compatible.</div></div><button id="closeBarcode" class="btn muted">Cerrar</button></div>
+ <video id="barcodeVideo" playsinline muted style="width:100%;max-height:45vh;background:#000;border-radius:12px;margin-top:12px"></video>
+ <div id="barcodeStatus" class="sub" style="margin-top:8px">Preparando cámara…</div>
+ <div class="row" style="margin-top:12px"><button id="stopBarcode" class="btn danger">Detener cámara</button></div>
+</dialog>
 
-        <!-- Tabla de Inventario -->
-        <section class="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden shadow-lg">
-            <div class="p-4 border-b border-slate-700 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                <h2 class="font-bold text-white text-base flex items-center gap-2">
-                    <i class="fa-solid fa-boxes-stacked text-emerald-400"></i> Registro de Stock
-                </h2>
-                <input type="text" id="searchInput" oninput="renderTable()" placeholder="Buscar por código, marca o tipo..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 w-full sm:w-64">
-            </div>
+<dialog id="importDialog">
+ <div class="row between"><div><h2 style="margin:0">Revisar importación</h2><div id="importSummary" class="sub"></div></div><button id="cancelImport" class="btn muted">Cancelar</button></div>
+ <div class="notice">La importación aún no se aplicó. Revisá la vista previa. Podés reemplazar todo el inventario o combinar por código SKU.</div>
+ <div id="importPreview" class="dialogbody"></div>
+ <div class="row mobileStack" style="margin-top:14px"><button id="importReplace" class="btn danger">Reemplazar inventario</button><button id="importMerge" class="btn good">Combinar por SKU</button></div>
+</dialog>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="bg-slate-900/80 text-slate-400 text-xs uppercase border-b border-slate-700">
-                            <th class="p-3">Marca</th>
-                            <th class="p-3">Tipo Ropa</th>
-                            <th class="p-3">Código (SKU)</th>
-                            <th class="p-3">Docenas</th>
-                            <th class="p-3">Total Unidades</th>
-                            <th class="p-3 text-right">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stockTableBody" class="divide-y divide-slate-700 text-sm">
-                    </tbody>
-                </table>
-            </div>
-        </section>
+<dialog id="editDialog">
+ <div class="row between"><h2 style="margin:0">Editar artículo</h2><button id="cancelEdit" class="btn muted">Cerrar</button></div>
+ <div class="fieldgrid grid" style="margin-top:14px">
+  <div class="field"><label>Marca</label><input id="eBrand" class="input"></div><div class="field"><label>Prenda</label><input id="eType" class="input"></div>
+  <div class="field"><label>Tipo de stock</label><select id="eStockType" class="input"><option value="inventario">Inventario general</option><option value="entrada">Entrada de mercadería</option><option value="salida">Salida de mercadería</option><option value="local">Stock de local</option><option value="deposito">Stock de depósito</option><option value="produccion">Producción</option><option value="transferencia">Transferencia entre ubicaciones</option><option value="ajuste">Ajuste de stock</option><option value="otro">Otro</option></select></div><div class="field"><label>Unidad de stock</label><select id="eUnitName" class="input"><option value="unidades">Unidades</option><option value="cajas">Cajas</option><option value="paquetes">Paquetes</option><option value="pares">Pares</option><option value="rollos">Rollos</option><option value="kg">Kilogramos (kg)</option><option value="g">Gramos (g)</option><option value="m">Metros (m)</option><option value="l">Litros (L)</option><option value="otra">Otra unidad</option></select></div><div class="field"><label>SKU</label><input id="eSku" class="input"></div><div class="field"><label>Stock en unidades</label><input id="eUnits" class="input" type="number" min="0" step="any"></div>
+ </div>
+ <div class="row" style="margin-top:14px"><button id="saveEdit" class="btn good">Guardar cambios</button><button id="scanForEdit" class="btn soft">📷 Escanear SKU</button></div>
+</dialog>
 
-    </main>
-
-    <footer class="bg-slate-900 border-t border-slate-800 text-center py-4 text-xs text-slate-500">
-        StockVoz v3.1 &copy; 2026 - Control de Stock Inteligente
-    </footer>
-
-    <!-- Toast Notification -->
-    <div id="toast" class="fixed bottom-5 right-5 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-transform translate-y-24 opacity-0 z-50">
-        <i id="toastIcon" class="fa-solid fa-circle-check"></i>
-        <span id="toastMsg" class="text-sm font-medium"></span>
-    </div>
-
-    <script>
-        let stockData = JSON.parse(localStorage.getItem('stockData_v26')) || [];
-        let isListening = false;
-        let ttsEnabled = true;
-        let recognition = null;
-        let audioStream = null;
-        let fullTranscript = "";
-
-        const textToNumber = {
-            "uno":1, "una":1, "un":1, "dos":2, "tres":3, "cuatro":4, "cinco":5,
-            "seis":6, "siete":7, "ocho":8, "nueve":9, "diez":10, "once":11,
-            "doce":12, "trece":13, "catorce":14, "quince":15, "dieciseis":16,
-            "diecisiete":17, "dieciocho":18, "diecinueve":19, "veinte":20,
-            "veinticuatro":24, "treinta":30, "cuarenta":40, "cincuenta":50,
-            "media": 0.5, "medio": 0.5
-        };
-
-        const garmentList = ["remera", "remeras", "pantalon", "pantalones", "calza", "calzas", "campera", "camperas", "buzo", "buzos", "body", "bodys", "conjunto", "conjuntos", "vestido", "vestidos", "short", "shorts", "chomba", "chombas"];
-
-        window.onload = function() {
-            initSpeechRecognition();
-            renderTable();
-        };
-
-        function initSpeechRecognition() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                showToast("Navegador no compatible. Usa Google Chrome o Edge.", "error");
-                return;
-            }
-
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.lang = 'es-AR';
-            recognition.interimResults = true;
-
-            recognition.onstart = () => {
-                document.getElementById('micStatus').innerText = "🔴 Escuchando activamente... Toca de nuevo para detener y guardar.";
-                document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-rose-600 text-white text-3xl sm:text-4xl shadow-lg border-4 border-rose-400 animate-pulse flex items-center justify-center mb-4";
-                document.getElementById('micPulse').classList.remove('hidden');
-                document.getElementById('actionButtons').classList.remove('hidden');
-            };
-
-            recognition.onend = () => {
-                // AUTO-RECONEXIÓN ROBUSTA: Si el usuario quería seguir escuchando, forzar reinicio
-                if (isListening) {
-                    try { recognition.start(); } catch(e) {}
-                } else {
-                    document.getElementById('micStatus').innerText = "Presiona el micrófono para ACTIVAR / DESACTIVAR";
-                    document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg border-4 border-slate-700 flex items-center justify-center mb-4";
-                    document.getElementById('micPulse').classList.add('hidden');
-                }
-            };
-
-            recognition.onresult = (event) => {
-                let interim = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        fullTranscript += " " + event.results[i][0].transcript;
-                    } else {
-                        interim += event.results[i][0].transcript;
-                    }
-                }
-                let displayText = (fullTranscript + " " + interim).trim();
-                document.getElementById('micTranscript').innerText = `"${displayText}"`;
-            };
-
-            recognition.onerror = (event) => {
-                if (event.error === 'not-allowed') {
-                    showToast("Otorga permisos de micrófono en la barra del navegador.", "error");
-                    isListening = false;
-                } else if (isListening) {
-                    // Si ocurre cualquier error menor de red/pausa, re-intentar suavemente
-                    setTimeout(() => {
-                        if (isListening) try { recognition.start(); } catch(e) {}
-                    }, 300);
-                }
-            };
-        }
-
-        async function toggleListening() {
-            if (isListening) {
-                isListening = false;
-                if (recognition) recognition.stop();
-                if (audioStream) {
-                    audioStream.getTracks().forEach(track => track.stop());
-                    audioStream = null;
-                }
-                processCurrentTranscript();
-            } else {
-                fullTranscript = "";
-                document.getElementById('micTranscript').innerText = "Escuchando...";
-                isListening = true;
-                
-                try {
-                    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    }
-                    if (recognition) recognition.start();
-                } catch (err) {
-                    isListening = false;
-                    showToast("Otorga permiso al micrófono en tu navegador.", "error");
-                }
-            }
-        }
-
-        function clearTranscript() {
-            fullTranscript = "";
-            document.getElementById('micTranscript').innerText = "Presiona el micrófono y habla tranquilo.";
-        }
-
-        function processCurrentTranscript() {
-            let text = document.getElementById('micTranscript').innerText.replace(/^"|"$/g, '').trim();
-            if (text && text !== "Presiona el micrófono y habla tranquilo." && text !== "Escuchando...") {
-                processVoiceCommand(text);
-            }
-        }
-
-        function processVoiceCommand(text) {
-            let raw = text.toLowerCase().trim();
-            let isSubtract = raw.includes("restar") || raw.includes("resta") || raw.includes("sacar") || raw.includes("quitar");
-            let isUnitOnly = raw.includes("unidad") || raw.includes("unidades") || raw.includes("pieza") || raw.includes("piezas");
-
-            raw = raw.replace(/\bese\s+ese\s+jota\b/gi, "ssj");
-
-            Object.keys(textToNumber).forEach(word => {
-                let reg = new RegExp(`\\b${word}\\b`, 'g');
-                raw = raw.replace(reg, textToNumber[word]);
-            });
-
-            // 1. MARCA
-            let brand = "-";
-            let brandMatch = raw.match(/(?:marca)\s+([a-z0-9]+)/i);
-            if (brandMatch) {
-                brand = brandMatch[1].toUpperCase();
-            } else {
-                let firstWord = raw.split(/\s+/)[0];
-                if (firstWord && !firstWord.includes("código") && !firstWord.includes("prenda") && !firstWord.includes("tipo")) {
-                    brand = firstWord.toUpperCase();
-                }
-            }
-
-            // 2. PRENDA
-            let type = "-";
-            let typeMatch = raw.match(/(?:prenda|tipo)\s+([a-z0-9]+)/i);
-            if (typeMatch) {
-                type = typeMatch[1].toUpperCase();
-            } else {
-                garmentList.forEach(g => {
-                    if (raw.includes(g)) type = g.toUpperCase();
-                });
-            }
-
-            // 3. CÓDIGO
-            let code = null;
-            let codeMatch = raw.match(/(?:código|codigo|sku|item)\s*([a-z]?\s*\d+)/i);
-            if (codeMatch) {
-                code = codeMatch[1].replace(/\s+/g, '').toUpperCase();
-            } else {
-                let alphaNum = raw.match(/\b[a-z]\d+\b/i);
-                if (alphaNum) {
-                    code = alphaNum[0].toUpperCase();
-                } else {
-                    let numbers = raw.match(/\b\d+\b/g);
-                    if (numbers && numbers.length > 0) {
-                        code = numbers[0];
-                    }
-                }
-            }
-
-            // 4. CANTIDAD
-            let qty = null;
-            let numbers = raw.match(/\b\d+(\.\d+)?\b/g) || [];
-            if (numbers.length > 0) {
-                for (let num of numbers) {
-                    if (code && !code.includes(num)) {
-                        qty = parseFloat(num);
-                        break;
-                    }
-                }
-                if (qty === null && numbers.length > 1) {
-                    qty = parseFloat(numbers[numbers.length - 1]);
-                }
-            }
-
-            if (code && qty !== null) {
-                let finalQty = isSubtract ? -Math.abs(qty) : Math.abs(qty);
-                let isDozens = !isUnitOnly;
-
-                addOrUpdateStock(code, brand, type, finalQty, isDozens);
-
-                let msg = `Guardado: ${brand} ${type} Código ${code} (${qty} ${isDozens ? 'docenas' : 'unidades'})`;
-                showToast(msg, "success");
-                speakText(msg);
-                clearTranscript();
-            } else {
-                showToast("Intenta dictar: 'Marca URUS, prenda short, código N115, 18 docenas'", "error");
-            }
-        }
-
-        function addOrUpdateStock(code, brand, type, qty, isDozens) {
-            let index = stockData.findIndex(item => item.code === code);
-
-            if (index !== -1) {
-                if (brand !== "-") stockData[index].brand = brand;
-                if (type !== "-") stockData[index].type = type;
-
-                if (isDozens) {
-                    stockData[index].dozens += qty;
-                    stockData[index].totalUnits = stockData[index].dozens * 12;
-                } else {
-                    stockData[index].totalUnits += qty;
-                    stockData[index].dozens = (stockData[index].totalUnits / 12).toFixed(1);
-                }
-
-                if (stockData[index].totalUnits <= 0) {
-                    stockData.splice(index, 1);
-                }
-            } else {
-                if (qty > 0) {
-                    let totalUnits = isDozens ? qty * 12 : qty;
-                    let dozens = isDozens ? qty : (qty / 12).toFixed(1);
-                    stockData.push({
-                        code: code,
-                        brand: brand,
-                        type: type,
-                        dozens: parseFloat(dozens),
-                        totalUnits: totalUnits,
-                        isDozens: isDozens
-                    });
-                }
-            }
-            saveAndRender();
-        }
-
-        function handleManualAdd(e) {
-            e.preventDefault();
-            let brand = document.getElementById('manualBrand').value.trim().toUpperCase() || "-";
-            let type = document.getElementById('manualType').value.trim().toUpperCase() || "-";
-            let code = document.getElementById('manualCode').value.trim().toUpperCase();
-            let qty = parseFloat(document.getElementById('manualQty').value);
-            let unitType = document.getElementById('manualUnitType').value;
-
-            if (code && !isNaN(qty)) {
-                addOrUpdateStock(code, brand, type, qty, unitType === 'docenas');
-                document.getElementById('manualCode').value = '';
-                document.getElementById('manualQty').value = '';
-                showToast(`Código ${code} guardado con éxito`, "success");
-            }
-        }
-
-        function adjustQty(code, amount) {
-            let item = stockData.find(i => i.code === code);
-            if (item) {
-                addOrUpdateStock(code, item.brand, item.type, amount, item.isDozens);
-            }
-        }
-
-        function deleteItem(code) {
-            stockData = stockData.filter(item => item.code !== code);
-            saveAndRender();
-            showToast(`Código ${code} eliminado`, "success");
-        }
-
-        function clearStock() {
-            if (confirm("¿Estás seguro de que quieres vaciar toda la tabla de stock?")) {
-                stockData = [];
-                saveAndRender();
-                showToast("Tabla de stock vaciada", "success");
-            }
-        }
-
-        function saveAndRender() {
-            localStorage.setItem('stockData_v26', JSON.stringify(stockData));
-            renderTable();
-        }
-
-        function renderTable() {
-            const tbody = document.getElementById('stockTableBody');
-            const filter = document.getElementById('searchInput').value.toLowerCase();
-            tbody.innerHTML = '';
-
-            let totalSKUs = stockData.length;
-            let totalDozens = 0;
-            let totalUnits = 0;
-
-            let filtered = stockData.filter(item => 
-                item.code.toLowerCase().includes(filter) ||
-                item.brand.toLowerCase().includes(filter) ||
-                item.type.toLowerCase().includes(filter)
-            );
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="6" class="text-center py-8 text-slate-500 italic text-xs">
-                            No hay registros cargados. ¡Usa el micrófono o el formulario manual!
-                        </td>
-                    </tr>
-                `;
-            } else {
-                filtered.forEach(item => {
-                    totalDozens += parseFloat(item.dozens) || 0;
-                    totalUnits += parseFloat(item.totalUnits) || 0;
-
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-slate-700/50 transition">
-                            <td class="p-3 text-slate-300 font-medium">${item.brand}</td>
-                            <td class="p-3 text-slate-300 font-medium">${item.type}</td>
-                            <td class="p-3 font-bold text-white">${item.code}</td>
-                            <td class="p-3 text-emerald-400 font-semibold">${item.isDozens ? item.dozens + ' doc.' : '-'}</td>
-                            <td class="p-3 text-cyan-400 font-semibold">${item.totalUnits} un.</td>
-                            <td class="p-3 text-right space-x-1">
-                                <button onclick="adjustQty('${item.code}', 1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">+1</button>
-                                <button onclick="adjustQty('${item.code}', -1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">-1</button>
-                                <button onclick="deleteItem('${item.code}')" class="bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 text-xs px-2 py-1 rounded"><i class="fa-solid fa-trash-can"></i></button>
-                            </td>
-                        </tr>
-                    `;
-                });
-            }
-
-            document.getElementById('statSKUs').innerText = totalSKUs;
-            document.getElementById('statDocenas').innerText = totalDozens.toFixed(1);
-            document.getElementById('statUnidades').innerText = totalUnits;
-        }
-
-        function exportToExcel() {
-            if (stockData.length === 0) {
-                showToast("La tabla está vacía.", "error");
-                return;
-            }
-
-            let excelRows = stockData.map(item => ({
-                "MARCA": item.brand,
-                "TIPO DE ROPA": item.type,
-                "CÓDIGO (SKU)": item.code,
-                "DOCENAS": item.isDozens ? item.dozens : "N/A (Unidades)",
-                "TOTAL UNIDADES": item.totalUnits
-            }));
-
-            let worksheet = XLSX.utils.json_to_sheet(excelRows);
-            let workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Stock");
-
-            let date = new Date().toISOString().split('T')[0];
-            XLSX.writeFile(workbook, `Stock_Inventario_${date}.xlsx`);
-            showToast("¡Archivo Excel descargado!", "success");
-        }
-
-        function importExcel(e) {
-            let file = e.target.files[0];
-            if (!file) return;
-
-            let reader = new FileReader();
-            reader.onload = function(evt) {
-                try {
-                    let data = new Uint8Array(evt.target.result);
-                    let workbook = XLSX.read(data, { type: 'array' });
-                    let sheetName = workbook.SheetNames[0];
-                    let rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-                    rows.forEach(row => {
-                        let brand = row["MARCA"] || row["Marca"] || "-";
-                        let type = row["TIPO DE ROPA"] || row["Tipo"] || "-";
-                        let code = row["CÓDIGO (SKU)"] || row["Codigo"] || row["SKU"];
-                        let dozens = row["DOCENAS"] || row["Docenas"];
-                        let units = row["TOTAL UNIDADES"] || row["Unidades"];
-
-                        if (code) {
-                            if (dozens && dozens !== "N/A (Unidades)") {
-                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(dozens), true);
-                            } else if (units) {
-                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(units), false);
-                            }
-                        }
-                    });
-
-                    showToast("Excel cargado con éxito", "success");
-                } catch (err) {
-                    showToast("Error al leer el archivo Excel.", "error");
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        }
-
-        function toggleTTS() {
-            ttsEnabled = !ttsEnabled;
-            document.getElementById('iconTTS').className = ttsEnabled ? "fa-solid fa-volume-high text-emerald-400" : "fa-solid fa-volume-xmark text-slate-500";
-            showToast(ttsEnabled ? "Voz activada" : "Voz desactivada", "info");
-        }
-
-        function speakText(text) {
-            if (!ttsEnabled || !('speechSynthesis' in window)) return;
-            window.speechSynthesis.cancel();
-            let utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'es-AR';
-            window.speechSynthesis.speak(utterance);
-        }
-
-        function showToast(msg, type = 'success') {
-            const toast = document.getElementById('toast');
-            const toastMsg = document.getElementById('toastMsg');
-            toastMsg.innerText = msg;
-            toast.className = `fixed bottom-5 right-5 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-transform duration-300 z-50 ${
-                type === 'error' ? 'bg-rose-600' : type === 'info' ? 'bg-indigo-600' : 'bg-emerald-600'
-            }`;
-            toast.classList.remove('translate-y-24', 'opacity-0');
-            setTimeout(() => {
-                toast.classList.add('translate-y-24', 'opacity-0');
-            }, 3000);
-        }
-    </script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+(()=>{'use strict';
+const KEY='stockvoz_v5_state', OLD_KEYS=['stockData_v26','stockvoz_data_v4'];
+const $=id=>document.getElementById(id);
+let state={items:[],history:[],lastBackupAt:null,version:5},undoStack=[],pending=null,recognition=null,listening=false,deferredInstall=null,barcodeStream=null,barcodeTimer=null,editingId=null,importRows=null;
+const now=()=>new Date().toISOString();
+const id=()=>crypto.randomUUID?crypto.randomUUID():`id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const txt=v=>String(v??'').trim(), upper=v=>txt(v).toLocaleUpperCase('es-AR'), num=v=>Number.isFinite(Number(v))?Number(v):0;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const units=i=>Math.round((num(i.units)+Number.EPSILON)*100)/100;
+const dozens=i=>Math.round((units(i)/12+Number.EPSILON)*100)/100;
+const STOCK_TYPES={inventario:'Inventario general',entrada:'Entrada de mercadería',salida:'Salida de mercadería',local:'Stock de local',deposito:'Stock de depósito',produccion:'Producción',transferencia:'Transferencia',ajuste:'Ajuste de stock',otro:'Otro'};
+const UNIT_LABELS={unidades:'unidades',cajas:'cajas',paquetes:'paquetes',pares:'pares',rollos:'rollos',kg:'kg',g:'g',m:'m',l:'L',otra:'otra unidad'};
+const stockTypeLabel=v=>STOCK_TYPES[v]||STOCK_TYPES.inventario; const unitLabel=v=>UNIT_LABELS[v]||v||'unidades';
+const inputUnitLabel=v=>({unit:'unidades',dozen:'docenas',box:'cajas',package:'paquetes',pair:'pares',roll:'rollos',kg:'kg',g:'g',m:'m',l:'L',other:'otra unidad'}[v]||'unidades');
+const unitToStock=v=>({unit:'unidades',dozen:'unidades',box:'cajas',package:'paquetes',pair:'pares',roll:'rollos',kg:'kg',g:'g',m:'m',l:'l',other:'otra'}[v]||'unidades');
+function toast(message,type='ok'){const e=$('toast');e.textContent=message;e.className='toast'+(type==='err'?' err':type==='warn'?' warn':'');e.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add('hidden'),3600)}
+function pushUndo(){undoStack.push(JSON.stringify(state));if(undoStack.length>30)undoStack.shift();$('undoBtn').disabled=false}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));$('saveStatus').textContent='Guardado local · '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});$('storageWarning').classList.add('hidden');return true}catch(e){$('saveStatus').textContent='Error de guardado';$('storageWarning').textContent='No se pudo guardar: el almacenamiento del navegador puede estar lleno o bloqueado. Descargá una copia JSON ahora.';$('storageWarning').classList.remove('hidden');toast('Error al guardar. Exportá una copia de seguridad.','err');return false}}
+function load(){try{const raw=localStorage.getItem(KEY);if(raw){const x=JSON.parse(raw);state={...state,...x};state.items=Array.isArray(x.items)?x.items:[];state.history=Array.isArray(x.history)?x.history:[]}else{for(const k of OLD_KEYS){const old=localStorage.getItem(k);if(!old)continue;const data=JSON.parse(old);const arr=Array.isArray(data)?data:(data.items||[]);state.items=arr.map(i=>({id:i.id||id(),sku:upper(i.sku||i.code),brand:upper(i.brand||'-'),type:upper(i.type||'-'),stockType:i.stockType||'inventario',unitName:i.unitName||'unidades',units:num(i.units??i.totalUnits??num(i.dozens)*12),updatedAt:i.updatedAt||now()})).filter(i=>i.sku);persist();toast('Se recuperaron datos de una versión anterior. Descargá una copia JSON.','warn');break}}state.items=state.items.filter(i=>i&&txt(i.sku)).map(i=>({...i,id:i.id||id(),sku:upper(i.sku),brand:upper(i.brand||'-'),type:upper(i.type||'-'),stockType:i.stockType||'inventario',unitName:i.unitName||'unidades',units:Math.max(0,num(i.units??i.totalUnits)),updatedAt:i.updatedAt||now()}));if(!Array.isArray(state.history))state.history=[]}catch(e){state={items:[],history:[],lastBackupAt:null,version:5};toast('No se pudieron leer los datos locales. Intentá importar una copia JSON.','err')}}
+function log(action,item,details={}){state.history.unshift({id:id(),at:now(),action,sku:item?.sku||details.sku||'',brand:item?.brand||'',type:item?.type||'',stockType:item?.stockType||details.stockType||'inventario',before:details.before??null,after:details.after??null,quantity:details.quantity??null,note:details.note||''});if(state.history.length>2000)state.history.length=2000}
+function filtered(){const q=txt($('search').value).toLocaleLowerCase('es-AR');let a=state.items.filter(i=>[i.sku,i.brand,i.type,i.stockType,i.unitName].some(v=>String(v).toLocaleLowerCase('es-AR').includes(q)));switch($('sort').value){case'brand':a.sort((x,y)=>x.brand.localeCompare(y.brand,'es'));break;case'units':a.sort((x,y)=>y.units-x.units);break;case'recent':a.sort((x,y)=>y.updatedAt.localeCompare(x.updatedAt));break;default:a.sort((x,y)=>x.sku.localeCompare(y.sku,'es',{numeric:true}))}return a}
+function render(){const rows=filtered(),total=state.items.reduce((s,i)=>s+units(i),0);$('statItems').textContent=state.items.length.toLocaleString('es-AR');$('statUnits').textContent=total.toLocaleString('es-AR');$('statDozens').textContent=state.items.filter(i=>i.unitName==='unidades').reduce((sum,i)=>sum+units(i),0)/12; $('statDozens').textContent=Number($('statDozens').textContent).toLocaleString('es-AR',{maximumFractionDigits:2});$('statMoves').textContent=state.history.length.toLocaleString('es-AR');$('countLabel').textContent=`${rows.length} de ${state.items.length} artículos`;$('inventoryList').innerHTML=rows.length?rows.map(i=>`<article class="item"><div class="itemhead"><div style="min-width:0"><div class="sub">${esc(i.brand)} · ${esc(i.type)}</div><div class="sub">Tipo: ${esc(stockTypeLabel(i.stockType))} · Unidad: ${esc(unitLabel(i.unitName))}</div><div class="sku">${esc(i.sku)}</div></div><div style="text-align:right;flex-shrink:0"><strong style="color:#70e2ad">${units(i).toLocaleString('es-AR')} ${esc(unitLabel(i.unitName))}</strong><div class="sub">${i.unitName==='unidades'?dozens(i).toLocaleString('es-AR',{maximumFractionDigits:2})+' doc.':'cantidad en '+esc(unitLabel(i.unitName))}</div></div></div><div class="itemactions"><button class="btn muted" data-act="minus" data-id="${esc(i.id)}">−1</button><button class="btn muted" data-act="plus" data-id="${esc(i.id)}">+1</button><button class="btn primary" data-act="edit" data-id="${esc(i.id)}">Editar</button><button class="btn soft" data-act="scan" data-id="${esc(i.id)}">📷 SKU</button><button class="btn danger" data-act="delete" data-id="${esc(i.id)}">Borrar</button></div></article>`).join(''):'<div class="empty">No hay artículos. Dictá uno o agregalo manualmente.</div>';renderHistory();renderBulk();renderBackupReminder()}
+function saveAndRender(){persist();render()}
+function getExisting(sku){return state.items.find(i=>i.sku===upper(sku))}
+function applyRecord(v){const sku=upper(v.sku),qty=Number(v.qty),inputUnit=v.unit||'unit',unitName=unitToStock(inputUnit),stockType=v.stockType||'inventario';if(!sku||!Number.isFinite(qty)||qty<=0){toast('Completá un SKU y una cantidad mayor que cero.','err');return false}const amount=qty*(inputUnit==='dozen'?12:1),existing=getExisting(sku),mode=v.mode||'movement',op=mode==='count'?'establecer':(v.operation||'sumar');if(existing&&existing.unitName!==unitName){toast(`Este SKU usa ${unitLabel(existing.unitName)}. Para evitar mezclar unidades, ingresá la cantidad en esa unidad.`, 'err');return false}if(op==='restar'&&!existing){toast(`No existe ${sku}; no se descontó nada.`,'err');return false}if(op==='restar'&&existing.units<amount){toast(`Stock insuficiente: hay ${existing.units} ${unitLabel(existing.unitName)}.`, 'err');return false}pushUndo();let item=existing,before=existing?existing.units:0;if(op==='establecer'){if(item){item.units=amount;item.brand=upper(v.brand)||item.brand;item.type=upper(v.type)||item.type;item.stockType=stockType;item.updatedAt=now()}else{item={id:id(),sku,brand:upper(v.brand)||'-',type:upper(v.type)||'-',stockType,unitName,units:amount,updatedAt:now()};state.items.push(item)}}else if(op==='restar'){item.units-=amount;item.stockType=stockType;item.updatedAt=now();if(item.units===0)state.items=state.items.filter(i=>i.id!==item.id)}else if(item){item.units+=amount;if(txt(v.brand))item.brand=upper(v.brand);if(txt(v.type))item.type=upper(v.type);item.stockType=stockType;item.updatedAt=now()}else{item={id:id(),sku,brand:upper(v.brand)||'-',type:upper(v.type)||'-',stockType,unitName,units:amount,updatedAt:now()};state.items.push(item)}log(op==='establecer'?'Conteo físico':op==='restar'?'Descuento':'Ingreso',item||{sku,brand:v.brand,type:v.type,stockType},{before,after:op==='restar'?before-amount:op==='sumar'?before+amount:amount,quantity:amount,note:`${mode==='count'?'Conteo real':'Voz/manual'} · tipo de stock: ${stockTypeLabel(stockType)} · unidad: ${unitLabel(unitName)}`});saveAndRender();toast(`Guardado: ${sku}`);return true}
+function parseSpeech(s){let t=txt(s).toLocaleLowerCase('es-AR');const words={uno:1,una:1,un:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,trece:13,catorce:14,quince:15,dieciseis:16,'dieciséis':16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100};for(const [w,n] of Object.entries(words))t=t.replace(new RegExp('\\b'+w+'\\b','gi'),String(n));const cm=t.match(/(?:c[oó]digo|sku|c[oó]digo de barras|art[ií]culo)\s*(?:es\s*)?([a-z0-9][a-z0-9-]*)/i)||t.match(/\b[a-z]{1,8}[-]?\d+[a-z0-9-]*\b/i);const sku=cm?(cm[1]||cm[0]).replace(/\s/g,'').toUpperCase():'';const bm=t.match(/marca\s+([a-záéíóúüñ0-9-]+)/i);const tm=t.match(/(?:prenda|tipo)\s+([a-záéíóúüñ0-9-]+)/i);const garment=['remera','remeras','pantalon','pantalón','pantalones','calza','calzas','campera','camperas','buzo','buzos','short','shorts','body','conjunto','vestido','pollera','chomba','camiseta','medias'];const type=tm?tm[1]:(garment.find(g=>new RegExp('\\b'+g+'\\b','i').test(t))||'');let qmatch=t.match(/(?:sumar|agregar|ingresar|tengo|cantidad|stock|restar|quitar|sacar|descontar|establecer|contar)\s+(\d+(?:[.,]\d+)?)/i)||t.match(/(\d+(?:[.,]\d+)?)\s*(?:docena|docenas|unidad|unidades|pieza|piezas|caja|cajas|paquete|paquetes|par|pares|rollo|rollos|kilogramo|kilogramos|kg|gramo|gramos|metro|metros|litro|litros)/i);let qty=qmatch?Number(qmatch[1].replace(',','.')):null;if(qty===null){const all=[...t.matchAll(/\b\d+(?:[.,]\d+)?\b/g)].map(m=>Number(m[0].replace(',','.')));const codeNums=sku.match(/\d+/g)||[];qty=all.reverse().find(n=>!codeNums.includes(String(n)))??null}const unitMatch=t.match(/\b(docena|docenas|unidad|unidades|pieza|piezas|caja|cajas|paquete|paquetes|par|pares|rollo|rollos|kilogramo|kilogramos|kg|gramo|gramos|metro|metros|litro|litros)\b/i);const unitWord=(unitMatch?.[1]||'').toLowerCase();const unit=/docena/.test(unitWord)?'dozen':/^(caja|cajas)$/.test(unitWord)?'box':/paquete/.test(unitWord)?'package':/par/.test(unitWord)?'pair':/rollo/.test(unitWord)?'roll':/^(kg|kilogramo|kilogramos)$/.test(unitWord)?'kg':/gramo/.test(unitWord)?'g':/metro/.test(unitWord)?'m':/litro/.test(unitWord)?'l':'unit';const stockType=/\b(salida|egreso|despacho)\b/i.test(t)?'salida':/\b(stock de entrada|entrada de mercader[ií]a|ingreso de mercader[ií]a|recepci[oó]n de mercader[ií]a)\b/i.test(t)?'entrada':/\b(stock de local|local)\b/i.test(t)?'local':/\b(dep[oó]sito|deposito)\b/i.test(t)?'deposito':/\b(producci[oó]n)\b/i.test(t)?'produccion':/\b(transferencia)\b/i.test(t)?'transferencia':/\b(ajuste)\b/i.test(t)?'ajuste':'inventario';const mode=/\b(contar|conteo|conteo f[ií]sico|stock real|dejar en)\b/i.test(t)?'count':'movement';const operation=/\b(restar|quitar|sacar|descontar|salida|egreso|despacho)\b/i.test(t)?'restar':'sumar';return{brand:bm?.[1]||'',type:type||'',sku,qty,unit,stockType,mode,operation}}
+function showReview(v){pending=v;$('rBrand').value=v.brand||'';$('rType').value=v.type||'';$('rSku').value=v.sku||'';$('rQty').value=v.qty??'';$('rUnit').value=v.unit||'unit';$('rStockType').value=v.stockType||'inventario';$('rMode').value=v.mode||'movement';$('rOperation').value=v.operation||'sumar';reviewNotice();$('reviewPanel').classList.remove('hidden');$('reviewPanel').scrollIntoView({behavior:'smooth',block:'start'})}
+function reviewNotice(){const sku=upper($('rSku').value),old=getExisting(sku),mode=$('rMode').value;let msg=[];if(!sku)msg.push('No se detectó el SKU; completalo manualmente.');if(!(Number($('rQty').value)>0))msg.push('No se detectó una cantidad válida.');if(old)msg.push(`El SKU ya existe: stock actual ${old.units} ${unitLabel(old.unitName)}. Tipo: ${stockTypeLabel(old.stockType)}.`);if(mode==='count')msg.push('Conteo físico: al confirmar, el stock se reemplazará por la cantidad indicada.');else if($('rOperation').value==='restar')msg.push('Descuento: se restará la cantidad indicada.');else msg.push('Ingreso: se sumará la cantidad indicada.');$('reviewNotice').textContent=msg.join(' ')}
+['rSku','rQty','rMode','rOperation','rStockType','rUnit'].forEach(k=>$(k).addEventListener('input',reviewNotice));$('rStockType').addEventListener('change',()=>{if($('rStockType').value==='salida'){$('rMode').value='movement';$('rOperation').value='restar'}else if($('rStockType').value==='entrada'){$('rMode').value='movement';$('rOperation').value='sumar'}reviewNotice()});$('mStockType').addEventListener('change',()=>{if($('mStockType').value==='salida'){$('mMode').value='movement';$('mOperation').value='restar'}else if($('mStockType').value==='entrada'){$('mMode').value='movement';$('mOperation').value='sumar'}});
+$('interpretBtn').onclick=()=>{if(!txt($('transcript').value))return toast('Primero dictá o escribí un producto.','err');showReview(parseSpeech($('transcript').value))};
+$('clearTextBtn').onclick=()=>{$('transcript').value='';$('reviewPanel').classList.add('hidden')};
+$('cancelReview').onclick=()=>{$('reviewPanel').classList.add('hidden');pending=null};
+$('confirmReview').onclick=()=>{const v={brand:$('rBrand').value,type:$('rType').value,sku:$('rSku').value,qty:$('rQty').value,unit:$('rUnit').value,stockType:$('rStockType').value,mode:$('rMode').value,operation:$('rOperation').value};if(applyRecord(v)){$('reviewPanel').classList.add('hidden');$('transcript').value='';pending=null}};
+$('speakReview').onclick=()=>{if(!('speechSynthesis'in window))return toast('Lectura en voz alta no disponible.','warn');const v={brand:$('rBrand').value,type:$('rType').value,sku:$('rSku').value,qty:$('rQty').value,unit:$('rUnit').value,stockType:$('rStockType').value,mode:$('rMode').value,operation:$('rOperation').value};speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(`Marca ${v.brand||'sin marca'}, tipo ${v.type||'sin especificar'}, código ${v.sku}, cantidad ${v.qty} ${inputUnitLabel(v.unit)}, categoría de stock ${stockTypeLabel(v.stockType)}, ${v.mode==='count'?'conteo físico':'operación '+v.operation}`);u.lang='es-AR';speechSynthesis.speak(u)};
+$('toggleManual').onclick=()=>{const open=$('manualForm').classList.toggle('hidden')===false;$('toggleManual').textContent=open?'Ocultar':'Mostrar'};
+$('manualForm').onsubmit=e=>{e.preventDefault();showReview({brand:$('mBrand').value,type:$('mType').value,sku:$('mSku').value,qty:$('mQty').value,unit:$('mUnit').value,stockType:$('mStockType').value,mode:$('mMode').value,operation:$('mOperation').value})};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(SR){recognition=new SR();recognition.lang='es-AR';recognition.continuous=false;recognition.interimResults=true;recognition.onstart=()=>{listening=true;$('micBtn').classList.add('listening');$('micBtn').textContent='■';$('micStatus').textContent='Escuchando… hablá y luego revisá la transcripción'};recognition.onresult=e=>{let s='';for(let i=0;i<e.results.length;i++)s+=e.results[i][0].transcript+' ';$('transcript').value=s.trim()};recognition.onerror=e=>{listening=false;resetMic();toast(e.error==='not-allowed'?'Permití el acceso al micrófono.':`Error de voz: ${e.error}`,'err')};recognition.onend=()=>{listening=false;resetMic()}}else{$('micStatus').textContent='Este navegador no admite dictado. Escribí el producto manualmente.';$('micBtn').disabled=true}
+function resetMic(){$('micBtn').classList.remove('listening');$('micBtn').textContent='🎙';$('micStatus').textContent='Dictado detenido. Revisá el texto antes de interpretarlo.'}
+$('micBtn').onclick=()=>{if(!recognition)return toast('Dictado no disponible en este navegador.','warn');try{if(listening)recognition.stop();else{recognition.start();$('transcript').value=''}}catch(e){toast('Esperá un momento e intentá iniciar el micrófono otra vez.','warn')}};
+$('search').oninput=render;$('sort').onchange=render;
+$('inventoryList').onclick=e=>{const b=e.target.closest('[data-act]');if(!b)return;const i=state.items.find(x=>x.id===b.dataset.id);if(!i)return;if(b.dataset.act==='edit')return openEdit(i);if(b.dataset.act==='scan'){openEdit(i);return startBarcode('eSku');}if(b.dataset.act==='delete'){if(!confirm(`¿Eliminar ${i.sku}?`))return;pushUndo();state.items=state.items.filter(x=>x.id!==i.id);log('Eliminación',i,{before:i.units,after:0});saveAndRender();return toast('Artículo eliminado')}if(b.dataset.act==='plus'||b.dataset.act==='minus'){if(b.dataset.act==='minus'&&i.units<1)return toast('No hay unidades para descontar.','warn');pushUndo();const before=i.units;i.units=Math.max(0,i.units+(b.dataset.act==='plus'?1:-1));i.updatedAt=now();if(!i.units)state.items=state.items.filter(x=>x.id!==i.id);log(b.dataset.act==='plus'?'Ajuste +1':'Ajuste -1',i,{before,after:i.units,quantity:1});saveAndRender()}};
+$('undoBtn').onclick=()=>{if(!undoStack.length)return;state=JSON.parse(undoStack.pop());persist();render();$('undoBtn').disabled=!undoStack.length;toast('Se deshizo el último cambio')};
+function openEdit(i){editingId=i.id;$('eBrand').value=i.brand;$('eType').value=i.type;$('eSku').value=i.sku;$('eUnits').value=i.units;$('eStockType').value=i.stockType||'inventario';$('eUnitName').value=i.unitName||'unidades';$('editDialog').showModal()}
+$('cancelEdit').onclick=()=>$('editDialog').close();
+$('saveEdit').onclick=()=>{const i=state.items.find(x=>x.id===editingId);if(!i)return;const sku=upper($('eSku').value),n=Number($('eUnits').value);if(!sku||!Number.isFinite(n)||n<0)return toast('SKU o stock inválido.','err');if(state.items.some(x=>x.id!==i.id&&x.sku===sku))return toast('Ese SKU ya existe en otro artículo.','err');pushUndo();const before={...i};i.brand=upper($('eBrand').value)||'-';i.type=upper($('eType').value)||'-';i.sku=sku;i.units=n;i.stockType=$('eStockType').value;i.unitName=$('eUnitName').value;i.updatedAt=now();log('Edición',i,{before:before.units,after:n,note:'Edición manual'});if(n===0)state.items=state.items.filter(x=>x.id!==i.id);$('editDialog').close();saveAndRender();toast('Artículo actualizado')};
+function renderHistory(){const arr=state.history.slice(0,150);$('historyList').innerHTML=arr.length?arr.map(h=>`<article class="item"><div class="row between"><strong>${esc(h.action)}</strong><span class="sub">${new Date(h.at).toLocaleString('es-AR')}</span></div><div class="sku">${esc(h.sku)}</div><div class="sub">${esc(h.brand)} · ${esc(h.type)}</div><div class="small" style="margin-top:5px">Antes: ${h.before===null?'—':esc(h.before)} un. · Después: ${h.after===null?'—':esc(h.after)} un.${h.quantity!==null?' · Movimiento: '+esc(h.quantity)+' un.':''}</div>${h.note?`<div class="sub">${esc(h.note)}</div>`:''}</article>`).join(''):'<div class="empty">Todavía no hay movimientos registrados.</div>'}
+$('historyBtn').onclick=()=>{$('historyPanel').classList.remove('hidden');$('historyPanel').scrollIntoView({behavior:'smooth'})};$('closeHistory').onclick=()=>$('historyPanel').classList.add('hidden');
+$('clearHistory').onclick=()=>{if(!confirm('¿Borrar todo el historial? Esto no cambia el stock.'))return;pushUndo();state.history=[];saveAndRender();toast('Historial borrado')};
+function csvDownload(rows,filename){if(!rows.length)return toast('No hay datos para exportar.','warn');const cols=Object.keys(rows[0]);const csv=[cols,...rows.map(r=>cols.map(k=>r[k]??''))].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');download(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),filename)}
+function dateName(){return new Date().toLocaleDateString('sv-SE')}
+function exportRows(){return state.items.map(i=>({'MARCA':i.brand,'PRENDA / TIPO':i.type,'TIPO DE STOCK':stockTypeLabel(i.stockType),'CÓDIGO SKU':i.sku,'UNIDAD DE STOCK':i.unitName,'CANTIDAD':units(i),'DOCENAS (SI APLICA)':i.unitName==='unidades'?Number(dozens(i).toFixed(2)):'','ÚLTIMA MODIFICACIÓN':i.updatedAt}))}
+function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1200)}
+function backup(){state.lastBackupAt=now();persist();download(new Blob([JSON.stringify({app:'StockVoz',version:5.1,exportedAt:now(),items:state.items,history:state.history},null,2)],{type:'application/json'}),`StockVoz_copia_${dateName()}.json`);renderBackupReminder();toast('Copia JSON descargada')}
+$('backupBtn').onclick=backup;$('backupTop').onclick=backup;
+$('exportCsv').onclick=()=>csvDownload(exportRows(),`StockVoz_${dateName()}.csv`);
+$('exportHistory').onclick=()=>csvDownload(state.history.map(h=>({'FECHA':h.at,'ACCIÓN':h.action,'SKU':h.sku,'MARCA':h.brand,'PRENDA':h.type,'TIPO DE STOCK':stockTypeLabel(h.stockType),'ANTES':h.before,'DESPUÉS':h.after,'CANTIDAD MOVIMIENTO':h.quantity,'NOTA':h.note})),`StockVoz_historial_${dateName()}.csv`);
+$('exportXlsx').onclick=()=>{if(!state.items.length)return toast('No hay datos para exportar.','warn');if(!window.XLSX)return toast('La librería Excel no se cargó; usá CSV.','err');const wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(exportRows()),hs=XLSX.utils.json_to_sheet(state.history.map(h=>({'FECHA':h.at,'ACCIÓN':h.action,'SKU':h.sku,'MARCA':h.brand,'PRENDA':h.type,'TIPO DE STOCK':stockTypeLabel(h.stockType),'ANTES':h.before,'DESPUÉS':h.after,'CANTIDAD MOVIMIENTO':h.quantity,'NOTA':h.note})));ws['!cols']=[{wch:18},{wch:20},{wch:18},{wch:12},{wch:16},{wch:26}];XLSX.utils.book_append_sheet(wb,ws,'Inventario');XLSX.utils.book_append_sheet(wb,hs,'Historial');XLSX.writeFile(wb,`StockVoz_${dateName()}.xlsx`);toast('Excel con inventario e historial descargado')};
+function renderBackupReminder(){const el=$('backupReminder');if(!state.items.length){el.classList.add('hidden');return}const last=state.lastBackupAt?new Date(state.lastBackupAt):null;const days=last?(Date.now()-last.getTime())/86400000:Infinity;if(days>=7){el.classList.remove('hidden');el.textContent=last?`Hace ${Math.floor(days)} días que no descargás una copia. Recomendamos respaldar el inventario ahora.`:'Todavía no descargaste una copia de seguridad. Descargá un JSON para proteger tus datos.'}else{el.classList.add('hidden')}}
+$('bulkEditBtn').onclick=()=>{$('bulkPanel').classList.remove('hidden');renderBulk();$('bulkPanel').scrollIntoView({behavior:'smooth'})};$('closeBulk').onclick=()=>$('bulkPanel').classList.add('hidden');
+function renderBulk(){const el=$('bulkList');if(!el)return;const rows=filtered();el.innerHTML=rows.length?`<label class="checkbox"><input type="checkbox" id="selectAllBulk"> Seleccionar todos los resultados (${rows.length})</label>`+rows.map(i=>`<label class="item checkbox"><input type="checkbox" class="bulkCheck" value="${esc(i.id)}"><span><strong>${esc(i.sku)}</strong><span class="sub" style="display:block">${esc(i.brand)} · ${esc(i.type)} · ${stockTypeLabel(i.stockType)} · ${units(i)} ${unitLabel(i.unitName)}</span></span></label>`).join(''):'<div class="empty">No hay artículos para editar.</div>';const all=$('selectAllBulk');if(all)all.onchange=()=>el.querySelectorAll('.bulkCheck').forEach(c=>c.checked=all.checked)}
+$('applyBulk').onclick=()=>{const ids=[...document.querySelectorAll('.bulkCheck:checked')].map(x=>x.value),field=$('bulkField').value,raw=txt($('bulkValue').value),value=field==='stockType'?raw:field==='unitName'?raw:upper(raw);if(!ids.length)return toast('Seleccioná al menos un artículo.','warn');if(!value)return toast('Escribí el nuevo valor.','err');if(!confirm(`¿Cambiar ${field==='brand'?'la marca':field==='type'?'la prenda':field==='stockType'?'el tipo de stock':'la unidad de stock'} de ${ids.length} artículos?`))return;pushUndo();for(const i of state.items.filter(x=>ids.includes(x.id))){const before=i[field];i[field]=value;i.updatedAt=now();log('Edición múltiple',i,{before:null,after:null,note:`${field}: ${before} → ${value}`})}saveAndRender();toast(`Actualizados ${ids.length} artículos`)};
+function parseCSV(text){const lines=text.replace(/^\ufeff/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const delim=(lines[0].match(/;/g)||[]).length>=(lines[0].match(/,/g)||[]).length?';':',';const parseLine=s=>{let a=[],v='',q=false;for(let i=0;i<s.length;i++){if(s[i]==='"'&&s[i+1]==='"'&&q){v+='"';i++}else if(s[i]==='"')q=!q;else if(s[i]===delim&&!q){a.push(v);v=''}else v+=s[i]}a.push(v);return a};const heads=parseLine(lines.shift()).map(x=>x.trim().toUpperCase());return lines.map(line=>Object.fromEntries(parseLine(line).map((v,i)=>[heads[i]||`COL${i}`,v])))}
+function normalizeImport(rows){return rows.map(r=>{const get=(...ks)=>{const key=Object.keys(r).find(k=>ks.includes(k.trim().toUpperCase()));return key===undefined?'':r[key]};let sku=get('CÓDIGO SKU','CODIGO SKU','CÓDIGO (SKU)','CODIGO (SKU)','SKU','CÓDIGO','CODIGO','CODE');let u=get('CANTIDAD','TOTAL UNIDADES','UNIDADES','UNITS','STOCK');const d=get('DOCENAS','DOZENS');if(u===''&&d!=='')u=num(String(d).replace(',','.'))*12;return{sku:upper(sku),brand:upper(get('MARCA','BRAND'))||'-',type:upper(get('PRENDA / TIPO','TIPO DE ROPA','TIPO','PRENDA','TYPE'))||'-',stockType:({ 'ENTRADA':'entrada','STOCK DE ENTRADA':'entrada','ENTRADA DE MERCADERÍA':'entrada','ENTRADA DE MERCADERIA':'entrada','SALIDA':'salida','STOCK DE SALIDA':'salida','SALIDA DE MERCADERÍA':'salida','SALIDA DE MERCADERIA':'salida','INVENTARIO GENERAL':'inventario','INVENTARIO':'inventario','STOCK DE LOCAL':'local','LOCAL':'local','DEPÓSITO':'deposito','DEPOSITO':'deposito','PRODUCCIÓN':'produccion','PRODUCCION':'produccion','TRANSFERENCIA':'transferencia','AJUSTE DE STOCK':'ajuste','OTRO':'otro','OTRA':'otro','DEPOSITO':'deposito','DEPÓSITO':'deposito' }[String(get('TIPO DE STOCK','CATEGORÍA DE STOCK','CATEGORIA DE STOCK')).trim().toUpperCase()]||'inventario'),unitName:(({unidades:'unidades',unidad:'unidades',cajas:'cajas',caja:'cajas',paquetes:'paquetes',paquete:'paquetes',pares:'pares',par:'pares',rollos:'rollos',rollo:'rollos',kg:'kg',g:'g',m:'m',l:'l',litros:'l',metros:'m',kilogramos:'kg',gramos:'g',otra:'otra','otra unidad':'otra'})[String(get('UNIDAD DE STOCK','UNIDAD','UNIT')).trim().toLowerCase()]||'unidades'),units:Number(String(u).replace(',','.'))}}).filter(i=>i.sku&&Number.isFinite(i.units)&&i.units>=0)}
+$('importInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{let rows;if(f.name.toLowerCase().endsWith('.json')){const d=JSON.parse(await f.text());rows=Array.isArray(d)?d:(d.items||[]).map(i=>({SKU:i.sku||i.code,MARCA:i.brand,TIPO:i.type,'TIPO DE STOCK':i.stockType, 'UNIDAD DE STOCK':i.unitName,UNIDADES:i.units??i.totalUnits,DOCENAS:i.dozens}))}else if(/\.csv$/i.test(f.name))rows=parseCSV(await f.text());else{if(!window.XLSX)throw Error('No se cargó el lector Excel.');const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})}importRows=normalizeImport(rows);if(!importRows.length)throw Error('No se encontraron filas válidas. Revisá que el archivo tenga una columna SKU/código y cantidad.');$('importSummary').textContent=`${importRows.length} filas válidas de ${rows.length} filas leídas.`;$('importPreview').innerHTML='<div class="tablewrap"><table><thead><tr><th>SKU</th><th>Marca</th><th>Prenda</th><th>Tipo stock</th><th>Unidad</th><th>Cantidad</th></tr></thead><tbody>'+importRows.slice(0,50).map(i=>`<tr><td>${esc(i.sku)}</td><td>${esc(i.brand)}</td><td>${esc(i.type)}</td><td>${esc(stockTypeLabel(i.stockType))}</td><td>${esc(unitLabel(i.unitName))}</td><td>${i.units}</td></tr>`).join('')+'</tbody></table></div>'+(importRows.length>50?`<div class="sub">Se muestran las primeras 50 filas de ${importRows.length}.</div>`:'');$('importDialog').showModal()}catch(err){toast(err.message||'No se pudo leer el archivo.','err')}finally{e.target.value=''}};
+$('cancelImport').onclick=()=>$('importDialog').close();
+function commitImport(replace){if(!importRows)return;pushUndo();if(replace){state.items=importRows.filter(i=>i.units>0).map(i=>({...i,id:id(),updatedAt:now()}));log('Importación: reemplazo',null,{note:`${importRows.length} filas`})}else{for(const r of importRows){const old=getExisting(r.sku);if(old){const before=old.units;old.brand=r.brand;old.type=r.type;old.units=r.units;old.updatedAt=now();log('Importación: actualización',old,{before,after:r.units})}else if(r.units>0){const i={...r,id:id(),updatedAt:now()};state.items.push(i);log('Importación: alta',i,{before:0,after:r.units})}}}persist();render();$('importDialog').close();importRows=null;toast('Importación aplicada')}
+$('importReplace').onclick=()=>{if(confirm('Esto reemplazará el inventario actual. ¿Continuar?'))commitImport(true)};$('importMerge').onclick=()=>commitImport(false);
+$('scanForEdit').onclick=()=>startBarcode('eSku');
+async function startBarcode(targetId){if(!('BarcodeDetector'in window)){toast('Este navegador no admite BarcodeDetector. Podés escribir o dictar el SKU.','warn');return}if(!navigator.mediaDevices?.getUserMedia){toast('No se puede acceder a la cámara en este navegador.','err');return}try{$('barcodeDialog').showModal();$('barcodeStatus').textContent='Solicitando permiso de cámara…';barcodeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('barcodeVideo').srcObject=barcodeStream;await $('barcodeVideo').play();const detector=new BarcodeDetector({formats:['code_128','code_39','ean_13','ean_8','upc_a','upc_e','itf','qr_code','codabar']});$('barcodeStatus').textContent='Cámara activa. Alineá el código dentro de la imagen.';const scan=async()=>{if(!barcodeStream)return;try{const codes=await detector.detect($('barcodeVideo'));if(codes.length&&codes[0].rawValue){$(targetId).value=codes[0].rawValue;stopBarcode();toast('Código leído: '+codes[0].rawValue);return}}catch(e){}barcodeTimer=setTimeout(scan,250)};scan()}catch(e){stopBarcode();toast('No se pudo abrir la cámara. Revisá los permisos del sitio.','err')}}
+function stopBarcode(){if(barcodeTimer)clearTimeout(barcodeTimer);barcodeTimer=null;if(barcodeStream)barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;$('barcodeVideo').srcObject=null;if($('barcodeDialog').open)$('barcodeDialog').close()}
+$('closeBarcode').onclick=stopBarcode;$('stopBarcode').onclick=stopBarcode;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;$('installBtn').classList.remove('hidden')});$('installBtn').onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null;$('installBtn').classList.add('hidden')};
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+window.addEventListener('storage',e=>{if(e.key===KEY)toast('Los datos locales cambiaron en otra pestaña. Recargá para ver la versión actual.','warn')});
+window.addEventListener('beforeunload',()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}});
+load();render();$('undoBtn').disabled=true;
+})();
+</script>
 </body>
 </html>
