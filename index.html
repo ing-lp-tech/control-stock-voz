@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario por Voz v2.7 - Micrófono Reparado</title>
+    <title>Inventario por Voz v2.8 - Stock, Marcas & Excel</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -29,7 +29,7 @@
                     <i class="fa-solid fa-microphone"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.7</span></h1>
+                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.8</span></h1>
                     <p class="text-xs text-slate-400">Control de Stock por Voz & Multicategoría</p>
                 </div>
             </div>
@@ -46,10 +46,10 @@
 
     <main class="max-w-6xl mx-auto p-4 sm:p-6 w-full flex-1 space-y-6">
 
-        <!-- Banner de advertencia si no está en HTTPS -->
+        <!-- Banner HTTPS -->
         <div id="httpsWarning" class="hidden bg-amber-500/10 border border-amber-500/30 text-amber-300 p-3 rounded-xl text-xs flex items-center gap-2">
             <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base"></i>
-            <span><strong>Aviso de seguridad:</strong> Estás ejecutando el archivo localmente (`file://`). Algunos navegadores bloquean el micrófono si no estás en un sitio seguro `https://` (como Vercel o Netlify).</span>
+            <span><strong>Aviso de seguridad:</strong> Estás ejecutando el archivo localmente (`file://`). Sube el archivo a Vercel o Netlify para habilitar el micrófono por HTTPS.</span>
         </div>
 
         <!-- Métricas Rápidas -->
@@ -77,12 +77,12 @@
                     <i id="micIcon" class="fa-solid fa-microphone"></i>
                 </button>
                 <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Presiona el micrófono para hablar</p>
-                <p id="micTranscript" class="text-slate-300 italic min-h-[1.5rem] text-base sm:text-lg max-w-xl">Ejemplo: "Marca Scargo, remeras, código 96105 hay 20 docenas"</p>
+                <p id="micTranscript" class="text-slate-300 italic min-h-[1.5rem] text-base sm:text-lg max-w-xl">Ejemplo: "SSJ remeras código N1014 30 docenas"</p>
                 
                 <div class="mt-4 flex flex-wrap justify-center gap-2">
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca Scargo, remeras, código 96105 hay 20 docenas"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Código N1414, calzas, 15 unidades"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Restar 2 docenas al código 96105"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"SSJ remeras código N1014 30 docenas"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca Scargo calzas código N1414 15 docenas"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Código 96105 20 unidades"</span>
                 </div>
             </div>
         </section>
@@ -108,9 +108,9 @@
         <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
             <p class="text-xs font-semibold text-slate-400 uppercase mb-3">Carga Manual Rápida</p>
             <form onsubmit="handleManualAdd(event)" class="grid grid-cols-2 sm:grid-cols-6 gap-3">
-                <input type="text" id="manualBrand" placeholder="Marca (ej. Scargo)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                <input type="text" id="manualBrand" placeholder="Marca (ej. SSJ)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                 <input type="text" id="manualType" placeholder="Tipo (ej. Remera)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <input type="text" id="manualCode" placeholder="Código (ej. 96105)" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                <input type="text" id="manualCode" placeholder="Código (ej. N1014)" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                 <input type="number" step="0.5" id="manualQty" placeholder="Cantidad" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                 <select id="manualUnitType" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                     <option value="docenas">Docenas (x12)</option>
@@ -153,7 +153,7 @@
     </main>
 
     <footer class="bg-slate-900 border-t border-slate-800 text-center py-4 text-xs text-slate-500">
-        StockVoz v2.7 &copy; 2026 - Control de Stock Inteligente
+        StockVoz v2.8 &copy; 2026 - Control de Stock Inteligente
     </footer>
 
     <!-- Toast Notification -->
@@ -176,6 +176,8 @@
             "veinticuatro":24, "treinta":30, "cuarenta":40, "cincuenta":50,
             "media": 0.5, "medio": 0.5
         };
+
+        const garmentTypes = ["remera", "remeras", "pantalon", "pantalones", "calza", "calzas", "campera", "camperas", "buzo", "buzos", "body", "bodys", "conjunto", "conjuntos", "vestido", "vestidos"];
 
         window.onload = function() {
             if (window.location.protocol === 'file:') {
@@ -226,9 +228,7 @@
                 if (event.error === 'not-allowed') {
                     showToast("Permiso de micrófono denegado en el navegador.", "error");
                 } else if (event.error === 'no-speech') {
-                    showToast("No se detectó voz. Intenta hablar más fuerte.", "info");
-                } else if (event.error === 'network') {
-                    showToast("Error de red al conectar con el motor de voz.", "error");
+                    showToast("No se detectó voz. Intenta hablar más claro.", "info");
                 } else {
                     showToast(`Error de micrófono: ${event.error}`, "error");
                 }
@@ -242,13 +242,12 @@
             }
 
             try {
-                // Solicitar permiso de micrófono previamente para desbloquear navegadores estrictos
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     await navigator.mediaDevices.getUserMedia({ audio: true });
                 }
                 if (recognition) recognition.start();
             } catch (err) {
-                showToast("Por favor otorga permiso al micrófono en la barra de tu navegador.", "error");
+                showToast("Concede permiso al micrófono en la barra del navegador.", "error");
             }
         }
 
@@ -257,44 +256,71 @@
             let isSubtract = raw.includes("restar") || raw.includes("resta") || raw.includes("sacar") || raw.includes("quitar");
             let isUnitOnly = raw.includes("unidad") || raw.includes("unidades") || raw.includes("pieza") || raw.includes("piezas") || raw.includes("suelta") || raw.includes("sueltas");
 
+            // Normalizar fonética común de marcas como SSJ ("ese ese jota")
+            raw = raw.replace(/\bese\s+ese\s+jota\b/gi, "ssj");
+            raw = raw.replace(/\bese\s+ese\s+j\b/gi, "ssj");
+
+            // Reemplazar números en texto
             Object.keys(textToNumber).forEach(word => {
                 let reg = new RegExp(`\\b${word}\\b`, 'g');
                 raw = raw.replace(reg, textToNumber[word]);
             });
 
-            let qtyMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:de\s*)?(?:docena|docenas|doc|unidad|unidades|pieza|piezas)/i);
-            let qty = qtyMatch ? parseFloat(qtyMatch[1]) : null;
+            // Extraer Tipo de Prenda
+            let type = "-";
+            garmentTypes.forEach(g => {
+                if (raw.includes(g)) type = g.toUpperCase();
+            });
 
+            // Extraer Marca
             let brand = "-";
             let brandMatch = raw.match(/(?:marca)\s+([a-z0-9]+)/i);
-            if (brandMatch) brand = brandMatch[1].toUpperCase();
-
-            let type = "-";
-            let typeMatch = raw.match(/(?:tipo|prenda)\s+([a-z0-9]+)/i);
-            if (typeMatch) {
-                type = typeMatch[1].toUpperCase();
+            if (brandMatch) {
+                brand = brandMatch[1].toUpperCase();
             } else {
-                const garmentTypes = ["remera", "remeras", "pantalon", "pantalones", "calza", "calzas", "campera", "camperas", "buzo", "buzos", "bodys", "body", "conjunto"];
-                garmentTypes.forEach(g => {
-                    if (raw.includes(g)) type = g.toUpperCase();
-                });
+                // Extraer la primera palabra si no es tipo, código o cantidad
+                let words = raw.split(/\s+/);
+                if (words.length > 0 && !words[0].includes("código") && !words[0].includes("codigo") && !garmentTypes.includes(words[0])) {
+                    brand = words[0].toUpperCase();
+                }
             }
 
+            // Extraer Cantidad (docenas o unidades)
+            let qty = null;
+            let qtyMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:de\s*)?(?:docena|docenas|doc|unidad|unidades|pieza|piezas)?/gi);
+            
+            // Buscar número de cantidad descartando el que pertenezca al código
+            let numbersInText = raw.match(/\b\d+(\.\d+)?\b/g) || [];
+
+            // Extraer Código (ej. N1014, 96105, etc.)
             let code = null;
-            let codeMatch = raw.match(/(?:código|codigo|sku|item)\s*([a-z0-9\s]+)/i);
+            let codeMatch = raw.match(/(?:código|codigo|sku|item)\s*([a-z]?\s*\d+)/i);
 
             if (codeMatch) {
-                let codeRaw = codeMatch[1].replace(/(?:hay|de|docena|docenas|unidad|unidades|marca|tipo).*/gi, '').trim();
-                code = codeRaw.replace(/\s+/g, '');
+                code = codeMatch[1].replace(/\s+/g, '').toUpperCase();
             } else {
-                let numberBlocks = raw.match(/\b\d+(\s+\d+)+\b/);
-                if (numberBlocks) {
-                    code = numberBlocks[0].replace(/\s+/g, '');
-                } else {
-                    let singleNumber = raw.match(/\b([a-z]?\d+)\b/i);
-                    if (singleNumber && qty !== parseFloat(singleNumber[1])) {
-                        code = singleNumber[1];
+                // Buscar alfanumérico estilo N1014
+                let alphaNum = raw.match(/\b[a-z]\d+\b/i);
+                if (alphaNum) {
+                    code = alphaNum[0].toUpperCase();
+                } else if (numbersInText.length > 0) {
+                    // Si hay varios números, el código suele ser el de más dígitos o el que acompaña
+                    code = numbersInText[0];
+                }
+            }
+
+            // Asignar cantidad (el número que no es el código)
+            if (numbersInText.length > 0) {
+                for (let num of numbersInText) {
+                    if (code && !code.includes(num)) {
+                        qty = parseFloat(num);
+                        break;
                     }
+                }
+                if (qty === null && numbersInText.length === 1 && !code) {
+                    qty = parseFloat(numbersInText[0]);
+                } else if (qty === null && numbersInText.length >= 2) {
+                    qty = parseFloat(numbersInText[numbersInText.length - 1]);
                 }
             }
 
@@ -302,17 +328,17 @@
                 let finalQty = isSubtract ? -Math.abs(qty) : Math.abs(qty);
                 let isDozens = !isUnitOnly;
 
-                addOrUpdateStock(code.toUpperCase(), brand, type, finalQty, isDozens);
+                addOrUpdateStock(code, brand, type, finalQty, isDozens);
 
                 let msg = isDozens ? 
-                    `Código ${code}: guardadas ${qty} docenas` : 
-                    `Código ${code}: guardadas ${qty} unidades sueltas`;
+                    `Guardado: ${brand} ${type} ${code} (${qty} docenas)` : 
+                    `Guardado: ${brand} ${type} ${code} (${qty} unidades)`;
                 
                 showToast(msg, "success");
                 speakText(msg);
             } else {
-                showToast("No se entendió. Di por ejemplo: 'Marca Scargo, remeras, código 96105 hay 20 docenas'", "error");
-                speakText("No pude entender el código o la cantidad.");
+                showToast("No se entendió. Di por ejemplo: 'SSJ remeras código N1014 30 docenas'", "error");
+                speakText("No pude entender el registro.");
             }
         }
 
