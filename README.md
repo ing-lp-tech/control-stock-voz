@@ -1,4 +1,4 @@
-# StockVoz v5.1
+# StockVoz v5.2
 
 Aplicación web estática para controlar cantidades por voz o manualmente. No requiere backend ni base de datos. Los datos quedan guardados en el navegador/dispositivo.
 
