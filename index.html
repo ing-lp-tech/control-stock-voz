@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario por Voz v3.0 - Escucha Continua & Excel</title>
+    <title>Inventario por Voz v3.1 - Micrófono Inmune a Fallos</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -29,8 +29,8 @@
                     <i class="fa-solid fa-microphone"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v3.0</span></h1>
-                    <p class="text-xs text-slate-400">Escucha Continua & Detección Flexible</p>
+                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v3.1</span></h1>
+                    <p class="text-xs text-slate-400">Control de Stock por Voz & Multicategoría</p>
                 </div>
             </div>
             <div class="flex items-center gap-2">
@@ -62,7 +62,7 @@
             </div>
         </div>
 
-        <!-- Módulo de Voz Principal con Escucha Continua -->
+        <!-- Módulo de Voz Principal -->
         <section class="bg-slate-800 border border-slate-700 rounded-2xl p-5 sm:p-8 text-center relative overflow-hidden shadow-xl">
             <div id="micPulse" class="hidden absolute inset-0 bg-emerald-500/5 pointer-events-none animate-pulse-ring"></div>
             
@@ -70,12 +70,11 @@
                 <button id="btnMic" onclick="toggleListening()" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg transition-all flex items-center justify-center mb-4 border-4 border-slate-700">
                     <i id="micIcon" class="fa-solid fa-microphone"></i>
                 </button>
-                <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Haz clic para ACTIVAR/DESACTIVAR el micrófono manualmente</p>
+                <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Presiona el micrófono para ACTIVAR / DESACTIVAR</p>
                 
-                <!-- Caja de texto en vivo -->
                 <div class="w-full max-w-xl my-3">
                     <div id="micTranscript" class="bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-200 text-sm sm:text-base min-h-[3rem] text-center font-medium italic">
-                        Presiona el micrófono y habla tranquilo. No se cortará solo.
+                        Presiona el micrófono y habla tranquilo. Toca de nuevo al terminar.
                     </div>
                 </div>
 
@@ -90,12 +89,12 @@
                 
                 <div class="mt-4 flex flex-wrap justify-center gap-2">
                     <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca URUS, prenda short, código N115, 18 docenas"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"URUS chomba código N151818 18 docenas"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"SSJ remeras código N1014 30 docenas"</span>
                 </div>
             </div>
         </section>
 
-        <!-- Barra de Herramientas: Exportar / Importar -->
+        <!-- Barra de Herramientas -->
         <section class="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-wrap gap-3 items-center justify-between">
             <div class="flex flex-wrap gap-2 w-full sm:w-auto">
                 <button onclick="exportToExcel()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2 shadow">
@@ -152,7 +151,6 @@
                         </tr>
                     </thead>
                     <tbody id="stockTableBody" class="divide-y divide-slate-700 text-sm">
-                        <!-- Se llena dinámicamente -->
                     </tbody>
                 </table>
             </div>
@@ -161,7 +159,7 @@
     </main>
 
     <footer class="bg-slate-900 border-t border-slate-800 text-center py-4 text-xs text-slate-500">
-        StockVoz v3.0 &copy; 2026 - Control de Stock Inteligente
+        StockVoz v3.1 &copy; 2026 - Control de Stock Inteligente
     </footer>
 
     <!-- Toast Notification -->
@@ -175,6 +173,7 @@
         let isListening = false;
         let ttsEnabled = true;
         let recognition = null;
+        let audioStream = null;
         let fullTranscript = "";
 
         const textToNumber = {
@@ -196,29 +195,28 @@
         function initSpeechRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                showToast("Tu navegador no soporta voz. Usa Google Chrome o Edge.", "error");
+                showToast("Navegador no compatible. Usa Google Chrome o Edge.", "error");
                 return;
             }
 
             recognition = new SpeechRecognition();
-            recognition.continuous = true; // ESCUCHA CONTINUA ACTIVADA
+            recognition.continuous = true;
             recognition.lang = 'es-AR';
             recognition.interimResults = true;
 
             recognition.onstart = () => {
-                isListening = true;
-                document.getElementById('micStatus').innerText = "🔴 Grabando... Toca el botón rojo al finalizar de hablar.";
+                document.getElementById('micStatus').innerText = "🔴 Escuchando activamente... Toca de nuevo para detener y guardar.";
                 document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-rose-600 text-white text-3xl sm:text-4xl shadow-lg border-4 border-rose-400 animate-pulse flex items-center justify-center mb-4";
                 document.getElementById('micPulse').classList.remove('hidden');
                 document.getElementById('actionButtons').classList.remove('hidden');
             };
 
             recognition.onend = () => {
-                // Si el usuario no presionó detener intencionalmente pero el navegador pausó, auto-reiniciar mientras esté activo
+                // AUTO-RECONEXIÓN ROBUSTA: Si el usuario quería seguir escuchando, forzar reinicio
                 if (isListening) {
                     try { recognition.start(); } catch(e) {}
                 } else {
-                    document.getElementById('micStatus').innerText = "Haz clic para ACTIVAR/DESACTIVAR el micrófono manualmente";
+                    document.getElementById('micStatus').innerText = "Presiona el micrófono para ACTIVAR / DESACTIVAR";
                     document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg border-4 border-slate-700 flex items-center justify-center mb-4";
                     document.getElementById('micPulse').classList.add('hidden');
                 }
@@ -238,8 +236,14 @@
             };
 
             recognition.onerror = (event) => {
-                if (event.error !== 'no-speech') {
-                    showToast(`Aviso de micrófono: ${event.error}`, "info");
+                if (event.error === 'not-allowed') {
+                    showToast("Otorga permisos de micrófono en la barra del navegador.", "error");
+                    isListening = false;
+                } else if (isListening) {
+                    // Si ocurre cualquier error menor de red/pausa, re-intentar suavemente
+                    setTimeout(() => {
+                        if (isListening) try { recognition.start(); } catch(e) {}
+                    }, 300);
                 }
             };
         }
@@ -248,17 +252,24 @@
             if (isListening) {
                 isListening = false;
                 if (recognition) recognition.stop();
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream = null;
+                }
                 processCurrentTranscript();
             } else {
                 fullTranscript = "";
                 document.getElementById('micTranscript').innerText = "Escuchando...";
+                isListening = true;
+                
                 try {
                     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                        await navigator.mediaDevices.getUserMedia({ audio: true });
+                        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     }
                     if (recognition) recognition.start();
                 } catch (err) {
-                    showToast("Concede permiso de micrófono en tu navegador.", "error");
+                    isListening = false;
+                    showToast("Otorga permiso al micrófono en tu navegador.", "error");
                 }
             }
         }
@@ -282,7 +293,6 @@
 
             raw = raw.replace(/\bese\s+ese\s+jota\b/gi, "ssj");
 
-            // Convertir números escritos a dígitos
             Object.keys(textToNumber).forEach(word => {
                 let reg = new RegExp(`\\b${word}\\b`, 'g');
                 raw = raw.replace(reg, textToNumber[word]);
@@ -354,7 +364,7 @@
                 speakText(msg);
                 clearTranscript();
             } else {
-                showToast("Presiona el micrófono, dicta tranquilo y vuelve a presionarlo al terminar.", "error");
+                showToast("Intenta dictar: 'Marca URUS, prenda short, código N115, 18 docenas'", "error");
             }
         }
 
@@ -439,3 +449,137 @@
             const tbody = document.getElementById('stockTableBody');
             const filter = document.getElementById('searchInput').value.toLowerCase();
             tbody.innerHTML = '';
+
+            let totalSKUs = stockData.length;
+            let totalDozens = 0;
+            let totalUnits = 0;
+
+            let filtered = stockData.filter(item => 
+                item.code.toLowerCase().includes(filter) ||
+                item.brand.toLowerCase().includes(filter) ||
+                item.type.toLowerCase().includes(filter)
+            );
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center py-8 text-slate-500 italic text-xs">
+                            No hay registros cargados. ¡Usa el micrófono o el formulario manual!
+                        </td>
+                    </tr>
+                `;
+            } else {
+                filtered.forEach(item => {
+                    totalDozens += parseFloat(item.dozens) || 0;
+                    totalUnits += parseFloat(item.totalUnits) || 0;
+
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-700/50 transition">
+                            <td class="p-3 text-slate-300 font-medium">${item.brand}</td>
+                            <td class="p-3 text-slate-300 font-medium">${item.type}</td>
+                            <td class="p-3 font-bold text-white">${item.code}</td>
+                            <td class="p-3 text-emerald-400 font-semibold">${item.isDozens ? item.dozens + ' doc.' : '-'}</td>
+                            <td class="p-3 text-cyan-400 font-semibold">${item.totalUnits} un.</td>
+                            <td class="p-3 text-right space-x-1">
+                                <button onclick="adjustQty('${item.code}', 1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">+1</button>
+                                <button onclick="adjustQty('${item.code}', -1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">-1</button>
+                                <button onclick="deleteItem('${item.code}')" class="bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 text-xs px-2 py-1 rounded"><i class="fa-solid fa-trash-can"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            document.getElementById('statSKUs').innerText = totalSKUs;
+            document.getElementById('statDocenas').innerText = totalDozens.toFixed(1);
+            document.getElementById('statUnidades').innerText = totalUnits;
+        }
+
+        function exportToExcel() {
+            if (stockData.length === 0) {
+                showToast("La tabla está vacía.", "error");
+                return;
+            }
+
+            let excelRows = stockData.map(item => ({
+                "MARCA": item.brand,
+                "TIPO DE ROPA": item.type,
+                "CÓDIGO (SKU)": item.code,
+                "DOCENAS": item.isDozens ? item.dozens : "N/A (Unidades)",
+                "TOTAL UNIDADES": item.totalUnits
+            }));
+
+            let worksheet = XLSX.utils.json_to_sheet(excelRows);
+            let workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Stock");
+
+            let date = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Stock_Inventario_${date}.xlsx`);
+            showToast("¡Archivo Excel descargado!", "success");
+        }
+
+        function importExcel(e) {
+            let file = e.target.files[0];
+            if (!file) return;
+
+            let reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    let data = new Uint8Array(evt.target.result);
+                    let workbook = XLSX.read(data, { type: 'array' });
+                    let sheetName = workbook.SheetNames[0];
+                    let rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+                    rows.forEach(row => {
+                        let brand = row["MARCA"] || row["Marca"] || "-";
+                        let type = row["TIPO DE ROPA"] || row["Tipo"] || "-";
+                        let code = row["CÓDIGO (SKU)"] || row["Codigo"] || row["SKU"];
+                        let dozens = row["DOCENAS"] || row["Docenas"];
+                        let units = row["TOTAL UNIDADES"] || row["Unidades"];
+
+                        if (code) {
+                            if (dozens && dozens !== "N/A (Unidades)") {
+                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(dozens), true);
+                            } else if (units) {
+                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(units), false);
+                            }
+                        }
+                    });
+
+                    showToast("Excel cargado con éxito", "success");
+                } catch (err) {
+                    showToast("Error al leer el archivo Excel.", "error");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function toggleTTS() {
+            ttsEnabled = !ttsEnabled;
+            document.getElementById('iconTTS').className = ttsEnabled ? "fa-solid fa-volume-high text-emerald-400" : "fa-solid fa-volume-xmark text-slate-500";
+            showToast(ttsEnabled ? "Voz activada" : "Voz desactivada", "info");
+        }
+
+        function speakText(text) {
+            if (!ttsEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            let utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'es-AR';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.innerText = msg;
+            toast.className = `fixed bottom-5 right-5 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-transform duration-300 z-50 ${
+                type === 'error' ? 'bg-rose-600' : type === 'info' ? 'bg-indigo-600' : 'bg-emerald-600'
+            }`;
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-24', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
