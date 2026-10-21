@@ -36,3 +36,19 @@ Aplicación web estática para controlar cantidades por voz o manualmente. No re
 - Se conserva la unidad de dictado para mostrar, por ejemplo, 20 docenas = 240 unidades.
 - Se elige el tipo de tarea una sola vez en el selector superior y se aplica a todos los productos cargados durante esa tarea.
 - Se quitó la columna independiente de tipo de stock de la tabla; el tipo se muestra como información secundaria en la cantidad registrada.
+
+
+## Promoción del creador y contacto
+
+La interfaz incluye una sección promocional de **Ingeniero Emprendedor** para apps y sistemas, pizarras digitalizadoras, plotters e innovación textil.
+
+Para activar el botón de WhatsApp, abrí `index.html` y buscá esta línea al comienzo del script principal:
+
+```js
+window.CREATOR_WHATSAPP = '';
+```
+
+Reemplazá el texto vacío por el número internacional, solo dígitos, sin `+`, espacios ni guiones. Ejemplo ficticio: `window.CREATOR_WHATSAPP = '54911XXXXXXXX';`. Luego subí el cambio a GitHub y esperá el despliegue de Vercel. El botón abre WhatsApp con un mensaje inicial sobre tus servicios.
+
+
+WhatsApp de contacto de Ingeniero Emprendedor: +54 9 11 6202-1005. El botón abre un mensaje predeterminado que comienza con “Hola, vengo de la app de stock y quiero…”.
