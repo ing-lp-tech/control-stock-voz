@@ -7,24 +7,39 @@
 <meta name="description" content="StockVoz: inventario local por voz, escáner de códigos y exportación a Excel.">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-<title>StockVoz v5.7 · Ingeniero Emprendedor</title>
+<title>StockVoz v5.12 · Ingeniero Emprendedor</title>
 <style>
 :root{color-scheme:dark;--bg:#08111f;--panel:#101c2e;--panel2:#0c1727;--line:#29394f;--text:#e5edf8;--muted:#9aabc2;--blue:#3979f6;--green:#0e9f6e;--amber:#b7791f;--red:#be3150}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}button,input,select,textarea{font:inherit}input,select,textarea{font-size:16px!important}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.wrap{max-width:1200px;margin:auto;padding:16px}.top{position:sticky;top:0;z-index:5;background:#0b1525f5;border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}.topin{max-width:1200px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{display:flex;align-items:center;gap:12px}.logo{width:42px;height:42px;border-radius:13px;background:#1c3c77;display:grid;place-items:center;font-size:22px}.sub{color:var(--muted);font-size:12px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}.grid{display:grid;gap:12px}.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat{text-align:center;padding:13px}.stat label{display:block;font-size:11px;color:var(--muted);font-weight:800}.stat strong{font-size:clamp(20px,4vw,31px)}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.between{justify-content:space-between}.fieldgrid{grid-template-columns:repeat(3,minmax(0,1fr))}.field label,.fieldlabel{display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}.input{width:100%;min-width:0;background:var(--panel2);color:var(--text);border:1px solid #3a4a60;border-radius:10px;padding:11px 12px}.input:focus{outline:2px solid #75a5ff;outline-offset:1px}.btn{border:0;border-radius:10px;padding:10px 14px;min-height:44px;font-weight:750;display:inline-flex;justify-content:center;align-items:center;gap:8px}.primary{background:var(--blue);color:white}.good{background:var(--green);color:white}.muted{background:#304157;color:#f2f6fc}.warn{background:var(--amber);color:white}.danger{background:var(--red);color:white}.soft{background:#18304c;color:#c8dcff;border:1px solid #31577f}.mic{width:78px;height:78px;border-radius:50%;background:var(--blue);color:white;border:5px solid #263b5c;font-size:28px}.mic.listening{background:var(--red)}.center{text-align:center}.mutedtext{color:var(--muted)}.hidden{display:none!important}.small{font-size:12px}.notice{padding:11px 13px;border:1px solid #6c5628;background:#2b2416;border-radius:10px;color:#ffe1a1;margin-top:10px}.goodnotice{padding:11px 13px;border:1px solid #27644e;background:#102a23;border-radius:10px;color:#a9f5d3;margin-top:10px}.list{display:grid;gap:10px;margin-top:12px}.item{background:#0b1626;border:1px solid var(--line);border-radius:12px;padding:13px}.itemhead{display:flex;justify-content:space-between;gap:10px}.sku{font-weight:900;font-size:18px;overflow-wrap:anywhere}.pill{font-size:11px;background:#22344b;padding:4px 8px;border-radius:99px;color:#c6d8f1}.itemactions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.itemactions .btn{flex:1;padding:8px}.tablewrap{overflow:auto;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:#0b1626}.inventoryTable{min-width:920px}.inventoryTable th{background:#17263a;position:sticky;top:0;z-index:1}.inventoryTable td{vertical-align:middle}.inventoryTable tbody tr:hover{background:#132238}.qtyMain{font-size:18px;font-weight:900;color:#70e2ad;font-variant-numeric:tabular-nums}.qtySub{font-size:12px;color:#9aabc2;margin-top:2px}.typePill{display:inline-block;padding:4px 8px;border:1px solid #31577f;background:#18304c;border-radius:7px;color:#c8dcff;font-size:12px}.actionsCell{display:flex;gap:5px}.actionsCell .btn{min-height:36px;padding:6px 9px;font-size:12px}.mobileInventory{display:none}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:11px;text-align:left;border-bottom:1px solid #26364b;white-space:nowrap}th{color:var(--muted);font-size:11px;text-transform:uppercase}td input{min-width:90px;background:#08111f;border:1px solid var(--line);border-radius:6px;color:white;padding:6px}.tabbar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.tab{background:#17263a;color:#cbd8ea;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-weight:700}.tab.active{background:#1c4e9a;color:white;border-color:#4f8df5}.toast{position:fixed;bottom:18px;left:16px;right:16px;max-width:480px;margin:auto;padding:13px 16px;border-radius:12px;z-index:20;background:#176c4e;color:white;box-shadow:0 12px 40px #0008;font-weight:700}.toast.err{background:#9f2941}.toast.warn{background:#946317}.divider{border:0;border-top:1px solid var(--line);margin:16px 0}.right{margin-left:auto}.checkbox{display:flex;align-items:center;gap:8px}.checkbox input{width:18px;height:18px}.footer{text-align:center;color:#71839d;font-size:12px;padding:12px 16px 30px}.mobileOnly{display:none}.empty{text-align:center;padding:30px 12px;color:var(--muted)}dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:16px;width:min(620px,calc(100% - 24px));padding:18px}dialog::backdrop{background:#000a}.dialogbody{max-height:70vh;overflow:auto}
-@media(max-width:760px){.wrap{padding:10px}.panel{padding:13px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fieldgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.desktopOnly{display:none!important}.mobileOnly{display:block}.topin{padding:10px 12px}.headerStatus{display:none}.btn{padding:10px 11px}.fullMobile{width:100%}.row.mobileStack{align-items:stretch;flex-direction:column}.row.mobileStack .btn{width:100%}}
+@media(max-width:760px){#connectionStatus{font-size:10px;padding:4px 6px}.wrap{padding:10px}.panel{padding:13px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fieldgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.desktopOnly{display:none!important}.mobileOnly{display:block}.topin{padding:10px 12px}.headerStatus{display:none}.btn{padding:10px 11px}.fullMobile{width:100%}.row.mobileStack{align-items:stretch;flex-direction:column}.row.mobileStack .btn{width:100%}}
 @media(max-width:430px){.fieldgrid{grid-template-columns:1fr}.stat{padding:10px}.brand h1{font-size:18px}.panel h2{font-size:18px}}
 
 .creatorPromo{position:relative;isolation:isolate;overflow:hidden;margin:26px 0 10px;border:1px solid #2c568a;border-radius:20px;background:linear-gradient(120deg,#0d1d33 0%,#102c50 52%,#0b1729 100%);box-shadow:0 18px 50px #0003;color:#eef5ff}.creatorGlow{position:absolute;z-index:-1;width:320px;height:320px;right:-90px;top:-160px;border-radius:50%;background:#2878f8;filter:blur(90px);opacity:.25}.creatorContent{padding:clamp(20px,4vw,34px)}.creatorEyebrow{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.15em;font-weight:900;color:#9fc5ff}.creatorDot{width:8px;height:8px;background:#54d6a0;border-radius:50%;box-shadow:0 0 12px #54d6a0}.creatorPromo h2{margin:10px 0 6px;font-size:clamp(24px,4vw,34px);line-height:1.15;letter-spacing:-.03em}.creatorPromo h2 span{color:#75aaff}.creatorLead{max-width:720px;color:#b8cbe4;margin:0 0 22px}.creatorServices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.creatorService{padding:15px;border-radius:13px;border:1px solid #294668;background:#0a1a2eaa;display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-height:140px}.serviceIcon{width:35px;height:35px;border-radius:10px;display:grid;place-items:center;background:#1c4273;color:#9ec5ff;font-size:21px;font-weight:900}.creatorService strong{font-size:14px}.creatorService small{font-size:12px;line-height:1.45;color:#a9bdd7}.creatorBottom{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-top:20px;padding-top:18px;border-top:1px solid #294668}.creatorBottom>div>strong{font-size:15px}.creatorHint{font-size:12px;color:#a9bdd7;margin-top:3px}.creatorWhatsApp{display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;background:#19a96b;color:white;font-weight:850;border-radius:12px;padding:13px 17px;min-height:48px;box-shadow:0 8px 22px #071d1b66;transition:transform .15s,background .15s}.creatorWhatsApp:hover{background:#13bd75;transform:translateY(-1px)}.waIcon{font-size:19px}.creatorSignature{margin-top:20px;font-size:10px;letter-spacing:.15em;font-weight:850;color:#7f9fc7}.creatorSignature span{color:#55d9a3;padding:0 5px}
 @media(max-width:760px){.creatorServices{grid-template-columns:repeat(2,minmax(0,1fr))}.creatorBottom{align-items:stretch}.creatorWhatsApp{width:100%}.creatorService{min-height:125px}}
 @media(max-width:390px){.creatorServices{grid-template-columns:1fr}.creatorService{min-height:auto}}
+
+/* Imagen personalizable: archivo imagen-app.jpg junto a index.html */
+.appImageSlot{margin:14px auto 18px;max-width:1200px;width:100%;border:1px solid #294668;border-radius:16px;overflow:hidden;background:#0c1727}
+.appImageSlot img{display:block;width:100%;height:auto;max-height:420px;object-fit:contain;margin:0 auto}
+.appImagePlaceholder{padding:24px 16px;text-align:center;color:#a9bdd7;background:linear-gradient(120deg,#0d1d33,#102c50)}
+.appImagePlaceholder strong{display:block;color:#eef5ff;font-size:16px;margin-bottom:6px}
+.appImagePlaceholder code{color:#9fc5ff;overflow-wrap:anywhere}
+@media(max-width:760px){.appImageSlot{margin:10px auto 14px;border-radius:12px}.appImageSlot img{max-height:280px}.appImagePlaceholder{padding:18px 12px}.appImagePlaceholder strong{font-size:14px}}
 </style>
 </head>
 <body>
 <header class="top"><div class="topin">
- <div class="brand"><div class="logo">🎙️</div><div><h1 style="margin:0;font-size:20px">StockVoz <span class="pill">v5.9</span></h1><div class="sub">Inventario por voz · local · instalable</div></div></div>
- <div class="row"><span id="saveStatus" class="sub headerStatus">Guardado local</span><button id="installBtn" class="btn soft hidden">＋ Instalar</button><button id="backupTop" class="btn muted" title="Descargar copia JSON">↧ Copia</button></div>
+ <div class="brand"><div class="logo">🎙️</div><div><h1 style="margin:0;font-size:20px">StockVoz <span class="pill">v5.12</span></h1><div class="sub">Inventario por voz · local · instalable</div></div></div>
+ <div class="row"><span id="connectionStatus" class="pill" role="status">Comprobando conexión…</span><span id="saveStatus" class="sub headerStatus">Guardado local</span><button id="installBtn" class="btn soft hidden">＋ Instalar</button><button id="backupTop" class="btn muted" title="Descargar copia JSON">↧ Copia</button></div>
 </div></header>
 <main class="wrap">
+ <section class="appImageSlot" aria-label="Imagen destacada de la aplicación">
+  <img id="appFeatureImage" src="./imagen-app.jpg" alt="Imagen destacada de StockVoz" onerror="this.hidden=true;document.getElementById('appImagePlaceholder').hidden=false" onload="this.hidden=false;document.getElementById('appImagePlaceholder').hidden=true">
+  <div id="appImagePlaceholder" class="appImagePlaceholder" hidden>
+   <strong>ESPACIO PARA TU IMAGEN</strong>
+   Para mostrar tu imagen, guardá el archivo JPEG con el nombre <code>imagen-app.jpg</code> en la misma carpeta que <code>index.html</code>.
+  </div>
+ </section>
  <section class="grid stats">
   <div class="panel stat"><label>ARTÍCULOS</label><strong id="statItems">0</strong></div>
   <div class="panel stat"><label>CANTIDAD TOTAL*</label><strong id="statUnits" style="color:#6fcfff">0</strong></div>
@@ -44,7 +59,7 @@
   <div id="micStatus" class="small" style="margin:8px 0;color:#9dc2ff">Tocá el micrófono y hablá con claridad</div>
   <textarea id="transcript" class="input" rows="2" placeholder="Ejemplo: Marca URUS, prenda short, código N115, 18 docenas. También podés escribir aquí."></textarea>
   <div class="row" style="justify-content:center;margin-top:10px"><button id="interpretBtn" class="btn primary">Interpretar y revisar</button><button id="clearTextBtn" class="btn muted">Limpiar</button></div>
-  <p class="mutedtext small" style="margin-bottom:0">El dictado depende del navegador y puede requerir conexión. No se guarda nada hasta que confirmes.</p>
+  <p class="mutedtext small" style="margin-bottom:0">El dictado depende del navegador y puede requerir conexión incluso si la app está offline. No se guarda nada hasta que confirmes.</p>
  </section>
 
  <section id="reviewPanel" class="panel hidden">
@@ -130,7 +145,7 @@
    <div class="creatorSignature">INGENIERO EMPRENDEDOR <span>·</span> Tecnología aplicada a la industria textil</div>
   </div>
  </section>
- <div class="footer">StockVoz v5.9 · Aplicación local · Sin cuenta ni base de datos obligatoria</div>
+ <div class="footer">StockVoz v5.12 · Aplicación local · Sin cuenta ni base de datos obligatoria</div>
 </main>
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
@@ -190,21 +205,43 @@ function parseSpeech(s){
   let t=txt(s).toLocaleLowerCase('es-AR').replace(/[，]/g,',');
   const words={uno:1,una:1,un:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,docena:12,trece:13,catorce:14,quince:15,dieciseis:16,'dieciséis':16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,veintiuno:21,veintiuna:21,veintidos:22,'veintidós':22,veintitres:23,'veintitrés':23,veinticuatro:24,veinticinco:25,veintiseis:26,'veintiséis':26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100};
   for(const [w,n] of Object.entries(words))t=t.replace(new RegExp('\\b'+w+'\\b','gi'),String(n));
-  // El SKU se toma completo desde la palabra 'código' hasta la unidad de cantidad
-  // (por ejemplo: 'código 15 15 docenas 16' => SKU 1515; 'código K 1515 docenas 16' => K1515).
-  const codeMarker=/(?:c[oó]digo(?:\s+de\s+barras)?|sku|art[ií]culo)\s*(?:es\s*)?/i;
-  const codeMatch=codeMarker.exec(t);
+  // En móviles, el reconocedor puede repetir hipótesis completas y partir un SKU en segmentos.
+  // Buscamos los fragmentos pronunciados después de cada marcador de código, hasta el siguiente campo.
+  const codeMarker=/(?:c[oó]digo(?:\s+de\s+barras)?|sku|art[ií]culo)\s*(?:es\s*)?/ig;
   const unitStart=/(?:^|\s)(?:docenas?|unidades?|piezas?|cajas?|paquetes?|pares?|rollos?|kilogramos?|kg|gramos?|metros?|litros?)\b/i;
+  const markers=[...t.matchAll(codeMarker)];
   let sku='';
-  if(codeMatch){
-    const rest=t.slice(codeMatch.index+codeMatch[0].length).trim();
-    const unitMatch=unitStart.exec(rest);
-    const rawCode=(unitMatch?rest.slice(0,unitMatch.index):rest).trim();
-    sku=rawCode.replace(/[^a-z0-9-]/gi,'').toUpperCase();
+  if(markers.length){
+    const chunks=[];
+    for(let i=0;i<markers.length;i++){
+      const from=markers[i].index+markers[i][0].length;
+      let to=i+1<markers.length?markers[i+1].index:t.length;
+      const rest=t.slice(from,to);
+      const field=/(?:\bmarca\b|\bprenda\b|\btipo\b)/i.exec(rest);
+      const unit=unitStart.exec(rest);
+      if(field)to=Math.min(to,from+field.index);
+      if(unit)to=Math.min(to,from+unit.index);
+      let fragment=t.slice(from,to).trim();
+      // Solo conservar el tramo inicial que parece código; ignorar palabras repetidas de otros campos.
+      const m=fragment.match(/^([a-z]*\s*\d+(?:[\s-]*[a-z0-9]+)*)/i);
+      if(m){const part=m[1].replace(/[^a-z0-9-]/gi,'').toUpperCase();if(part)chunks.push(part);}
+    }
+    if(chunks.length){
+      sku=chunks[0];
+      for(const part of chunks.slice(1)){
+        // Si el móvil repitió el mismo segmento (p. ej. T12 y T12) al cortar la palabra,
+        // unir la segunda lectura sin repetir la letra inicial: T12 + T12 => T1212.
+        const lead=sku.match(/^[A-Z]+/)?.[0]||'';
+        const nextLead=part.match(/^[A-Z]+/)?.[0]||'';
+        sku+=lead&&nextLead&&lead===nextLead?part.slice(nextLead.length):part;
+      }
+    }
   }
   if(!sku){const candidates=[...t.matchAll(/\b[a-z]{1,8}[-]?\d+[a-z0-9-]*\b/ig)];const c=candidates.find(m=>!/^marca$/i.test(m[0]));sku=c?c[0].toUpperCase():'';}
-  const bm=t.match(/marca\s+([a-záéíóúüñ][a-záéíóúüñ0-9-]*)/i);
-  const tm=t.match(/(?:prenda|tipo)\s+([a-záéíóúüñ0-9-]+)/i);
+  const brandMatches=[...t.matchAll(/marca\s+([a-záéíóúüñ][a-záéíóúüñ0-9-]*)/ig)];
+  const bm=brandMatches[brandMatches.length-1]||null;
+  const typeMatches=[...t.matchAll(/(?:prenda|tipo)\s+([a-záéíóúüñ0-9-]+)/ig)];
+  const tm=typeMatches[typeMatches.length-1]||null;
   const garment=['remera','remeras','pantalon','pantalón','pantalones','calza','calzas','campera','camperas','buzo','buzos','short','shorts','body','conjunto','vestido','pollera','chomba','camiseta','medias','camisa','camisas','jean','jeans'];
   const type=tm?tm[1]:(garment.find(g=>new RegExp('\\b'+g+'\\b','i').test(t))||'');
   const unitPattern='docenas?|unidades?|piezas?|cajas?|paquetes?|pares?|rollos?|kilogramos?|kg|gramos?|metros?|litros?';
@@ -240,7 +277,24 @@ $('confirmReview').onclick=()=>{const v={brand:$('rBrand').value,type:$('rType')
 $('speakReview').onclick=()=>{if(!('speechSynthesis'in window))return toast('Lectura en voz alta no disponible.','warn');const v={brand:$('rBrand').value,type:$('rType').value,sku:$('rSku').value,qty:$('rQty').value,unit:$('rUnit').value,stockType:$('rStockType').value,mode:$('rMode').value,operation:$('rOperation').value};speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(`Marca ${v.brand||'sin marca'}, tipo ${v.type||'sin especificar'}, código ${v.sku}, cantidad ${v.qty} ${inputUnitLabel(v.unit)}, categoría de stock ${stockTypeLabel(v.stockType)}, ${v.mode==='count'?'conteo físico':'operación '+v.operation}`);u.lang='es-AR';speechSynthesis.speak(u)};
 $('toggleManual').onclick=()=>{const open=$('manualForm').classList.toggle('hidden')===false;$('toggleManual').textContent=open?'Ocultar':'Mostrar'};
 $('manualForm').onsubmit=e=>{e.preventDefault();showReview({brand:$('mBrand').value,type:$('mType').value,sku:$('mSku').value,qty:$('mQty').value,unit:$('mUnit').value,stockType:$('taskStockType').value,mode:$('mMode').value,operation:$('mOperation').value})};
-let micRequested=false,finalTranscript='';const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(SR){recognition=new SR();recognition.lang='es-AR';recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;recognition.onstart=()=>{listening=true;$('micBtn').classList.add('listening');$('micBtn').textContent='■';$('micStatus').textContent='Micrófono activo. Podés hacer pausas; tocá ■ cuando termines.'};recognition.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const part=e.results[i][0].transcript.trim();if(e.results[i].isFinal){if(part)finalTranscript+=(finalTranscript?' ':'')+part;}else if(part){interim+=(interim?' ':'')+part}}$('transcript').value=[finalTranscript,interim].filter(Boolean).join(' ').trim()};recognition.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){micRequested=false;listening=false;resetMic();toast('Permití el acceso al micrófono en el navegador.','err')}else if(e.error==='aborted'){/* reinicio manual o parada solicitada */}else{$('micStatus').textContent='La escucha tuvo una interrupción. Intentando continuar…'}};recognition.onend=()=>{listening=false;if(micRequested){try{recognition.start();return}catch(e){setTimeout(()=>{if(micRequested){try{recognition.start()}catch(_){micRequested=false;resetMic()}}},350);return}}resetMic()}}else{$('micStatus').textContent='Este navegador no admite dictado. Escribí el producto manualmente.';$('micBtn').disabled=true}
+function mergeSpeechParts(parts){
+  // Algunos motores móviles vuelven a enviar hipótesis acumulativas como si fueran nuevas frases.
+  // Reconstruimos el texto y fusionamos solapamientos para evitar duplicar palabras/campos.
+  let out=[];
+  const norm=a=>a.toLocaleLowerCase('es-AR').replace(/[^a-z0-9áéíóúüñ]+/g,' ').trim();
+  for(const raw of parts){
+    const incoming=raw.trim();if(!incoming)continue;
+    if(!out.length){out=incoming.split(/\s+/);continue;}
+    const cur=norm(out.join(' ')),inc=norm(incoming);
+    if(inc===cur||cur.startsWith(inc+' '))continue;
+    if(inc.startsWith(cur+' ')){out=incoming.split(/\s+/);continue;}
+    const a=norm(out.join(' ')).split(' '),b=norm(incoming).split(' ');let overlap=Math.min(a.length,b.length);
+    while(overlap>0&&a.slice(-overlap).join(' ')!==b.slice(0,overlap).join(' '))overlap--;
+    out=out.concat(incoming.split(/\s+/).slice(overlap));
+  }
+  return out.join(' ').trim();
+}
+let micRequested=false,finalTranscript='';const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(SR){recognition=new SR();recognition.lang='es-AR';recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;recognition.onstart=()=>{listening=true;$('micBtn').classList.add('listening');$('micBtn').textContent='■';$('micStatus').textContent='Micrófono activo. Podés hacer pausas; tocá ■ cuando termines.'};recognition.onresult=e=>{const finals=[],interims=[];for(let i=0;i<e.results.length;i++){const part=e.results[i][0].transcript.trim();if(!part)continue;(e.results[i].isFinal?finals:interims).push(part)}const merged=mergeSpeechParts(finals);finalTranscript=merged;$('transcript').value=[merged,mergeSpeechParts(interims)].filter(Boolean).join(' ').trim()};recognition.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){micRequested=false;listening=false;resetMic();toast('Permití el acceso al micrófono en el navegador.','err')}else if(e.error==='aborted'){/* reinicio manual o parada solicitada */}else{$('micStatus').textContent='La escucha tuvo una interrupción. Intentando continuar…'}};recognition.onend=()=>{listening=false;if(micRequested){try{recognition.start();return}catch(e){setTimeout(()=>{if(micRequested){try{recognition.start()}catch(_){micRequested=false;resetMic()}}},350);return}}resetMic()}}else{$('micStatus').textContent='Este navegador no admite dictado. Escribí el producto manualmente.';$('micBtn').disabled=true}
 function resetMic(){$('micBtn').classList.remove('listening');$('micBtn').textContent='🎙';$('micStatus').textContent='Dictado detenido. Revisá el texto antes de interpretarlo.'}
 $('micBtn').onclick=()=>{if(!recognition)return toast('Dictado no disponible en este navegador.','warn');if(micRequested){micRequested=false;try{recognition.stop()}catch(e){}listening=false;resetMic();return}try{finalTranscript=$('transcript').value.trim();micRequested=true;recognition.start()}catch(e){micRequested=false;toast('Esperá un momento e intentá iniciar el micrófono otra vez.','warn')}};
 $('search').oninput=render;$('sort').onchange=render;
@@ -276,6 +330,8 @@ async function startBarcode(targetId){if(!('BarcodeDetector'in window)){toast('E
 function stopBarcode(){if(barcodeTimer)clearTimeout(barcodeTimer);barcodeTimer=null;if(barcodeStream)barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;$('barcodeVideo').srcObject=null;if($('barcodeDialog').open)$('barcodeDialog').close()}
 $('closeBarcode').onclick=stopBarcode;$('stopBarcode').onclick=stopBarcode;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;$('installBtn').classList.remove('hidden')});$('installBtn').onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null;$('installBtn').classList.add('hidden')};
+function updateConnectionStatus(){const el=$('connectionStatus');if(!el)return;const online=navigator.onLine;el.textContent=online?'● Con conexión':'● Sin Internet · modo local';el.style.background=online?'#123d31':'#4a3216';el.style.color=online?'#a9f5d3':'#ffe1a1';el.title=online?'La app está conectada.':'La app puede seguir funcionando con los datos guardados en este dispositivo.'}
+window.addEventListener('online',updateConnectionStatus);window.addEventListener('offline',updateConnectionStatus);updateConnectionStatus();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 window.addEventListener('storage',e=>{if(e.key===KEY)toast('Los datos locales cambiaron en otra pestaña. Recargá para ver la versión actual.','warn')});
 window.addEventListener('beforeunload',()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}});
