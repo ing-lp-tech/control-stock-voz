@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario por Voz v2.5 - Control de Stock & Excel</title>
+    <title>Inventario por Voz v2.6 - Stock, Marcas & Excel</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- SheetJS (XLSX) library -->
+    <!-- SheetJS (XLSX) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         @keyframes pulse-ring {
@@ -16,30 +16,29 @@
             50% { transform: scale(1.15); opacity: 0.3; }
             100% { transform: scale(0.95); opacity: 0.8; }
         }
-        .animate-pulse-ring {
-            animation: pulse-ring 2s infinite ease-in-out;
-        }
+        .animate-pulse-ring { animation: pulse-ring 2s infinite ease-in-out; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col justify-between">
 
-    <!-- Navbar -->
+    <!-- Header -->
     <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-50 shadow-md">
         <div class="max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center font-bold text-xl border border-emerald-500/30">
-                    <i class="fa-solid fa-[#microphone-lines]"></i>
                     <i class="fa-solid fa-microphone"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.5</span></h1>
-                    <p class="text-xs text-slate-400">Dictado por Voz & Exportación Excel</p>
+                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.6</span></h1>
+                    <p class="text-xs text-slate-400">Control de Stock por Voz & Multicategoría</p>
                 </div>
             </div>
             <div class="flex items-center gap-2">
+                <span class="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full hidden sm:inline-flex items-center gap-1">
+                    <i class="fa-solid fa-hard-drive"></i> Auto-guardado Local
+                </span>
                 <button id="btnTTS" onclick="toggleTTS()" class="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 text-xs flex items-center gap-2">
                     <i id="iconTTS" class="fa-solid fa-volume-high text-emerald-400"></i>
-                    <span class="hidden sm:inline">Voz Feedback</span>
                 </button>
             </div>
         </div>
@@ -50,15 +49,15 @@
         <!-- Métricas Rápidas -->
         <div class="grid grid-cols-3 gap-3 sm:gap-4">
             <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">SKUs / Códigos</p>
+                <p class="text-xs text-slate-400 uppercase font-semibold">CÓDIGOS / SKUs</p>
                 <p id="statSKUs" class="text-2xl sm:text-3xl font-extrabold text-indigo-400">0</p>
             </div>
             <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">Total Docenas</p>
+                <p class="text-xs text-slate-400 uppercase font-semibold">TOTAL DOCENAS</p>
                 <p id="statDocenas" class="text-2xl sm:text-3xl font-extrabold text-emerald-400">0</p>
             </div>
             <div class="bg-slate-800/80 border border-slate-700 p-3 sm:p-4 rounded-xl text-center">
-                <p class="text-xs text-slate-400 uppercase font-semibold">Total Unidades (x12)</p>
+                <p class="text-xs text-slate-400 uppercase font-semibold">TOTAL UNIDADES</p>
                 <p id="statUnidades" class="text-2xl sm:text-3xl font-extrabold text-cyan-400">0</p>
             </div>
         </div>
@@ -72,17 +71,17 @@
                     <i id="micIcon" class="fa-solid fa-microphone"></i>
                 </button>
                 <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Presiona el micrófono para hablar</p>
-                <p id="micTranscript" class="text-slate-300 italic min-h-[1.5rem] text-base sm:text-lg max-w-lg">Ejemplo: "Hay 20 docenas del código 96105"</p>
+                <p id="micTranscript" class="text-slate-300 italic min-h-[1.5rem] text-base sm:text-lg max-w-xl">Ejemplo: "Marca Scargo, remeras, código 96105 hay 20 docenas"</p>
                 
                 <div class="mt-4 flex flex-wrap justify-center gap-2">
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Código 96105 hay 20 docenas"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Hay 15 docenas del código N1414"</span>
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Restar 2 docenas al 96105"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca Scargo, remereas, código 96105 hay 20 docenas"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Código N1414, calzas, 15 unidades"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Restar 2 docenas al código 96105"</span>
                 </div>
             </div>
         </section>
 
-        <!-- Barra de Herramientas: Exportar / Importar / Carga Manual -->
+        <!-- Barra de Herramientas: Exportar / Importar -->
         <section class="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-wrap gap-3 items-center justify-between">
             <div class="flex flex-wrap gap-2 w-full sm:w-auto">
                 <button onclick="exportToExcel()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2 shadow">
@@ -99,13 +98,20 @@
             </button>
         </section>
 
-        <!-- Formulario Manual Rápido (Opcional) -->
+        <!-- Formulario Manual Completo -->
         <section class="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
-            <form onsubmit="handleManualAdd(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <p class="text-xs font-semibold text-slate-400 uppercase mb-3">Carga Manual Rápida</p>
+            <form onsubmit="handleManualAdd(event)" class="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                <input type="text" id="manualBrand" placeholder="Marca (ej. Scargo)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                <input type="text" id="manualType" placeholder="Tipo (ej. Remera)" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                 <input type="text" id="manualCode" placeholder="Código (ej. 96105)" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <input type="number" step="0.5" id="manualDozens" placeholder="Docenas (ej. 15)" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-sm py-2 px-4 transition">
-                    + Agregar Manual
+                <input type="number" step="0.5" id="manualQty" placeholder="Cantidad" required class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                <select id="manualUnitType" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                    <option value="docenas">Docenas (x12)</option>
+                    <option value="unidades">Unidades Sueltas</option>
+                </select>
+                <button type="submit" class="col-span-2 sm:col-span-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-sm py-2 px-3 transition">
+                    + Guardar
                 </button>
             </form>
         </section>
@@ -116,16 +122,18 @@
                 <h2 class="font-bold text-white text-base flex items-center gap-2">
                     <i class="fa-solid fa-boxes-stacked text-emerald-400"></i> Registro de Stock
                 </h2>
-                <input type="text" id="searchInput" oninput="renderTable()" placeholder="Buscar código..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 w-full sm:w-64">
+                <input type="text" id="searchInput" oninput="renderTable()" placeholder="Buscar por código, marca o tipo..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 w-full sm:w-64">
             </div>
 
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-slate-900/80 text-slate-400 text-xs uppercase border-b border-slate-700">
+                            <th class="p-3">Marca</th>
+                            <th class="p-3">Tipo Ropa</th>
                             <th class="p-3">Código (SKU)</th>
                             <th class="p-3">Docenas</th>
-                            <th class="p-3">Unidades (x12)</th>
+                            <th class="p-3">Total Unidades</th>
                             <th class="p-3 text-right">Acciones</th>
                         </tr>
                     </thead>
@@ -138,9 +146,8 @@
 
     </main>
 
-    <!-- Footer -->
     <footer class="bg-slate-900 border-t border-slate-800 text-center py-4 text-xs text-slate-500">
-        StockVoz v2.5 &copy; 2026 - Aplicación de Gestión por Voz
+        StockVoz v2.6 &copy; 2026 - Control de Stock Inteligente
     </footer>
 
     <!-- Toast Notification -->
@@ -149,14 +156,12 @@
         <span id="toastMsg" class="text-sm font-medium"></span>
     </div>
 
-    <!-- JS App Logic -->
     <script>
-        let stockData = JSON.parse(localStorage.getItem('stockData_v25')) || [];
+        let stockData = JSON.parse(localStorage.getItem('stockData_v26')) || [];
         let isListening = false;
         let ttsEnabled = true;
         let recognition = null;
 
-        // Diccionario de números hablados
         const textToNumber = {
             "uno":1, "una":1, "un":1, "dos":2, "tres":3, "cuatro":4, "cinco":5,
             "seis":6, "siete":7, "ocho":8, "nueve":9, "diez":10, "once":11,
@@ -174,7 +179,7 @@
         function initSpeechRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert("Tu navegador no soporta reconocimiento de voz. Te recomendamos Google Chrome o Edge.");
+                alert("Navegador no compatible. Utiliza Google Chrome o Edge.");
                 return;
             }
 
@@ -185,7 +190,7 @@
 
             recognition.onstart = () => {
                 isListening = true;
-                document.getElementById('micStatus').innerText = "Escuchando... Dicta tu código y docenas";
+                document.getElementById('micStatus').innerText = "Escuchando... Dicta marca, tipo, código y cantidad";
                 document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-rose-600 text-white text-3xl sm:text-4xl shadow-lg border-4 border-rose-400 animate-pulse flex items-center justify-center mb-4";
                 document.getElementById('micPulse').classList.remove('hidden');
             };
@@ -203,82 +208,116 @@
                 processVoiceCommand(transcript);
             };
 
-            recognition.onerror = (event) => {
-                showToast("Error al escuchar. Intenta nuevamente.", "error");
+            recognition.onerror = () => {
+                showToast("Error de micrófono. Intenta de nuevo.", "error");
             };
         }
 
         function toggleListening() {
             if (!recognition) return;
-            if (isListening) {
-                recognition.stop();
-            } else {
-                recognition.start();
-            }
+            if (isListening) recognition.stop();
+            else recognition.start();
         }
 
-        // Motor de Parser Mejorado
         function processVoiceCommand(text) {
             let raw = text.toLowerCase().trim();
             let isSubtract = raw.includes("restar") || raw.includes("resta") || raw.includes("sacar") || raw.includes("quitar");
+            let isUnitOnly = raw.includes("unidad") || raw.includes("unidades") || raw.includes("pieza") || raw.includes("piezas") || raw.includes("suelta") || raw.includes("sueltas");
 
-            // Reemplazar números escritos con dígitos
+            // Reemplazar números escritos
             Object.keys(textToNumber).forEach(word => {
                 let reg = new RegExp(`\\b${word}\\b`, 'g');
                 raw = raw.replace(reg, textToNumber[word]);
             });
 
-            // Extraer números de docenas (e.g. 15 docenas, 20 de docenas)
-            let dozenMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:de\s*)?(?:docena|docenas|doc)/i);
-            let dozens = dozenMatch ? parseFloat(dozenMatch[1]) : null;
+            // Extraer Cantidad
+            let qtyMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:de\s*)?(?:docena|docenas|doc|unidad|unidades|pieza|piezas)/i);
+            let qty = qtyMatch ? parseFloat(qtyMatch[1]) : null;
 
-            // Extraer código: buscar después de palabra 'código', 'codigo', 'sku' o unificar secuencias de números
+            // Extraer Marca (si dice "marca X")
+            let brand = "-";
+            let brandMatch = raw.match(/(?:marca)\s+([a-z0-9]+)/i);
+            if (brandMatch) brand = brandMatch[1].toUpperCase();
+
+            // Extraer Tipo de Ropa (si menciona palabras comunes o "tipo X")
+            let type = "-";
+            let typeMatch = raw.match(/(?:tipo|prenda)\s+([a-z0-9]+)/i);
+            if (typeMatch) {
+                type = typeMatch[1].toUpperCase();
+            } else {
+                const garmentTypes = ["remera", "remeras", "pantalon", "pantalones", "calza", "calzas", "campera", "camperas", "buzo", "buzos", "bodys", "body", "conjunto"];
+                garmentTypes.forEach(g => {
+                    if (raw.includes(g)) type = g.toUpperCase();
+                });
+            }
+
+            // Extraer Código (SKU)
             let code = null;
             let codeMatch = raw.match(/(?:código|codigo|sku|item)\s*([a-z0-9\s]+)/i);
 
             if (codeMatch) {
-                let codeRaw = codeMatch[1].replace(/(?:hay|de|docena|docenas|unidades).*/gi, '').trim();
-                // Unificar bloques numéricos separados por espacios (e.g., "96 105" -> "96105")
+                let codeRaw = codeMatch[1].replace(/(?:hay|de|docena|docenas|unidad|unidades|marca|tipo).*/gi, '').trim();
                 code = codeRaw.replace(/\s+/g, '');
             } else {
-                // Buscar cualquier secuencia numérica separada por espacios si no viene la palabra 'código'
                 let numberBlocks = raw.match(/\b\d+(\s+\d+)+\b/);
                 if (numberBlocks) {
                     code = numberBlocks[0].replace(/\s+/g, '');
                 } else {
                     let singleNumber = raw.match(/\b([a-z]?\d+)\b/i);
-                    if (singleNumber && dozens !== parseFloat(singleNumber[1])) {
+                    if (singleNumber && qty !== parseFloat(singleNumber[1])) {
                         code = singleNumber[1];
                     }
                 }
             }
 
-            if (code && dozens !== null) {
-                let finalDozens = isSubtract ? -Math.abs(dozens) : Math.abs(dozens);
-                addOrUpdateStock(code.toUpperCase(), finalDozens);
-                
-                let msg = isSubtract ? 
-                    `Se restaron ${dozens} docenas al código ${code}` : 
-                    `Código ${code}: guardadas ${dozens} docenas`;
+            if (code && qty !== null) {
+                let finalQty = isSubtract ? -Math.abs(qty) : Math.abs(qty);
+                let isDozens = !isUnitOnly;
+
+                addOrUpdateStock(code.toUpperCase(), brand, type, finalQty, isDozens);
+
+                let msg = isDozens ? 
+                    `Código ${code}: guardadas ${qty} docenas` : 
+                    `Código ${code}: guardadas ${qty} unidades sueltas`;
                 
                 showToast(msg, "success");
                 speakText(msg);
             } else {
-                showToast("No se entendió. Di por ejemplo: 'Código 96105 hay 20 docenas'", "error");
-                speakText("No pude entender el código o las docenas.");
+                showToast("No se entendió. Di por ejemplo: 'Marca Scargo, remeras, código 96105 hay 20 docenas'", "error");
+                speakText("No pude entender el código o la cantidad.");
             }
         }
 
-        function addOrUpdateStock(code, dozens) {
+        function addOrUpdateStock(code, brand, type, qty, isDozens) {
             let index = stockData.findIndex(item => item.code === code);
+
             if (index !== -1) {
-                stockData[index].dozens += dozens;
-                if (stockData[index].dozens <= 0) {
+                if (brand !== "-") stockData[index].brand = brand;
+                if (type !== "-") stockData[index].type = type;
+
+                if (isDozens) {
+                    stockData[index].dozens += qty;
+                    stockData[index].totalUnits = stockData[index].dozens * 12;
+                } else {
+                    stockData[index].totalUnits += qty;
+                    stockData[index].dozens = (stockData[index].totalUnits / 12).toFixed(1);
+                }
+
+                if (stockData[index].totalUnits <= 0) {
                     stockData.splice(index, 1);
                 }
             } else {
-                if (dozens > 0) {
-                    stockData.push({ code: code, dozens: dozens });
+                if (qty > 0) {
+                    let totalUnits = isDozens ? qty * 12 : qty;
+                    let dozens = isDozens ? qty : (qty / 12).toFixed(1);
+                    stockData.push({
+                        code: code,
+                        brand: brand,
+                        type: type,
+                        dozens: parseFloat(dozens),
+                        totalUnits: totalUnits,
+                        isDozens: isDozens
+                    });
                 }
             }
             saveAndRender();
@@ -286,19 +325,25 @@
 
         function handleManualAdd(e) {
             e.preventDefault();
+            let brand = document.getElementById('manualBrand').value.trim().toUpperCase() || "-";
+            let type = document.getElementById('manualType').value.trim().toUpperCase() || "-";
             let code = document.getElementById('manualCode').value.trim().toUpperCase();
-            let dozens = parseFloat(document.getElementById('manualDozens').value);
+            let qty = parseFloat(document.getElementById('manualQty').value);
+            let unitType = document.getElementById('manualUnitType').value;
 
-            if (code && !isNaN(dozens)) {
-                addOrUpdateStock(code, dozens);
+            if (code && !isNaN(qty)) {
+                addOrUpdateStock(code, brand, type, qty, unitType === 'docenas');
                 document.getElementById('manualCode').value = '';
-                document.getElementById('manualDozens').value = '';
-                showToast(`Código ${code} agregado con exito`, "success");
+                document.getElementById('manualQty').value = '';
+                showToast(`Código ${code} guardado con éxito`, "success");
             }
         }
 
-        function adjustDozens(code, amount) {
-            addOrUpdateStock(code, amount);
+        function adjustQty(code, amount) {
+            let item = stockData.find(i => i.code === code);
+            if (item) {
+                addOrUpdateStock(code, item.brand, item.type, amount, item.isDozens);
+            }
         }
 
         function deleteItem(code) {
@@ -316,7 +361,7 @@
         }
 
         function saveAndRender() {
-            localStorage.setItem('stockData_v25', JSON.stringify(stockData));
+            localStorage.setItem('stockData_v26', JSON.stringify(stockData));
             renderTable();
         }
 
@@ -327,30 +372,37 @@
 
             let totalSKUs = stockData.length;
             let totalDozens = 0;
+            let totalUnits = 0;
 
-            let filtered = stockData.filter(item => item.code.toLowerCase().includes(filter));
+            let filtered = stockData.filter(item => 
+                item.code.toLowerCase().includes(filter) ||
+                item.brand.toLowerCase().includes(filter) ||
+                item.type.toLowerCase().includes(filter)
+            );
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="4" class="text-center py-8 text-slate-500 italic text-xs">
+                        <td colspan="6" class="text-center py-8 text-slate-500 italic text-xs">
                             No hay registros cargados. ¡Usa el micrófono o el formulario manual!
                         </td>
                     </tr>
                 `;
             } else {
                 filtered.forEach(item => {
-                    totalDozens += item.dozens;
-                    let units = item.dozens * 12;
+                    totalDozens += parseFloat(item.dozens) || 0;
+                    totalUnits += parseFloat(item.totalUnits) || 0;
 
                     tbody.innerHTML += `
                         <tr class="hover:bg-slate-700/50 transition">
+                            <td class="p-3 text-slate-300 font-medium">${item.brand}</td>
+                            <td class="p-3 text-slate-300 font-medium">${item.type}</td>
                             <td class="p-3 font-bold text-white">${item.code}</td>
-                            <td class="p-3 text-emerald-400 font-semibold">${item.dozens} doc.</td>
-                            <td class="p-3 text-cyan-400 font-semibold">${units} un.</td>
+                            <td class="p-3 text-emerald-400 font-semibold">${item.isDozens ? item.dozens + ' doc.' : '-'}</td>
+                            <td class="p-3 text-cyan-400 font-semibold">${item.totalUnits} un.</td>
                             <td class="p-3 text-right space-x-1">
-                                <button onclick="adjustDozens('${item.code}', 1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">+1</button>
-                                <button onclick="adjustDozens('${item.code}', -1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">-1</button>
+                                <button onclick="adjustQty('${item.code}', 1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">+1</button>
+                                <button onclick="adjustQty('${item.code}', -1)" class="bg-slate-700 hover:bg-slate-600 text-xs px-2 py-1 rounded text-slate-200">-1</button>
                                 <button onclick="deleteItem('${item.code}')" class="bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 text-xs px-2 py-1 rounded"><i class="fa-solid fa-trash-can"></i></button>
                             </td>
                         </tr>
@@ -359,88 +411,9 @@
             }
 
             document.getElementById('statSKUs').innerText = totalSKUs;
-            document.getElementById('statDocenas').innerText = totalDozens;
-            document.getElementById('statUnidades').innerText = totalDozens * 12;
+            document.getElementById('statDocenas').innerText = totalDozens.toFixed(1);
+            document.getElementById('statUnidades').innerText = totalUnits;
         }
 
         function exportToExcel() {
-            if (stockData.length === 0) {
-                showToast("La tabla está vacía. Carga algún registro primero.", "error");
-                return;
-            }
-
-            let excelRows = stockData.map(item => ({
-                "CÓDIGO (SKU)": item.code,
-                "DOCENAS": item.dozens,
-                "UNIDADES TOTALES (x12)": item.dozens * 12
-            }));
-
-            let worksheet = XLSX.utils.json_to_sheet(excelRows);
-            let workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Stock");
-
-            let date = new Date().toISOString().split('T')[0];
-            XLSX.writeFile(workbook, `Stock_Inventario_${date}.xlsx`);
-            showToast("¡Archivo Excel descargado en tu carpeta de Descargas!", "success");
-        }
-
-        function importExcel(e) {
-            let file = e.target.files[0];
-            if (!file) return;
-
-            let reader = new FileReader();
-            reader.onload = function(evt) {
-                try {
-                    let data = new Uint8Array(evt.target.result);
-                    let workbook = XLSX.read(data, { type: 'array' });
-                    let sheetName = workbook.SheetNames[0];
-                    let rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-                    rows.forEach(row => {
-                        let code = row["CÓDIGO (SKU)"] || row["Codigo"] || row["SKU"] || row["codigo"];
-                        let dozens = row["DOCENAS"] || row["Docenas"] || row["docenas"];
-                        if (code && dozens) {
-                            addOrUpdateStock(String(code).toUpperCase().trim(), parseFloat(dozens));
-                        }
-                    });
-
-                    showToast("Excel cargado e importado con éxito", "success");
-                } catch (err) {
-                    showToast("Error al leer el archivo Excel.", "error");
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        }
-
-        function toggleTTS() {
-            ttsEnabled = !ttsEnabled;
-            document.getElementById('iconTTS').className = ttsEnabled ? "fa-solid fa-volume-high text-emerald-400" : "fa-solid fa-volume-xmark text-slate-500";
-            showToast(ttsEnabled ? "Voz de confirmación activada" : "Voz desactivada", "info");
-        }
-
-        function speakText(text) {
-            if (!ttsEnabled || !('speechSynthesis' in window)) return;
-            window.speechSynthesis.cancel();
-            let utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'es-AR';
-            window.speechSynthesis.speak(utterance);
-        }
-
-        function showToast(msg, type = 'success') {
-            const toast = document.getElementById('toast');
-            const toastMsg = document.getElementById('toastMsg');
-            const toastIcon = document.getElementById('toastIcon');
-
-            toastMsg.innerText = msg;
-            toast.className = `fixed bottom-5 right-5 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-transform duration-300 z-50 ${
-                type === 'error' ? 'bg-rose-600' : type === 'info' ? 'bg-indigo-600' : 'bg-emerald-600'
-            }`;
-
-            toast.classList.remove('translate-y-24', 'opacity-0');
-            setTimeout(() => {
-                toast.classList.add('translate-y-24', 'opacity-0');
-            }, 3000);
-        }
-    </script>
-</body>
-</html>
+            if
