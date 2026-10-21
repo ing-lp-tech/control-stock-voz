@@ -1,4 +1,4 @@
-# StockVoz v5.4
+# StockVoz v5.9
 
 Aplicación web estática para controlar cantidades por voz o manualmente. No requiere backend ni base de datos. Los datos quedan guardados en el navegador/dispositivo.
 
@@ -52,3 +52,13 @@ Reemplazá el texto vacío por el número internacional, solo dígitos, sin `+`,
 
 
 WhatsApp de contacto de Ingeniero Emprendedor: +54 9 11 6202-1005. El botón abre un mensaje predeterminado que comienza con “Hola, vengo de la app de stock y quiero…”.
+
+
+### Corrección v5.9 de cantidad por voz
+- Si se detecta un número después de una unidad (por ejemplo, “docenas 16”), prioriza ese número frente a otro número antes de la unidad.
+- Si no existe cantidad después de la unidad, admite “16 docenas”.
+- Confirmá siempre la cantidad en la pantalla de revisión antes de guardar, ya que el reconocimiento de voz del navegador puede transcribir palabras o números incorrectamente.
+
+
+### Corrección de voz v5.9
+El SKU se captura completo desde “código” hasta la unidad de cantidad y se eliminan los espacios del código. Por ejemplo, “código 15 15 docenas 16” produce SKU `1515` y cantidad `16` docenas; “código K 1515 docenas 16” produce SKU `K1515` y cantidad `16` docenas. Revisá siempre la pantalla de confirmación antes de guardar.

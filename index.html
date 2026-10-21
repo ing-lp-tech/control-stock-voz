@@ -21,7 +21,7 @@
 </head>
 <body>
 <header class="top"><div class="topin">
- <div class="brand"><div class="logo">🎙️</div><div><h1 style="margin:0;font-size:20px">StockVoz <span class="pill">v5.6</span></h1><div class="sub">Inventario por voz · local · instalable</div></div></div>
+ <div class="brand"><div class="logo">🎙️</div><div><h1 style="margin:0;font-size:20px">StockVoz <span class="pill">v5.9</span></h1><div class="sub">Inventario por voz · local · instalable</div></div></div>
  <div class="row"><span id="saveStatus" class="sub headerStatus">Guardado local</span><button id="installBtn" class="btn soft hidden">＋ Instalar</button><button id="backupTop" class="btn muted" title="Descargar copia JSON">↧ Copia</button></div>
 </div></header>
 <main class="wrap">
@@ -130,7 +130,7 @@
    <div class="creatorSignature">INGENIERO EMPRENDEDOR <span>·</span> Tecnología aplicada a la industria textil</div>
   </div>
  </section>
- <div class="footer">StockVoz v5.6 · Aplicación local · Sin cuenta ni base de datos obligatoria</div>
+ <div class="footer">StockVoz v5.9 · Aplicación local · Sin cuenta ni base de datos obligatoria</div>
 </main>
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
@@ -190,8 +190,18 @@ function parseSpeech(s){
   let t=txt(s).toLocaleLowerCase('es-AR').replace(/[，]/g,',');
   const words={uno:1,una:1,un:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,docena:12,trece:13,catorce:14,quince:15,dieciseis:16,'dieciséis':16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,veintiuno:21,veintiuna:21,veintidos:22,'veintidós':22,veintitres:23,'veintitrés':23,veinticuatro:24,veinticinco:25,veintiseis:26,'veintiséis':26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100};
   for(const [w,n] of Object.entries(words))t=t.replace(new RegExp('\\b'+w+'\\b','gi'),String(n));
-  const cm=t.match(/(?:c[oó]digo(?:\s+de\s+barras)?|sku|art[ií]culo)\s*(?:es\s*)?([a-z0-9][a-z0-9-]*)/i);
-  let sku=cm?cm[1].replace(/\s/g,'').toUpperCase():'';
+  // El SKU se toma completo desde la palabra 'código' hasta la unidad de cantidad
+  // (por ejemplo: 'código 15 15 docenas 16' => SKU 1515; 'código K 1515 docenas 16' => K1515).
+  const codeMarker=/(?:c[oó]digo(?:\s+de\s+barras)?|sku|art[ií]culo)\s*(?:es\s*)?/i;
+  const codeMatch=codeMarker.exec(t);
+  const unitStart=/(?:^|\s)(?:docenas?|unidades?|piezas?|cajas?|paquetes?|pares?|rollos?|kilogramos?|kg|gramos?|metros?|litros?)\b/i;
+  let sku='';
+  if(codeMatch){
+    const rest=t.slice(codeMatch.index+codeMatch[0].length).trim();
+    const unitMatch=unitStart.exec(rest);
+    const rawCode=(unitMatch?rest.slice(0,unitMatch.index):rest).trim();
+    sku=rawCode.replace(/[^a-z0-9-]/gi,'').toUpperCase();
+  }
   if(!sku){const candidates=[...t.matchAll(/\b[a-z]{1,8}[-]?\d+[a-z0-9-]*\b/ig)];const c=candidates.find(m=>!/^marca$/i.test(m[0]));sku=c?c[0].toUpperCase():'';}
   const bm=t.match(/marca\s+([a-záéíóúüñ][a-záéíóúüñ0-9-]*)/i);
   const tm=t.match(/(?:prenda|tipo)\s+([a-záéíóúüñ0-9-]+)/i);
@@ -201,9 +211,13 @@ function parseSpeech(s){
   const beforeUnit=new RegExp('\\b(\\d+(?:[.,]\\d+)?)\\s*('+unitPattern+')\\b','i');
   const afterUnit=new RegExp('\\b('+unitPattern+')\\s*(?:(?:son|de|:|igual(?:es)?\s+a)\\s*)?(\\d+(?:[.,]\\d+)?)\\b','i');
   const q1=t.match(beforeUnit), q2=t.match(afterUnit);
-  let qty=null,unitWord='';
-  if(q1){qty=Number(q1[1].replace(',','.'));unitWord=q1[2].toLowerCase();}
-  else if(q2){unitWord=q2[1].toLowerCase();qty=Number(q2[2].replace(',','.'));}
+  let qty=null,unitWord='',quantitySource='';
+  // Prioridad: si la persona dice la unidad y DESPUÉS la cantidad ("docenas 16"),
+  // ese número es la cantidad final. Esto evita tomar el número anterior (que puede
+  // ser parte de una repetición del SKU o un falso reconocimiento del micrófono).
+  // Si no hay número después de la unidad, acepta el formato habitual "16 docenas".
+  if(q2){unitWord=q2[1].toLowerCase();qty=Number(q2[2].replace(',','.'));quantitySource='despues-de-unidad';}
+  else if(q1){qty=Number(q1[1].replace(',','.'));unitWord=q1[2].toLowerCase();quantitySource='antes-de-unidad';}
   else {
     const withoutSku=sku?t.replace(new RegExp('\\b'+sku.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')+'\\b','i'),' '):t;
     const labeled=withoutSku.match(/(?:sumar|agregar|ingresar|tengo|cantidad|stock|restar|quitar|sacar|descontar|establecer|contar)\s+(\d+(?:[.,]\d+)?)/i);
@@ -214,7 +228,7 @@ function parseSpeech(s){
   const stockType=/\b(salida|egreso|despacho)\b/i.test(t)?'salida':/\b(stock de entrada|entrada de mercader[ií]a|ingreso de mercader[ií]a|recepci[oó]n de mercader[ií]a)\b/i.test(t)?'entrada':/\b(stock de local|local)\b/i.test(t)?'local':/\b(dep[oó]sito|deposito)\b/i.test(t)?'deposito':/\b(producci[oó]n)\b/i.test(t)?'produccion':/\b(transferencia)\b/i.test(t)?'transferencia':/\b(ajuste)\b/i.test(t)?'ajuste':'inventario';
   const mode=/\b(contar|conteo|conteo f[ií]sico|stock real|dejar en)\b/i.test(t)?'count':'movement';
   const operation=/\b(restar|quitar|sacar|descontar|salida|egreso|despacho)\b/i.test(t)?'restar':'sumar';
-  return{brand:bm?.[1]||'',type:type||'',sku,qty,unit,stockType,mode,operation};
+  return{brand:bm?.[1]||'',type:type||'',sku,qty,unit,quantitySource,stockType,mode,operation};
 }
 function showReview(v){pending=v;$('rBrand').value=v.brand||'';$('rType').value=v.type||'';$('rSku').value=v.sku||'';$('rQty').value=v.qty??'';$('rUnit').value=v.unit||'unit';$('rStockType').value=$('taskStockType').value||v.stockType||'inventario';$('rMode').value=v.mode||'movement';$('rOperation').value=v.operation||'sumar';if($('taskStockType').value==='salida'){$('rMode').value='movement';$('rOperation').value='restar'}else if($('taskStockType').value==='entrada'){$('rMode').value='movement';$('rOperation').value='sumar'}reviewNotice();$('reviewPanel').classList.remove('hidden');$('reviewPanel').scrollIntoView({behavior:'smooth',block:'start'})}
 function reviewNotice(){const sku=upper($('rSku').value),old=getExisting(sku),mode=$('rMode').value;let msg=[];if(!sku)msg.push('No se detectó el SKU; completalo manualmente.');if(!(Number($('rQty').value)>0))msg.push('No se detectó una cantidad válida.');if(old)msg.push(`El SKU ya existe: stock actual ${old.units} ${unitLabel(old.unitName)}. Tipo: ${stockTypeLabel(old.stockType)}.`);if(mode==='count')msg.push('Conteo físico: al confirmar, el stock se reemplazará por la cantidad indicada.');else if($('rOperation').value==='restar')msg.push('Descuento: se restará la cantidad indicada.');else msg.push('Ingreso: se sumará la cantidad indicada.');$('reviewNotice').textContent=msg.join(' ')}
