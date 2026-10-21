@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario por Voz v2.6 - Stock, Marcas & Excel</title>
+    <title>Inventario por Voz v2.7 - Micrófono Reparado</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -29,7 +29,7 @@
                     <i class="fa-solid fa-microphone"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.6</span></h1>
+                    <h1 class="text-lg font-bold text-white leading-tight">StockVoz <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">v2.7</span></h1>
                     <p class="text-xs text-slate-400">Control de Stock por Voz & Multicategoría</p>
                 </div>
             </div>
@@ -45,6 +45,12 @@
     </header>
 
     <main class="max-w-6xl mx-auto p-4 sm:p-6 w-full flex-1 space-y-6">
+
+        <!-- Banner de advertencia si no está en HTTPS -->
+        <div id="httpsWarning" class="hidden bg-amber-500/10 border border-amber-500/30 text-amber-300 p-3 rounded-xl text-xs flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base"></i>
+            <span><strong>Aviso de seguridad:</strong> Estás ejecutando el archivo localmente (`file://`). Algunos navegadores bloquean el micrófono si no estás en un sitio seguro `https://` (como Vercel o Netlify).</span>
+        </div>
 
         <!-- Métricas Rápidas -->
         <div class="grid grid-cols-3 gap-3 sm:gap-4">
@@ -67,14 +73,14 @@
             <div id="micPulse" class="hidden absolute inset-0 bg-emerald-500/5 pointer-events-none animate-pulse-ring"></div>
             
             <div class="relative z-10 flex flex-col items-center">
-                <button id="btnMic" onclick="toggleListening()" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg transition-all flex items-center justify-center mb-4 border-4 border-slate-700">
+                <button id="btnMic" onclick="startMicWithPermission()" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg transition-all flex items-center justify-center mb-4 border-4 border-slate-700">
                     <i id="micIcon" class="fa-solid fa-microphone"></i>
                 </button>
                 <p id="micStatus" class="text-sm font-semibold text-emerald-400 mb-1">Presiona el micrófono para hablar</p>
                 <p id="micTranscript" class="text-slate-300 italic min-h-[1.5rem] text-base sm:text-lg max-w-xl">Ejemplo: "Marca Scargo, remeras, código 96105 hay 20 docenas"</p>
                 
                 <div class="mt-4 flex flex-wrap justify-center gap-2">
-                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca Scargo, remereas, código 96105 hay 20 docenas"</span>
+                    <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Marca Scargo, remeras, código 96105 hay 20 docenas"</span>
                     <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Código N1414, calzas, 15 unidades"</span>
                     <span class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600">"Restar 2 docenas al código 96105"</span>
                 </div>
@@ -147,7 +153,7 @@
     </main>
 
     <footer class="bg-slate-900 border-t border-slate-800 text-center py-4 text-xs text-slate-500">
-        StockVoz v2.6 &copy; 2026 - Control de Stock Inteligente
+        StockVoz v2.7 &copy; 2026 - Control de Stock Inteligente
     </footer>
 
     <!-- Toast Notification -->
@@ -172,6 +178,9 @@
         };
 
         window.onload = function() {
+            if (window.location.protocol === 'file:') {
+                document.getElementById('httpsWarning').classList.remove('hidden');
+            }
             initSpeechRecognition();
             renderTable();
         };
@@ -179,7 +188,7 @@
         function initSpeechRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert("Navegador no compatible. Utiliza Google Chrome o Edge.");
+                showToast("Tu navegador no soporta voz. Usa Google Chrome o Edge.", "error");
                 return;
             }
 
@@ -208,15 +217,39 @@
                 processVoiceCommand(transcript);
             };
 
-            recognition.onerror = () => {
-                showToast("Error de micrófono. Intenta de nuevo.", "error");
+            recognition.onerror = (event) => {
+                isListening = false;
+                document.getElementById('micStatus').innerText = "Presiona el micrófono para hablar";
+                document.getElementById('btnMic').className = "w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-3xl sm:text-4xl shadow-lg border-4 border-slate-700 flex items-center justify-center mb-4";
+                document.getElementById('micPulse').classList.add('hidden');
+
+                if (event.error === 'not-allowed') {
+                    showToast("Permiso de micrófono denegado en el navegador.", "error");
+                } else if (event.error === 'no-speech') {
+                    showToast("No se detectó voz. Intenta hablar más fuerte.", "info");
+                } else if (event.error === 'network') {
+                    showToast("Error de red al conectar con el motor de voz.", "error");
+                } else {
+                    showToast(`Error de micrófono: ${event.error}`, "error");
+                }
             };
         }
 
-        function toggleListening() {
-            if (!recognition) return;
-            if (isListening) recognition.stop();
-            else recognition.start();
+        async function startMicWithPermission() {
+            if (isListening) {
+                if (recognition) recognition.stop();
+                return;
+            }
+
+            try {
+                // Solicitar permiso de micrófono previamente para desbloquear navegadores estrictos
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    await navigator.mediaDevices.getUserMedia({ audio: true });
+                }
+                if (recognition) recognition.start();
+            } catch (err) {
+                showToast("Por favor otorga permiso al micrófono en la barra de tu navegador.", "error");
+            }
         }
 
         function processVoiceCommand(text) {
@@ -224,22 +257,18 @@
             let isSubtract = raw.includes("restar") || raw.includes("resta") || raw.includes("sacar") || raw.includes("quitar");
             let isUnitOnly = raw.includes("unidad") || raw.includes("unidades") || raw.includes("pieza") || raw.includes("piezas") || raw.includes("suelta") || raw.includes("sueltas");
 
-            // Reemplazar números escritos
             Object.keys(textToNumber).forEach(word => {
                 let reg = new RegExp(`\\b${word}\\b`, 'g');
                 raw = raw.replace(reg, textToNumber[word]);
             });
 
-            // Extraer Cantidad
             let qtyMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:de\s*)?(?:docena|docenas|doc|unidad|unidades|pieza|piezas)/i);
             let qty = qtyMatch ? parseFloat(qtyMatch[1]) : null;
 
-            // Extraer Marca (si dice "marca X")
             let brand = "-";
             let brandMatch = raw.match(/(?:marca)\s+([a-z0-9]+)/i);
             if (brandMatch) brand = brandMatch[1].toUpperCase();
 
-            // Extraer Tipo de Ropa (si menciona palabras comunes o "tipo X")
             let type = "-";
             let typeMatch = raw.match(/(?:tipo|prenda)\s+([a-z0-9]+)/i);
             if (typeMatch) {
@@ -251,7 +280,6 @@
                 });
             }
 
-            // Extraer Código (SKU)
             let code = null;
             let codeMatch = raw.match(/(?:código|codigo|sku|item)\s*([a-z0-9\s]+)/i);
 
@@ -416,4 +444,90 @@
         }
 
         function exportToExcel() {
-            if
+            if (stockData.length === 0) {
+                showToast("La tabla está vacía.", "error");
+                return;
+            }
+
+            let excelRows = stockData.map(item => ({
+                "MARCA": item.brand,
+                "TIPO DE ROPA": item.type,
+                "CÓDIGO (SKU)": item.code,
+                "DOCENAS": item.isDozens ? item.dozens : "N/A (Unidades)",
+                "TOTAL UNIDADES": item.totalUnits
+            }));
+
+            let worksheet = XLSX.utils.json_to_sheet(excelRows);
+            let workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Stock");
+
+            let date = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Stock_Inventario_${date}.xlsx`);
+            showToast("¡Archivo Excel descargado en tu carpeta de Descargas!", "success");
+        }
+
+        function importExcel(e) {
+            let file = e.target.files[0];
+            if (!file) return;
+
+            let reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    let data = new Uint8Array(evt.target.result);
+                    let workbook = XLSX.read(data, { type: 'array' });
+                    let sheetName = workbook.SheetNames[0];
+                    let rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+                    rows.forEach(row => {
+                        let brand = row["MARCA"] || row["Marca"] || "-";
+                        let type = row["TIPO DE ROPA"] || row["Tipo"] || "-";
+                        let code = row["CÓDIGO (SKU)"] || row["Codigo"] || row["SKU"];
+                        let dozens = row["DOCENAS"] || row["Docenas"];
+                        let units = row["TOTAL UNIDADES"] || row["Unidades"];
+
+                        if (code) {
+                            if (dozens && dozens !== "N/A (Unidades)") {
+                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(dozens), true);
+                            } else if (units) {
+                                addOrUpdateStock(String(code).toUpperCase().trim(), String(brand).toUpperCase(), String(type).toUpperCase(), parseFloat(units), false);
+                            }
+                        }
+                    });
+
+                    showToast("Excel cargado con éxito", "success");
+                } catch (err) {
+                    showToast("Error al leer el archivo Excel.", "error");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function toggleTTS() {
+            ttsEnabled = !ttsEnabled;
+            document.getElementById('iconTTS').className = ttsEnabled ? "fa-solid fa-volume-high text-emerald-400" : "fa-solid fa-volume-xmark text-slate-500";
+            showToast(ttsEnabled ? "Voz activada" : "Voz desactivada", "info");
+        }
+
+        function speakText(text) {
+            if (!ttsEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            let utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'es-AR';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.innerText = msg;
+            toast.className = `fixed bottom-5 right-5 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-transform duration-300 z-50 ${
+                type === 'error' ? 'bg-rose-600' : type === 'info' ? 'bg-indigo-600' : 'bg-emerald-600'
+            }`;
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-24', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
