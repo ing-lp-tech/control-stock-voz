@@ -1,4 +1,4 @@
-# StockVoz v5.3
+# StockVoz v5.4
 
 Aplicación web estática para controlar cantidades por voz o manualmente. No requiere backend ni base de datos. Los datos quedan guardados en el navegador/dispositivo.
 
@@ -29,3 +29,10 @@ Aplicación web estática para controlar cantidades por voz o manualmente. No re
 - Los totales globales no deben interpretarse como una sola magnitud si mezclás unidades distintas (por ejemplo cajas y kilogramos).
 - Reconocimiento de voz y escáner dependen de las capacidades del navegador. Excel requiere internet para cargar la librería desde CDN; CSV/JSON se generan localmente.
 - Probá primero con datos ficticios y comprobá una copia de seguridad antes de actualizar una instalación con datos importantes.
+
+
+## Correcciones v5.4
+- La cantidad puede decirse como “20 docenas” o “docenas 20”; se prioriza el número asociado a la unidad y no los dígitos del SKU.
+- Se conserva la unidad de dictado para mostrar, por ejemplo, 20 docenas = 240 unidades.
+- Se elige el tipo de tarea una sola vez en el selector superior y se aplica a todos los productos cargados durante esa tarea.
+- Se quitó la columna independiente de tipo de stock de la tabla; el tipo se muestra como información secundaria en la cantidad registrada.
