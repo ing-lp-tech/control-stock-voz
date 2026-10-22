@@ -11,7 +11,7 @@ const NUMBER_WORDS = {
 };
 const GARMENTS = ['remera', 'remeras', 'pantalon', 'pantalón', 'pantalones', 'calza', 'calzas', 'campera', 'camperas', 'buzo', 'buzos', 'short', 'shorts', 'body', 'conjunto', 'vestido', 'pollera', 'chomba', 'camiseta', 'medias', 'camisa', 'camisas', 'jean', 'jeans'];
 
-// Ej.: "Marca URUS, prenda short, código N115, 18 docenas" → { brand, type, sku, qty, unit, operation, ... }
+// Ej.: "Marca URUS, prenda short, código N115, docenas 18" → { brand, type, sku, qty, unit, operation, ... }
 export function parseSpeech(s) {
   // Normalizamos números hablados, pero nunca inferimos la cantidad desde los dígitos del SKU.
   let t = txt(s).toLocaleLowerCase('es-AR').replace(/[，]/g, ',');
@@ -95,40 +95,66 @@ export function mergeSpeechParts(parts) {
   return out.join(' ').trim();
 }
 
-// Controlador del micrófono. Se reinicia solo si el navegador corta la escucha mientras el usuario no la detuvo.
-export function createRecognizer({ onStart, onText, onEnd, onError }) {
+// Errores con los que no tiene sentido seguir reintentando.
+const FATAL = ['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported', 'bad-grammar'];
+
+// Controlador del micrófono. Se reinicia solo si el navegador corta la escucha mientras el usuario no la detuvo,
+// pero nunca en bucle: si se corta enseguida varias veces seguidas, se detiene y explica el motivo.
+// onState(estado, error): 'listening' | 'sound' | 'speech' | 'nosound' | 'nospeech' | 'retry' | 'error'
+export function createRecognizer({ onState, onText, onEnd }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   const rec = new SR();
   rec.lang = 'es-AR'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
   let wanted = false, base = '', last = '';
-  rec.onstart = () => onStart?.();
+  let startedAt = 0, gotSound = false, quickEnds = 0, lastError = '', fatal = '', watchdog = null;
+
+  const stopWith = err => { wanted = false; clearTimeout(watchdog); onState?.('error', err); };
+  rec.onstart = () => { startedAt = Date.now(); onState?.(gotSound ? 'speech' : 'listening'); };
+  rec.onaudiostart = () => {
+    clearTimeout(watchdog);
+    // Micrófono abierto pero sin ningún sonido en 6 s: casi siempre es el micrófono equivocado o silenciado.
+    watchdog = setTimeout(() => { if (wanted && !gotSound) onState?.('nosound'); }, 6000);
+  };
+  rec.onsoundstart = () => { gotSound = true; quickEnds = 0; clearTimeout(watchdog); onState?.('sound'); };
+  rec.onspeechstart = () => onState?.('speech');
   rec.onresult = e => {
+    quickEnds = 0; lastError = '';
     const finals = [], interims = [];
     for (let i = 0; i < e.results.length; i++) {
       const part = e.results[i][0].transcript.trim();
       if (part) (e.results[i].isFinal ? finals : interims).push(part);
     }
     last = [base, mergeSpeechParts(finals), mergeSpeechParts(interims)].filter(Boolean).join(' ').trim();
+    onState?.('speech');
     onText?.(last);
   };
   rec.onerror = e => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { wanted = false; onError?.('permission'); }
-    else if (e.error !== 'aborted' && e.error !== 'no-speech') onError?.('interrupted');
+    if (e.error === 'aborted') return;
+    if (e.error === 'no-speech') { onState?.('nospeech'); return; }
+    lastError = e.error;
+    if (FATAL.includes(e.error)) fatal = e.error;
+    else onState?.('retry');
   };
   rec.onend = () => {
-    if (wanted) {
-      base = last; // lo dictado hasta ahora se conserva tras el reinicio
-      try { rec.start(); return; } catch {
-        setTimeout(() => { if (!wanted) return; try { rec.start(); } catch { wanted = false; onEnd?.(); } }, 350);
-        return;
-      }
-    }
-    onEnd?.();
+    clearTimeout(watchdog);
+    if (!wanted) { onEnd?.(); return; }
+    if (fatal) { stopWith(fatal); onEnd?.(); return; }
+    if (Date.now() - startedAt < 1500) quickEnds++;
+    if (quickEnds >= 3) { stopWith(lastError || 'loop'); onEnd?.(); return; }
+    base = last; // lo dictado hasta ahora se conserva tras el reinicio
+    setTimeout(() => {
+      if (!wanted) return;
+      try { rec.start(); } catch { stopWith('loop'); onEnd?.(); }
+    }, quickEnds ? 400 * quickEnds : 0);
   };
   return {
-    start(initial = '') { base = txt(initial); last = base; wanted = true; try { rec.start(); } catch (e) { wanted = false; throw e; } },
-    stop() { wanted = false; try { rec.stop(); } catch { onEnd?.(); } },
+    start(initial = '') {
+      base = txt(initial); last = base; wanted = true;
+      gotSound = false; quickEnds = 0; lastError = ''; fatal = '';
+      try { rec.start(); } catch (e) { wanted = false; throw e; }
+    },
+    stop() { wanted = false; clearTimeout(watchdog); try { rec.stop(); } catch { onEnd?.(); } },
     get active() { return wanted; },
   };
 }

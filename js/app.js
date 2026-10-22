@@ -301,30 +301,64 @@ function saveProduct(e) {
   F.sku.focus();
 }
 
-// Micrófono
+// Micrófono: cada estado del dictado se muestra para que siempre se sepa qué está pasando.
+const MIC_STATES = {
+  listening: ['live', 'Micrófono abierto. Hablá ahora…'],
+  sound: ['live', 'Llega sonido del micrófono…'],
+  speech: ['live', 'Te escucho… tocá ✕ cuando termines'],
+  nospeech: ['warn', 'No detecto voz. Hablá más cerca del micrófono.'],
+  nosound: ['warn', 'No llega sonido del micrófono. Revisá que no esté silenciado y que Chrome use el micrófono correcto: tocá el ícono del micrófono a la derecha de la barra de direcciones.'],
+  retry: ['warn', 'Reconectando el dictado…'],
+};
+const MIC_ERRORS = {
+  'not-allowed': 'Chrome bloqueó el micrófono. Tocá el ícono del candado o del micrófono en la barra de direcciones → Micrófono → Permitir, y recargá la página.',
+  'service-not-allowed': 'Este navegador no permite el dictado. Usá Google Chrome.',
+  'audio-capture': 'No se encontró ningún micrófono. Conectalo o elegilo en Windows: Configuración → Sistema → Sonido → Entrada.',
+  'network': 'El servicio de dictado de Google no responde. Revisá internet, desactivá VPN o bloqueadores, y usá Google Chrome (Brave, Opera y algunos Edge no permiten dictar).',
+  'language-not-supported': 'Este navegador no reconoce el español para dictado. Usá Google Chrome.',
+  'loop': 'El dictado se corta solo. Recargá la página o probá con Google Chrome.',
+};
+function micStatus(kind, text) {
+  const st = byId('micStatus');
+  st.className = `mic-status ${kind}`;
+  st.textContent = text;
+}
 const recog = createRecognizer({
-  onStart: () => setMic(true),
+  onState: (s, err) => {
+    if (s === 'error') {
+      const msg = MIC_ERRORS[err] || `El dictado se detuvo (${err}). Probá de nuevo o escribí el producto.`;
+      micStatus('error', msg);
+      toast(msg, { type: 'error', duration: 8000 });
+      return;
+    }
+    setMic(true);
+    micStatus(...MIC_STATES[s]);
+  },
   onText: t => { byId('transcript').value = t; },
-  onEnd: () => { setMic(false); if (txt(byId('transcript').value)) interpret(); },
-  onError: kind => {
-    if (kind === 'permission') { setMic(false); toast('Permití el acceso al micrófono en el navegador.', 'error'); }
-    else byId('micStatus').textContent = 'La escucha se interrumpió. Intentando continuar…';
+  onEnd: () => {
+    setMic(false);
+    if (byId('micStatus').classList.contains('live')) micStatus('', 'Tocá el micrófono y hablá con claridad');
+    if (txt(byId('transcript').value)) interpret();
   },
 });
 function setMic(on) {
   const b = byId('micBtn');
+  if (b.classList.contains('listening') === on) return;
   b.classList.toggle('listening', on);
   b.innerHTML = icon(on ? 'x' : 'mic');
   b.setAttribute('aria-label', on ? 'Detener dictado' : 'Iniciar dictado');
-  const st = byId('micStatus');
-  st.classList.toggle('live', on);
-  st.textContent = on ? 'Escuchando… tocá de nuevo cuando termines' : 'Tocá el micrófono y hablá con claridad';
 }
 function toggleMic() {
-  if (!recog) return toast('Este navegador no admite dictado. Probá con Chrome o escribí el producto.', 'warn');
+  if (!recog) return toast('Este navegador no admite dictado. Probá con Google Chrome o escribí el producto.', 'warn');
   if (recog.active) { recog.stop(); return; }
-  try { recog.start(byId('transcript').value); }
-  catch { toast('Esperá un momento e intentá de nuevo.', 'warn'); }
+  try {
+    micStatus('live', 'Abriendo el micrófono…');
+    setMic(true);
+    recog.start(byId('transcript').value);
+  } catch {
+    setMic(false);
+    micStatus('warn', 'El micrófono todavía se está cerrando. Esperá un segundo y tocá de nuevo.');
+  }
 }
 
 function speakForm() {

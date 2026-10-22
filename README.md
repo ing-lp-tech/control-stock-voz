@@ -10,7 +10,7 @@ Creada por **Ingeniero Emprendedor** · WhatsApp +54 9 11 6202-1005
 
 | Función | Detalle |
 |---|---|
-| Dictado por voz | “Marca URUS, prenda short, código N115, 18 docenas”. Al detener el micrófono, el formulario se completa solo. |
+| Dictado por voz | “Marca URUS, prenda short, código N115, docenas 18”. Al detener el micrófono, el formulario se completa solo. |
 | Pistola lectora | USB o Bluetooth en modo teclado. Funciona en **toda la app**, aunque el cursor no esté en un campo. Cada lectura suma, resta o cuenta según la configuración. |
 | Cámara | Lee códigos de barras y QR (Android, iPhone y PC). |
 | Etiquetas | Code 128 o QR. Rollo térmico (50×25, 40×30, 60×40, 100×50 mm) u hoja A4 (24, 40 o 10 por hoja). Copias por producto o una por unidad en stock. |

@@ -450,6 +450,8 @@ select.input {
 @keyframes rings { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.7); opacity: 0; } }
 .mic-status { margin: 14px 0; font-size: 14px; font-weight: 550; color: var(--text-2); min-height: 21px; }
 .mic-status.live { color: #f2456b; }
+.mic-status.warn { color: var(--warn); }
+.mic-status.error { color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); border-radius: var(--r); padding: 10px 12px; font-size: 13.5px; }
 .voice-card textarea { text-align: left; }
 .tips { text-align: left; margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
 .tips summary { cursor: pointer; font-weight: 650; font-size: 13.5px; color: var(--text-2); list-style: none; display: flex; align-items: center; gap: 8px; }
