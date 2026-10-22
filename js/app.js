@@ -16,7 +16,7 @@ const { state } = S;
 // ---------- Preferencias del dispositivo ----------
 const PREFS_KEY = 'stockvoz_prefs';
 const prefs = {
-  task: 'inventario', formOp: 'sumar', scanOp: 'sumar', scanQty: 1, scanUnknown: 'ask', sound: true,
+  task: 'inventario', formOp: 'sumar', scanOp: 'sumar', scanQty: 1, scanUnknown: 'ask', sound: true, voiceAutoSave: true, voiceSpeak: true,
   lblKind: 'barcode', lblSize: 'r50x25', lblCopies: 1, lblByStock: false, lblShowName: true, lblHeader: '',
   ...readJSON(PREFS_KEY, {}),
 };
@@ -226,12 +226,25 @@ function setFormOp(op) {
   updateFormNotice();
 }
 
+// Si el código ya existe, el formulario se reduce a código + cantidad: marca y prenda ya están guardadas.
+function renderFormProduct(sku, it) {
+  const card = byId('formProduct');
+  byId('productForm').classList.toggle('is-existing', !!it);
+  card.hidden = !sku;
+  if (!sku) return;
+  if (it) {
+    const d = S.displayQty(it);
+    card.className = 'span-2 product-card';
+    card.innerHTML = `<span class="card-icon">${icon('check')}</span><div class="grow"><strong>Ya cargado: ${esc(it.sku)}</strong><span>${esc(productName(it) || 'Sin marca ni prenda')} · stock ${fmt(d.value)} ${esc(d.unit)}. Solo indicá la cantidad.</span></div><button type="button" class="btn btn-ghost btn-sm" data-edit-product>${icon('edit', 'sm')}Editar datos</button>`;
+  } else {
+    card.className = 'span-2 product-card is-new';
+    card.innerHTML = `<span class="card-icon">${icon('sparkles')}</span><div class="grow"><strong>Producto nuevo: ${esc(sku)}</strong><span>Completá marca y prenda: se guardan una sola vez. La próxima vez alcanza con el código y la cantidad.</span></div>`;
+  }
+}
+
 function updateFormNotice() {
   const sku = upper(F.sku.value).replace(/\s+/g, ''), it = S.findByCode(sku), qty = num(F.qty.value), u = S.inputUnit(F.unit.value);
-  const badge = byId('formBadge');
-  badge.hidden = !sku;
-  if (it) { badge.className = 'badge badge-info'; badge.innerHTML = `${icon('box')}Existe · ${fmt(it.units)} ${esc(S.unitLabel(it.unitName))}`; }
-  else if (sku) { badge.className = 'badge badge-success'; badge.innerHTML = `${icon('sparkles')}Producto nuevo`; }
+  renderFormProduct(sku, it);
   const msgs = [];
   if (it && it.unitName !== u.stock) msgs.push(['warn', 'alert', `${it.sku} se controla en ${S.unitLabel(it.unitName)}. Cambiá la unidad para no mezclar medidas.`]);
   if (sku && qty > 0 && (!it || it.unitName === u.stock)) {
@@ -245,13 +258,11 @@ function updateFormNotice() {
   byId('formNotice').innerHTML = msgs.map(([t, ic, m]) => `<div class="notice ${t}">${icon(ic)}<span>${esc(m)}</span></div>`).join('');
 }
 
-function syncUnitWithProduct() {
+// preferProduct: al escribir o escanear el código, proponer la unidad habitual del producto (p. ej. docenas).
+// Al dictar se respeta la unidad dicha, salvo que no sea compatible.
+function syncUnitWithProduct(preferProduct = false) {
   const it = S.findByCode(F.sku.value);
-  if (it && S.inputUnit(F.unit.value).stock !== it.unitName) F.unit.value = S.inputUnitFor(it);
-  if (it) {
-    if (!txt(F.brand.value)) F.brand.value = it.brand;
-    if (!txt(F.type.value)) F.type.value = it.type;
-  }
+  if (it && (S.inputUnit(F.unit.value).stock !== it.unitName || (preferProduct && F.unit.value === 'unit'))) F.unit.value = S.inputUnitFor(it);
   updateFormNotice();
 }
 
@@ -279,11 +290,37 @@ function interpret() {
   formSource = 'voz';
   syncUnitWithProduct();
   highlight(...filled);
+  const existing = p.sku && S.findByCode(p.sku);
   const missing = !p.sku ? F.sku : p.qty == null ? F.qty : null;
-  if (missing) { missing.focus(); toast(`No entendí ${missing === F.sku ? 'el código' : 'la cantidad'}. Completalo a mano.`, 'warn'); }
-  else { byId('saveProduct').focus({ preventScroll: true }); toast('Revisá los datos y tocá Guardar.', 'info'); }
+  if (missing) {
+    missing.focus();
+    toast(`No entendí ${missing === F.sku ? 'el código' : 'la cantidad'}. Completalo a mano.`, 'warn');
+    if (prefs.voiceSpeak) say(missing === F.sku ? 'No entendí el código.' : 'No entendí la cantidad.');
+  } else if (existing && prefs.voiceAutoSave) {
+    byId('productForm').requestSubmit(); // producto conocido: se guarda sin tocar nada (se puede deshacer)
+    return;
+  } else if (!existing) {
+    if (!txt(F.brand.value)) F.brand.focus(); else byId('saveProduct').focus({ preventScroll: true });
+    toast(`${p.sku} es un producto nuevo. Completá marca y prenda y tocá Guardar.`, 'info');
+    if (prefs.voiceSpeak) say(`${spell(p.sku)} es nuevo. Completá marca y prenda.`);
+  } else {
+    byId('saveProduct').focus({ preventScroll: true });
+    toast('Revisá los datos y tocá Guardar.', 'info');
+  }
   if (innerWidth < 900) byId('productForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+// Confirmación hablada (lectura en voz alta del navegador).
+function say(text) {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const m = new SpeechSynthesisUtterance(text);
+  m.lang = 'es-AR';
+  m.rate = 1.05;
+  speechSynthesis.speak(m);
+}
+// "N115" se lee mejor como "N 115".
+const spell = code => String(code).replace(/([A-Z]+)(\d)/g, '$1 $2').replace(/(\d)([A-Z])/g, '$1 $2');
 
 function saveProduct(e) {
   e.preventDefault();
@@ -292,10 +329,19 @@ function saveProduct(e) {
     sku: F.sku.value, brand: F.brand.value, type: F.type.value, qty: F.qty.value, unit: F.unit.value, stockType: prefs.task,
     operation: prefs.formOp, minStock: F.min.value, barcode: F.barcode.value, source: formSource,
   });
-  if (!r.ok) { toast(r.error, 'error'); shake(btn); sound('error'); return; }
+  if (!r.ok) {
+    toast(r.error, 'error'); shake(btn); sound('error');
+    if (formSource === 'voz' && prefs.voiceSpeak) say(r.error);
+    return;
+  }
   flashDone(btn);
   sound('ok');
   toast(`${r.item.sku}: ${fmt(r.before)} → ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}`, { action: () => { if (S.undo()) toast('Movimiento deshecho', 'info'); } });
+  if (formSource === 'voz' && prefs.voiceSpeak) {
+    const u = S.inputUnit(F.unit.value), qty = fmt(num(F.qty.value));
+    const what = r.op === 'establecer' ? `queda en ${qty} ${u.short}` : `${r.op === 'restar' ? 'menos' : 'más'} ${qty} ${u.short}`;
+    say(`${spell(r.item.sku)}, ${what}. Stock: ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}.`);
+  }
   byId('transcript').value = '';
   resetForm();
   F.sku.focus();
@@ -352,6 +398,7 @@ function toggleMic() {
   if (!recog) return toast('Este navegador no admite dictado. Probá con Google Chrome o escribí el producto.', 'warn');
   if (recog.active) { recog.stop(); return; }
   try {
+    if ('speechSynthesis' in window) speechSynthesis.cancel(); // que la app no se escuche a sí misma
     micStatus('live', 'Abriendo el micrófono…');
     setMic(true);
     recog.start(byId('transcript').value);
@@ -1045,11 +1092,14 @@ function bindEvents() {
   onSegment(byId('opSeg'), setFormOp);
   byId('productForm').addEventListener('submit', saveProduct);
   byId('productForm').addEventListener('input', debounce(updateFormNotice, 80));
-  F.sku.addEventListener('change', syncUnitWithProduct);
-  F.sku.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); syncUnitWithProduct(); F.qty.focus(); } }); // pistola dentro del campo
+  F.sku.addEventListener('input', debounce(() => syncUnitWithProduct(true), 250));
+  F.sku.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); syncUnitWithProduct(true); F.qty.focus(); F.qty.select(); } }); // pistola dentro del campo
   byId('fSkuGen').onclick = () => { F.sku.value = S.generateSku(F.brand.value, F.type.value); highlight(F.sku); updateFormNotice(); };
-  byId('fSkuCam').onclick = () => openCamera({ onCode: c => { F.sku.value = upper(c); highlight(F.sku); syncUnitWithProduct(); } });
+  byId('fSkuCam').onclick = () => openCamera({ onCode: c => { F.sku.value = upper(c); highlight(F.sku); syncUnitWithProduct(true); } });
   byId('resetForm').onclick = () => { resetForm(); F.sku.focus(); };
+  byId('formProduct').addEventListener('click', e => { if (e.target.closest('[data-edit-product]')) { const it = S.findByCode(F.sku.value); if (it) openEdit(it); } });
+  byId('voiceAutoSave').onchange = e => { prefs.voiceAutoSave = e.target.checked; savePrefs(); };
+  byId('voiceSpeak').onchange = e => { prefs.voiceSpeak = e.target.checked; savePrefs(); };
   byId('speakForm').onclick = speakForm;
 
   // Escanear
@@ -1177,7 +1227,9 @@ function init() {
   byId('lblShowName').checked = prefs.lblShowName;
   byId('lblByStock').checked = prefs.lblByStock;
   setInvFilter('all');
-  byId('voiceBadge').className = `badge ${recog ? 'badge-success' : 'badge-warn'}`;
+  byId('voiceAutoSave').checked = prefs.voiceAutoSave;
+  byId('voiceSpeak').checked = prefs.voiceSpeak;
+  byId('voiceBadge').className =`badge ${recog ? 'badge-success' : 'badge-warn'}`;
   byId('voiceBadge').textContent = recog ? 'Disponible' : 'No disponible';
   if (!recog) { byId('micBtn').disabled = true; byId('micStatus').textContent = 'Este navegador no admite dictado. Escribí el producto o usá Chrome.'; }
 

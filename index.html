@@ -104,15 +104,20 @@
        <button id="interpretBtn" class="btn btn-soft" type="button"><i data-i="sparkles"></i>Interpretar texto</button>
        <button id="clearTranscript" class="btn btn-ghost" type="button">Limpiar</button>
       </div>
+      <div class="voice-options">
+       <label class="switch"><input type="checkbox" id="voiceAutoSave"><span class="track"></span><span>Guardar al instante si el código ya existe</span></label>
+       <label class="switch"><input type="checkbox" id="voiceSpeak"><span class="track"></span><span>Confirmar en voz alta lo que se guardó</span></label>
+      </div>
       <details class="tips">
        <summary><i data-i="chevron-down"></i>Cómo dictar para que se entienda bien</summary>
        <ul>
-        <li><code>Marca URUS, prenda short, código N115, docenas 18</code></li>
+        <li><b>Producto nuevo</b> (una sola vez): <code>Marca URUS, prenda short, código N115, docenas 18</code></li>
+        <li><b>Producto ya cargado</b>: alcanza con <code>Código N115 docenas 18</code>. La app reconoce el código y completa el resto.</li>
         <li><code>Código K1515 docenas 16</code> → 16 docenas del K1515</li>
         <li><code>Restar código T1212 unidades 5</code> → descuenta 5 unidades</li>
         <li><code>Conteo código A20 cajas 7</code> → deja el stock en 7 cajas</li>
         <li>Decí siempre <b>primero la unidad y después el número</b>: <code>docenas 18</code>, <code>unidades 5</code>, <code>cajas 7</code>.</li>
-        <li>Al detener el micrófono, el formulario se completa solo. Revisalo y tocá Guardar.</li>
+        <li>Al detener el micrófono, el formulario se completa solo. Si el código ya existe y está activado el guardado al instante, se guarda sin tocar nada (podés deshacerlo).</li>
        </ul>
       </details>
      </div>
@@ -136,13 +141,14 @@
           <button type="button" class="icon-btn bordered" id="fSkuGen" title="Generar un código nuevo"><i data-i="sparkles"></i></button>
          </div>
         </div>
-        <div class="field"><label for="fBrand">Marca</label><input id="fBrand" class="input" list="brandList" placeholder="Ej. URUS"></div>
-        <div class="field"><label for="fType">Prenda / tipo</label><input id="fType" class="input" list="typeList" placeholder="Ej. Short"></div>
+        <div class="span-2" id="formProduct" hidden></div>
+        <div class="field new-only"><label for="fBrand">Marca</label><input id="fBrand" class="input" list="brandList" placeholder="Ej. URUS"></div>
+        <div class="field new-only"><label for="fType">Prenda / tipo</label><input id="fType" class="input" list="typeList" placeholder="Ej. Short"></div>
         <div class="field"><label for="fQty">Cantidad *</label>
          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="fQty" type="number" inputmode="decimal" min="0" step="any" placeholder="0"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
         </div>
         <div class="field"><label for="fUnit">Unidad</label><select id="fUnit" class="input" data-options="inputUnits"></select></div>
-        <details class="more-fields span-2">
+        <details class="more-fields span-2 new-only">
          <summary>Más opciones (stock mínimo, código del fabricante)</summary>
          <div class="form-grid">
           <div class="field"><label for="fMin">Stock mínimo (alerta)</label><input id="fMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>

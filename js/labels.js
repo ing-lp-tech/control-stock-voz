@@ -11,6 +11,7 @@ export const LABEL_SIZES = {
   r40x30: { name: 'Rollo térmico 40 × 30 mm', w: 40, h: 30 },
   r60x40: { name: 'Rollo térmico 60 × 40 mm', w: 60, h: 40 },
   r100x50: { name: 'Rollo térmico 100 × 50 mm', w: 100, h: 50 },
+  r100x150: { name: 'Térmica 100 × 150 mm (etiqueta de envío / fanfold)', w: 100, h: 150 },
   a4_3x8: { name: 'Hoja A4 · 24 etiquetas (3 × 8)', w: 70, h: 37, cols: 3, rows: 8 },
   a4_4x10: { name: 'Hoja A4 · 40 etiquetas (4 × 10)', w: 52.5, h: 29.7, cols: 4, rows: 10 },
   a4_2x5: { name: 'Hoja A4 · 10 etiquetas grandes (2 × 5)', w: 105, h: 59.4, cols: 2, rows: 5 },
