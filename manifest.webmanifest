@@ -1,18 +1,22 @@
 {
-  "name": "StockVoz - Inventario por voz",
+  "name": "StockVoz · Control de stock",
   "short_name": "StockVoz",
-  "description": "Inventario local por voz con exportación y copias de seguridad.",
+  "description": "Control de stock por voz, escáner de códigos de barras y QR, etiquetas imprimibles y respaldo en la nube.",
+  "lang": "es",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#08111f",
-  "theme_color": "#0f172a",
+  "orientation": "any",
+  "background_color": "#070c18",
+  "theme_color": "#070c18",
+  "categories": ["business", "productivity"],
   "icons": [
-    {
-      "src": "./icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Escanear", "short_name": "Escanear", "url": "./#/escanear", "icons": [{ "src": "./icons/icon.svg", "sizes": "any" }] },
+    { "name": "Dictar por voz", "short_name": "Dictar", "url": "./#/cargar?voz=1", "icons": [{ "src": "./icons/icon.svg", "sizes": "any" }] },
+    { "name": "Inventario", "short_name": "Inventario", "url": "./#/inventario", "icons": [{ "src": "./icons/icon.svg", "sizes": "any" }] }
   ]
 }

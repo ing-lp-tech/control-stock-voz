@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070c18">
+<meta name="robots" content="noindex,nofollow">
+<title>Administración · StockVoz</title>
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="./css/styles.css">
+<script>try{if(localStorage.getItem('stockvoz_theme')==='light')document.documentElement.dataset.theme='light'}catch(e){}</script>
+<script type="module" src="./js/admin.js"></script>
+</head>
+<body>
+
+<!-- ===== Acceso ===== -->
+<div class="admin-login" id="loginView" hidden>
+ <div class="card">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
+   <img src="assets/creador.jpg" alt="" width="56" height="56" style="border-radius:16px;object-fit:cover">
+   <div><h2>Panel de administración</h2><p class="muted small">StockVoz · acceso solo para el administrador</p></div>
+  </div>
+  <div id="loginNotice"></div>
+  <form id="loginForm" class="auth-form" novalidate>
+   <div class="field"><label for="adminPass">Contraseña de administrador</label>
+    <div class="pwd"><input id="adminPass" class="input" type="password" autocomplete="current-password" required><button type="button" class="icon-btn" data-eye aria-label="Mostrar contraseña"><i data-i="eye"></i></button></div>
+   </div>
+   <button class="btn btn-primary btn-lg" type="submit"><i data-i="lock"></i><span>Ingresar</span></button>
+  </form>
+  <a class="admin-link" href="./"><i data-i="chevron-right" class="sm"></i>Volver a la app</a>
+ </div>
+</div>
+
+<!-- ===== Cambio de clave obligatorio ===== -->
+<div class="admin-login" id="mustChangeView" hidden>
+ <div class="card">
+  <div class="auth-head"><span class="auth-icon"><i data-i="key"></i></span><div><h3>Elegí tu clave de administrador</h3><p>Por seguridad, cambiá la clave inicial antes de continuar. Usá al menos 8 caracteres.</p></div></div>
+  <form id="mustChangeForm" class="auth-form" novalidate>
+   <div class="field"><label for="mcNew">Nueva clave</label><input id="mcNew" class="input" type="password" autocomplete="new-password" minlength="8" required></div>
+   <div class="field"><label for="mcNew2">Repetir nueva clave</label><input id="mcNew2" class="input" type="password" autocomplete="new-password" minlength="8" required></div>
+   <button class="btn btn-primary btn-lg" type="submit"><i data-i="check"></i><span>Guardar y continuar</span></button>
+  </form>
+ </div>
+</div>
+
+<!-- ===== Panel ===== -->
+<div class="admin-shell" id="panelView" hidden>
+ <div class="admin-top">
+  <div style="display:flex;align-items:center;gap:14px">
+   <img src="icons/icon.svg" alt="" width="42" height="42" style="border-radius:12px">
+   <div><h1 style="font-size:22px">Administración</h1><p class="muted small">Aprobá, deshabilitá o eliminá cuentas de StockVoz</p></div>
+  </div>
+  <div class="row">
+   <button class="btn btn-ghost" type="button" id="refreshBtn"><i data-i="refresh"></i><span>Actualizar</span></button>
+   <a class="btn btn-ghost" href="./"><i data-i="home"></i><span class="hide-sm">Ir a la app</span></a>
+   <button class="btn btn-ghost" type="button" id="logoutBtn"><i data-i="logout"></i><span class="hide-sm">Salir</span></button>
+  </div>
+ </div>
+
+ <div class="kpis">
+  <div class="kpi" data-tone="warn"><div class="kpi-top"><span class="kpi-label">Pendientes</span><span class="kpi-icon"><i data-i="clock"></i></span></div><div class="kpi-value" id="kPending">0</div><div class="kpi-foot">esperando aprobación</div></div>
+  <div class="kpi" data-tone="success"><div class="kpi-top"><span class="kpi-label">Aprobados</span><span class="kpi-icon"><i data-i="check"></i></span></div><div class="kpi-value" id="kApproved">0</div><div class="kpi-foot" id="kDisabled">0 deshabilitados</div></div>
+  <div class="kpi"><div class="kpi-top"><span class="kpi-label">Usuarios</span><span class="kpi-icon"><i data-i="users"></i></span></div><div class="kpi-value" id="kTotal">0</div><div class="kpi-foot">en total</div></div>
+  <div class="kpi" data-tone="info"><div class="kpi-top"><span class="kpi-label">Base de datos</span><span class="kpi-icon"><i data-i="database"></i></span></div><div class="kpi-value" id="kDb">0 MB</div><div class="kpi-foot"><span id="kDbFoot">de 500 MB gratis</span><div class="meter"><span id="kDbMeter" style="width:0"></span></div></div></div>
+ </div>
+
+ <div class="card toolbar">
+  <div class="search"><i data-i="search"></i><input id="userSearch" class="input" type="search" placeholder="Buscar por usuario, nombre, negocio o teléfono…" aria-label="Buscar usuarios"></div>
+  <button class="btn btn-success" type="button" id="approveAllBtn"><i data-i="check"></i><span>Aprobar todos los pendientes</span></button>
+ </div>
+ <div class="chips" id="statusFilters" style="margin-bottom:14px">
+  <button class="chip" type="button" data-s="pending">Pendientes <span class="count" id="cPending">0</span></button>
+  <button class="chip" type="button" data-s="approved">Aprobados <span class="count" id="cApproved">0</span></button>
+  <button class="chip" type="button" data-s="disabled">Deshabilitados <span class="count" id="cDisabled">0</span></button>
+  <button class="chip" type="button" data-s="all">Todos <span class="count" id="cAll">0</span></button>
+ </div>
+ <div class="bulk-bar" id="bulkBar" hidden>
+  <strong id="bulkCount"></strong>
+  <button class="btn btn-sm" type="button" data-bulk="approved"><i data-i="check" class="sm"></i>Aprobar</button>
+  <button class="btn btn-sm" type="button" data-bulk="disabled"><i data-i="lock" class="sm"></i>Deshabilitar</button>
+  <button class="btn btn-sm" type="button" data-bulk="delete"><i data-i="trash" class="sm"></i>Eliminar</button>
+  <button class="icon-btn" type="button" id="bulkClear" title="Quitar selección"><i data-i="x"></i></button>
+ </div>
+ <div class="inv-list" id="userList"></div>
+
+ <div class="grid-2 section-gap">
+  <div class="card">
+   <div class="card-head"><div class="card-title"><span class="card-icon" style="background:rgba(31,184,102,.15);color:var(--wa)"><i data-i="whatsapp"></i></span><div><h3>Aviso automático por WhatsApp</h3><p>Recibí un mensaje cada vez que alguien se registra</p></div></div><span class="badge" id="notifyBadge"></span></div>
+   <form id="notifyForm" class="stack" novalidate>
+    <div class="field"><label for="notifyPhone">Tu número (con código de país)</label><input id="notifyPhone" class="input" type="tel" placeholder="5491112345678"></div>
+    <div class="field"><label for="notifyKey">API key de CallMeBot</label><input id="notifyKey" class="input" type="password" autocomplete="off" placeholder="Dejalo vacío para conservar la actual"></div>
+    <details class="tips"><summary><i data-i="chevron-down"></i>Cómo obtener la API key gratis (2 minutos)</summary>
+     <ul>
+      <li>Agendá el número de CallMeBot que figura en <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener noreferrer">callmebot.com</a>.</li>
+      <li>Enviale por WhatsApp: <code>I allow callmebot to send me messages</code></li>
+      <li>Te responde con tu API key. Pegala acá y tocá Guardar.</li>
+      <li>Aunque no lo configures, cada usuario nuevo ve un botón para avisarte por WhatsApp.</li>
+     </ul>
+    </details>
+    <div class="row"><button class="btn btn-primary" type="submit"><i data-i="check"></i><span>Guardar</span></button><button class="btn btn-ghost" type="button" id="notifyTest"><i data-i="send"></i><span>Enviar prueba</span></button></div>
+   </form>
+  </div>
+  <div class="card">
+   <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="key"></i></span><div><h3>Clave de administrador</h3><p>Cambiala cuando quieras</p></div></div></div>
+   <form id="passForm" class="stack" novalidate>
+    <div class="field"><label for="newPass">Nueva clave</label><input id="newPass" class="input" type="password" autocomplete="new-password" minlength="8"></div>
+    <div class="field"><label for="newPass2">Repetir nueva clave</label><input id="newPass2" class="input" type="password" autocomplete="new-password" minlength="8"></div>
+    <button class="btn btn-primary" type="submit"><i data-i="check"></i><span>Cambiar clave</span></button>
+   </form>
+  </div>
+ </div>
+</div>
+
+<!-- Mensaje si la nube no está configurada -->
+<div class="admin-login" id="notConfiguredView" hidden>
+ <div class="card">
+  <div class="auth-head"><span class="auth-icon"><i data-i="database"></i></span><div><h3>Supabase no está configurado</h3><p>Completá <b>SUPABASE_URL</b> y <b>SUPABASE_ANON_KEY</b> en <code>js/config.js</code>, ejecutá <code>supabase/schema.sql</code> y volvé a publicar.</p></div></div>
+  <a class="btn btn-ghost" href="./">Volver a la app</a>
+ </div>
+</div>
+</body>
+</html>
