@@ -92,6 +92,7 @@ export function normalizeItem(i) {
     displayUnit: INPUT_UNITS[i.displayUnit] ? i.displayUnit : 'unit',
     units: Math.max(0, round2(num(i.units ?? i.totalUnits))),
     minStock: Math.max(0, num(i.minStock)),
+    serials: { D: Math.max(0, Math.floor(num(i.serials?.D))), U: Math.max(0, Math.floor(num(i.serials?.U))) },
     updatedAt: i.updatedAt || nowIso(),
     createdAt: i.createdAt || i.updatedAt || nowIso(),
   };
@@ -135,6 +136,43 @@ export function findByCode(code) {
   return state.items.find(i => i.sku === c) || state.items.find(i => i.barcode && i.barcode === c) || null;
 }
 export const isLow = i => i.minStock > 0 && i.units <= i.minStock;
+
+// ---------- Etiquetas numeradas ----------
+// Una etiqueta puede identificar una docena o una unidad concreta del producto, con su número de serie:
+// 1015D0003 = docena N.º 3 del producto 1015 · 1015U0012 = unidad N.º 12. Solo letras y números: cualquier pistola los lee.
+export const PACKS = {
+  D: { label: 'Docena', plural: 'docenas', factor: 12 },
+  U: { label: 'Unidad', plural: 'unidades', factor: 1 },
+};
+export const serialCode = (sku, pack, n) => `${sku}${pack}${String(n).padStart(4, '0')}`;
+export const packAllowed = (item, pack) => pack !== 'D' || item.unitName === 'unidades';
+
+// Devuelve { item, pack, number, serial } para un código de producto o de etiqueta numerada; null si no existe.
+export function resolveCode(code) {
+  const c = upper(code).replace(/\s+/g, '');
+  if (!c) return null;
+  const item = findByCode(c);
+  if (item) return { item, pack: null };
+  const m = c.match(/^(.+)([DU])(\d{4,})$/);
+  if (!m) return null;
+  const owner = state.items.find(i => i.sku === m[1]);
+  if (!owner || !packAllowed(owner, m[2])) return null;
+  return { item: owner, pack: m[2], number: Number(m[3]), serial: c };
+}
+// Último movimiento registrado de una etiqueta numerada (para avisar si se escanea dos veces).
+export const lastSerialEvent = serial => state.history.find(h => h.serial === serial) || null;
+
+// Guarda hasta qué número se imprimió, para que la próxima tanda continúe la numeración.
+export function reserveSerials(plan) {
+  let changed = false;
+  for (const p of plan) {
+    const i = findById(p.id);
+    if (!i) continue;
+    const last = p.start + p.count - 1;
+    if (last > (i.serials?.[p.pack] || 0) || p.restart) { i.serials = { ...i.serials, [p.pack]: last }; changed = true; }
+  }
+  if (changed) commit('serials');
+}
 export function displayQty(i) {
   if (i.displayUnit === 'dozen' && i.unitName === 'unidades') return { value: round2(i.units / 12), unit: 'docenas' };
   return { value: i.units, unit: unitLabel(i.unitName) };
@@ -164,6 +202,7 @@ function log(kind, action, item, d = {}) {
     sku: item?.sku || d.sku || '', brand: item?.brand || '', type: item?.type || '',
     stockType: item?.stockType || d.stockType || 'inventario', unit: item ? unitLabel(item.unitName) : '',
     before: d.before ?? null, after: d.after ?? null, quantity: d.quantity ?? null, note: d.note || '',
+    ...(d.serial ? { serial: d.serial } : {}),
   });
   if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
 }
@@ -203,7 +242,7 @@ export function applyMovement(v) {
   item.updatedAt = nowIso();
   const kind = op === 'establecer' ? 'count' : op === 'restar' ? 'out' : 'in';
   const shown = `${fmt(qty)} ${u.short}`;
-  log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
+  log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
   commit('movement');
   return { ok: true, item, before, after: item.units, amount, op, created: !existing };
 }
@@ -221,13 +260,13 @@ export function adjust(id, delta, note = 'Ajuste rápido') {
   return { ok: true, item: i, before, after };
 }
 
-export function setStock(id, units, action, note = '') {
+export function setStock(id, units, action, note = '', serial = '') {
   const i = findById(id);
   if (!i) return fail('Producto no encontrado.');
   checkpoint();
   const before = i.units;
   i.units = Math.max(0, round2(units)); i.updatedAt = nowIso();
-  log('edit', action, i, { before, after: i.units, quantity: Math.abs(i.units - before), note });
+  log('edit', action, i, { before, after: i.units, quantity: Math.abs(i.units - before), note, serial });
   commit('adjust');
   return { ok: true, item: i, before, after: i.units };
 }

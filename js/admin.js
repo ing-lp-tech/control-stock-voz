@@ -214,6 +214,7 @@ function bind() {
 
 hydrateIcons();
 initRipple();
+$$('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });
 bind();
 if (!isConfigured()) show('notConfiguredView');
 else if (token) load();

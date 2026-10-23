@@ -586,11 +586,13 @@ select.input {
 .lbl-code svg { width: 100%; height: 100%; display: block; }
 .lbl-sku { font: 700 calc(var(--h) * .13mm) / 1.1 'Courier New', monospace; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lbl-name { font-size: calc(var(--h) * .085mm); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lbl-tag { font-size: calc(var(--h) * .1mm); font-weight: 800; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
 .lbl-barcode .lbl-code { padding: calc(var(--h) * .03mm) 0; }
 .lbl-qr { flex-direction: row; align-items: center; gap: calc(var(--h) * .08mm); text-align: left; }
 .lbl-qr .lbl-code { flex: 0 0 auto; height: 100%; aspect-ratio: 1; }
 .lbl-qr .lbl-text { flex: 1; min-width: 0; display: grid; gap: calc(var(--h) * .03mm); }
 .lbl-qr .lbl-sku { font-size: calc(var(--h) * .14mm); }
+.lbl-qr .lbl-tag { white-space: normal; line-height: 1.1; }
 .lbl-qr .lbl-name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .lbl-error { color: #b00020; font-size: calc(var(--h) * .09mm); }
 
@@ -671,6 +673,10 @@ select.input {
 .creator-bottom strong { color: #fff; font-size: 14.5px; }
 .creator-bottom span { display: block; font-size: 12.5px; color: #a9bdd7; }
 @media (max-width: 560px) { .creator-bottom .btn { width: 100%; } }
+
+/* ---------- Aviso legal ---------- */
+.legal { text-align: center; font-size: 11.5px; color: var(--muted); padding: 0 20px 28px; line-height: 1.6; }
+@media (max-width: 1023px) { .main .legal { padding-bottom: calc(var(--bottomnav) + 24px + var(--safe-b)); } .main .content { padding-bottom: 20px; } }
 
 /* ---------- Toasts ---------- */
 .toasts { position: fixed; z-index: 100; right: 20px; bottom: 20px; display: grid; gap: 10px; width: min(400px, calc(100vw - 32px)); pointer-events: none; }

@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#070c18">
 <meta name="description" content="StockVoz: control de stock por voz, escáner de códigos de barras y QR, etiquetas imprimibles y respaldo en la nube.">
+<meta name="author" content="Ingeniero Emprendedor">
+<meta name="copyright" content="© Ingeniero Emprendedor. Todos los derechos reservados.">
+<!-- StockVoz · © Ingeniero Emprendedor (molderia-digital.com). Todos los derechos reservados. Prohibida su copia, modificación o distribución sin autorización escrita. -->
 <title>StockVoz · Control de stock</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
@@ -202,7 +205,7 @@
       </div>
       <div class="field"><label for="scanQty">Cantidad por lectura</label>
        <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="scanQty" type="number" inputmode="decimal" min="0.01" step="any" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
-       <p class="hint">En la unidad del producto (si se controla en unidades, 1 = una prenda).</p>
+       <p class="hint">En la unidad del producto (si se controla en unidades, 1 = una prenda). Las etiquetas numeradas mueven siempre lo suyo: una de docena = 12, una de unidad = 1.</p>
       </div>
       <div class="field"><label for="scanUnknown">Si el código no existe</label>
        <select id="scanUnknown" class="input"><option value="ask">Pedir los datos del producto</option><option value="quick">Crearlo solo con el código</option><option value="reject">Rechazar la lectura</option></select>
@@ -263,15 +266,33 @@
         <div class="segmented" id="lblKind"><button type="button" data-v="barcode"><i data-i="barcode"></i>Código de barras</button><button type="button" data-v="qr"><i data-i="qr"></i>Código QR</button></div>
         <p class="hint">Code 128 lo leen todas las pistolas. El QR necesita un lector 2D o la cámara.</p>
        </div>
-       <div class="form-grid">
-        <div class="field"><label for="lblSize">Tamaño</label><select id="lblSize" class="input"></select></div>
+       <div class="field"><span class="label">Cada etiqueta identifica</span>
+        <div class="segmented" id="lblMode"><button type="button" data-v="product"><i data-i="box"></i>El producto</button><button type="button" data-v="D"><i data-i="layers"></i>Cada docena</button><button type="button" data-v="U"><i data-i="tag"></i>Cada unidad</button></div>
+        <p class="hint" id="lblModeHint"></p>
+       </div>
+       <!-- Modo "producto": todas las etiquetas llevan el mismo código -->
+       <div class="form-grid" id="lblProductOpts">
         <div class="field"><label for="lblCopies">Copias por producto</label>
          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="lblCopies" type="number" min="1" step="1" inputmode="numeric" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
         </div>
-        <div class="field span-2"><label for="lblHeader">Texto superior (opcional)</label><input id="lblHeader" class="input" maxlength="40" placeholder="Ej.: el nombre de tu negocio"></div>
+        <label class="switch" style="align-self:end;min-height:44px"><input type="checkbox" id="lblByStock"><span class="track"></span>Una por cada unidad en stock</label>
+       </div>
+       <!-- Modo "docena" / "unidad": etiquetas numeradas, cada una distinta -->
+       <div class="stack" id="lblSerialOpts" hidden>
+        <div class="form-grid">
+         <div class="field"><label for="lblQtyMode">Cantidad de etiquetas</label><select id="lblQtyMode" class="input"><option value="stock">Según el stock actual</option><option value="fixed">Cantidad fija por producto</option></select></div>
+         <div class="field" id="lblFixedField"><label for="lblFixed">Etiquetas por producto</label>
+          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="lblFixed" type="number" min="1" step="1" inputmode="numeric" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
+         </div>
+        </div>
+        <label class="switch"><input type="checkbox" id="lblRestart"><span class="track"></span>Reiniciar la numeración desde el N.º 1</label>
+        <div id="lblPlan" class="notice-list" style="margin:0"></div>
+       </div>
+       <div class="form-grid">
+        <div class="field"><label for="lblSize">Tamaño</label><select id="lblSize" class="input"></select></div>
+        <div class="field"><label for="lblHeader">Texto superior (opcional)</label><input id="lblHeader" class="input" maxlength="40" placeholder="Ej.: el nombre de tu negocio"></div>
        </div>
        <label class="switch"><input type="checkbox" id="lblShowName"><span class="track"></span>Mostrar marca y prenda</label>
-       <label class="switch"><input type="checkbox" id="lblByStock"><span class="track"></span>Una etiqueta por cada unidad en stock</label>
       </div>
       <hr class="divider">
       <div class="card-head"><h3>3 · Vista previa</h3><span class="badge badge-primary" id="lblTotal">0 etiquetas</span></div>
@@ -342,6 +363,7 @@
    </section>
 
   </main>
+  <footer class="legal">© <span data-year>2026</span> Ingeniero Emprendedor · StockVoz <span id="appVersion"></span> · Todos los derechos reservados. Prohibida su copia o distribución sin autorización.</footer>
  </div>
 
  <!-- ===== Navegación inferior (celular) ===== -->

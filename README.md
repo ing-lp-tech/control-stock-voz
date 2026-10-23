@@ -66,9 +66,23 @@ git commit -m "StockVoz 6: nube Supabase, escáner, etiquetas y panel admin"
 git push origin main
 ```
 
-Vercel publica automáticamente en 1 o 2 minutos.
+Vercel publica automáticamente en 1 o 2 minutos. En cada publicación ejecuta `npm run build` (lo indica `vercel.json`), que arma la carpeta `dist/` con:
+- el código **unido en un solo archivo por página y comprimido**, para que sea muy difícil de leer o copiar;
+- un aviso de derechos de autor al principio de cada archivo;
+- **solo** lo que la app necesita: `supabase/`, `README.md`, `scripts/` y los módulos originales **no se publican**.
 
-Si es la primera vez: en <https://vercel.com> → **Add New → Project** → importá el repositorio de GitHub → Framework **Other** → **Deploy**. No hace falta comando de build.
+Si es la primera vez: en <https://vercel.com> → **Add New → Project** → importá el repositorio de GitHub → Framework **Other** → **Deploy**. Vercel toma la configuración de `vercel.json` sola.
+
+> En Vercel → **Settings → Build and Deployment**, dejá *Build Command* y *Output Directory* **sin modificar** (o con los valores `npm run build` y `dist`). Si alguna vez los cambiaste a mano, borralos para que use `vercel.json`.
+
+### Probar en tu PC
+
+```bash
+npm run dev        # código original, ideal para hacer cambios → http://localhost:8000
+npm run preview    # la versión comprimida, igual a la publicada → http://localhost:8000
+```
+
+`npm run preview` necesita una sola vez `npm install`. `npm run dev` funciona sin instalar nada.
 
 Después de publicar:
 
@@ -87,7 +101,13 @@ Después de publicar:
   - Si el código no existe, la app te pide los datos o lo crea según lo que configures.
   - **Conteo** sirve para inventariar: la primera lectura de cada producto reinicia su stock y las siguientes suman.
   - Cada lectura se puede **revertir** desde la lista de la sesión.
-- **Etiquetas**: elegí productos (o generá códigos nuevos), el tipo y el tamaño, y tocá **Imprimir**. En la ventana de impresión: márgenes **Ninguno** y escala **100 %**.
+- **Etiquetas**: elegí productos (o generá códigos nuevos), el tipo (barras o QR) y el tamaño, y tocá **Imprimir**. En la ventana de impresión: márgenes **Ninguno** y escala **100 %**.
+  - **Cada etiqueta identifica**:
+    - *El producto*: todas llevan el mismo código, por ejemplo `1015`.
+    - *Cada docena*: `1015D0001`, `1015D0002`… y al escanearla se mueven 12 unidades.
+    - *Cada unidad*: `1015U0001`… y se mueve 1 unidad.
+  - Las etiquetas numeradas continúan la numeración en cada tanda. Si se escanea dos veces la misma, por ejemplo la docena N.º 3 en una salida, la app avisa antes de registrarla.
+  - *Según el stock actual* crea una etiqueta por cada docena o unidad que tenés hoy. Para etiquetar solo la mercadería que acaba de entrar, usá *Cantidad fija*.
 - **Deshacer**: botón ↶ arriba o **Ctrl+Z**.
 - Atajos: **/** busca en el inventario, **F2** abre el escáner.
 
@@ -144,10 +164,22 @@ js/scanner.js           Pistola lectora y cámara
 js/labels.js            Etiquetas con código de barras y QR
 js/io.js                Excel, CSV y JSON
 js/admin.js             Lógica del panel admin
-supabase/schema.sql     ← Pegar en el SQL Editor de Supabase
+supabase/schema.sql     ← Pegar en el SQL Editor de Supabase (no se publica)
 sw.js                   Modo sin conexión
 assets/creador.jpg      Foto del creador
 icons/                  Ícono de la app e íconos de la interfaz
+scripts/build.mjs       Arma la versión publicada (dist/) unida y comprimida
+package.json            Comandos: dev, build, preview
+LICENSE                 Derechos de autor: todos los derechos reservados
 ```
 
 Los datos que los usuarios ya tenían en la versión 5 se conservan: la app usa el mismo lugar de guardado en el navegador.
+
+---
+
+## Derechos de autor
+
+© Ingeniero Emprendedor (molderia-digital.com). **Todos los derechos reservados.** Ver [LICENSE](LICENSE).
+No se permite copiar, modificar, distribuir ni ofrecer este software como servicio sin autorización escrita.
+
+Recomendado: mantené el repositorio de GitHub en **privado** (Settings → Danger Zone → Change visibility). Vercel sigue publicando igual.

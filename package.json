@@ -1,0 +1,16 @@
+{
+  "name": "stockvoz",
+  "version": "6.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Ingeniero Emprendedor (molderia-digital.com)",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "python -m http.server 8000",
+    "preview": "npm run build && python -m http.server 8000 --directory dist"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.11"
+  }
+}

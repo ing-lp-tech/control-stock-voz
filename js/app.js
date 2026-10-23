@@ -18,6 +18,7 @@ const PREFS_KEY = 'stockvoz_prefs';
 const prefs = {
   task: 'inventario', formOp: 'sumar', scanOp: 'sumar', scanQty: 1, scanUnknown: 'ask', sound: true, voiceAutoSave: true, voiceSpeak: true,
   lblKind: 'barcode', lblSize: 'r50x25', lblCopies: 1, lblByStock: false, lblShowName: true, lblHeader: '',
+  lblMode: 'product', lblQtyMode: 'stock', lblFixed: 1, lblRestart: false,
   ...readJSON(PREFS_KEY, {}),
 };
 const savePrefs = () => writeJSON(PREFS_KEY, prefs);
@@ -261,6 +262,14 @@ function updateFormNotice() {
 // preferProduct: al escribir o escanear el código, proponer la unidad habitual del producto (p. ej. docenas).
 // Al dictar se respeta la unidad dicha, salvo que no sea compatible.
 function syncUnitWithProduct(preferProduct = false) {
+  // Si se escanea una etiqueta numerada (1015D0003) en el campo de código, se carga 1 docena / 1 unidad del 1015.
+  const res = S.resolveCode(F.sku.value);
+  if (res?.pack) {
+    F.sku.value = res.item.sku;
+    F.unit.value = res.pack === 'D' ? 'dozen' : (res.item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(res.item));
+    if (!num(F.qty.value)) F.qty.value = 1;
+    highlight(F.sku, F.unit, F.qty);
+  }
   const it = S.findByCode(F.sku.value);
   if (it && (S.inputUnit(F.unit.value).stock !== it.unitName || (preferProduct && F.unit.value === 'unit'))) F.unit.value = S.inputUnitFor(it);
   updateFormNotice();
@@ -420,7 +429,7 @@ function speakForm() {
 // =========================================================
 // Escáner
 // =========================================================
-const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), feed: [] };
+const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] };
 let lastScan = { code: '', at: 0 };
 
 function setScanOp(op) {
@@ -480,7 +489,9 @@ async function handleScan(raw, source = 'escáner') {
   if (currentView !== 'escanear') location.hash = '#/escanear';
 
   const op = prefs.scanOp, qty = num(prefs.scanQty) || 1;
-  const item = S.findByCode(code);
+  const resolved = S.resolveCode(code);
+  const item = resolved?.item || null;
+  const pack = resolved?.pack ? S.PACKS[resolved.pack] : null;
   let r;
   if (!item) {
     if (op === 'restar') return scanFail(code, `${code} no existe en el inventario; no se descontó nada.`);
@@ -494,21 +505,42 @@ async function handleScan(raw, source = 'escáner') {
     }
     r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta` });
   } else {
-    const operation = op === 'establecer' && session.counted.has(item.id) ? 'sumar' : op;
     // Cada lectura cuenta en la unidad base (1 = una prenda aunque el producto se muestre en docenas).
-    const unit = item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(item);
-    r = S.applyMovement({ sku: item.sku, qty, unit, stockType: prefs.task, operation, source, keepDisplay: true });
+    let unit = item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(item), amount = qty, note = source;
+    if (pack) {
+      // Etiqueta numerada: mueve exactamente una docena o una unidad, y no se puede registrar dos veces por error.
+      amount = 1;
+      if (resolved.pack === 'D') unit = 'dozen';
+      const label = `${pack.label.toLowerCase()} N.º ${String(resolved.number).padStart(4, '0')}`;
+      note = `${source} · ${label}`;
+      if (op === 'establecer' && session.serials.has(code)) return scanFail(code, `Esta ${label} ya se contó en esta sesión.`);
+      const last = S.lastSerialEvent(code);
+      const repeated = last && ((op === 'restar' && last.kind === 'out') || (op === 'sumar' && last.kind === 'in'));
+      if (repeated) {
+        sound('warn');
+        const ok = await ask({
+          title: `La ${label} de ${item.sku} ya ${op === 'restar' ? 'salió' : 'ingresó'}`,
+          message: `Se registró el ${new Date(last.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}. ¿Puede ser que la estés escaneando dos veces?`,
+          confirm: 'Registrar igual', cancel: 'No registrar',
+        });
+        focusScan();
+        if (!ok) return scanFail(code, `Lectura repetida de la ${label}: no se registró.`);
+      }
+    }
+    const operation = op === 'establecer' && session.counted.has(item.id) ? 'sumar' : op;
+    r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined });
   }
   if (!r.ok) return scanFail(code, r.error);
 
-  if (op === 'establecer') session.counted.add(r.item.id);
+  if (op === 'establecer') { session.counted.add(r.item.id); if (pack) session.serials.add(code); }
   session.reads++;
   session.units += r.amount;
   session.products.add(r.item.id);
-  session.feed.unshift({ id: Date.now() + Math.random(), itemId: r.item.id, sku: r.item.sku, name: productName(r.item), op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
+  const serialTag = pack ? `${pack.label} N.º ${String(resolved.number).padStart(4, '0')}` : '';
+  session.feed.unshift({ id: Date.now() + Math.random(), itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
-  scanFeedback(true, `<div class="scan-result ok"><span class="big">${sign}${fmt(op === 'establecer' ? r.after : r.amount)}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}</div></div></div>`);
+  scanFeedback(true, `<div class="scan-result ok"><span class="big">${sign}${fmt(op === 'establecer' ? r.after : r.amount)}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}</div></div></div>`);
   renderScanSession();
   focusScan();
 }
@@ -532,9 +564,10 @@ function revertScan(id) {
   if (!it) return toast('El producto ya no existe.', 'warn');
   const target = it.units - (f.after - f.before);
   if (target < 0) return toast('No se puede revertir: el stock quedaría negativo.', 'error');
-  const r = S.setStock(it.id, target, 'Reversión de lectura', `Revierte ${S.OPERATIONS[f.op].toLowerCase()} de ${fmt(f.amount)}`);
+  const r = S.setStock(it.id, target, 'Reversión de lectura', `Revierte ${S.OPERATIONS[f.op].toLowerCase()} de ${fmt(f.amount)}`, f.serial);
   if (!r.ok) return toast(r.error, 'error');
   f.undone = true;
+  if (f.serial) session.serials.delete(f.serial);
   session.reads = Math.max(0, session.reads - 1);
   session.units = Math.max(0, session.units - f.amount);
   renderScanSession();
@@ -727,21 +760,73 @@ function labelsFor(ids) {
   location.hash = '#/etiquetas';
 }
 
+const LBL_MODE_HINTS = {
+  product: 'Todas las etiquetas del producto llevan el mismo código (ej. 1015). Al escanear se mueve la cantidad configurada en Escanear.',
+  D: 'Cada docena lleva su propio número: 1015D0001, 1015D0002… Al escanearla se mueven 12 unidades, y la app avisa si esa docena ya se registró.',
+  U: 'Cada unidad lleva su propio número: 1015U0001, 1015U0002… Al escanearla se mueve 1 unidad, y la app avisa si esa unidad ya se registró.',
+};
+function setLblMode(mode) {
+  prefs.lblMode = ['product', 'D', 'U'].includes(mode) ? mode : 'product';
+  savePrefs();
+  segmented(byId('lblMode'), prefs.lblMode);
+  byId('lblModeHint').textContent = LBL_MODE_HINTS[prefs.lblMode];
+  byId('lblProductOpts').hidden = prefs.lblMode !== 'product';
+  byId('lblSerialOpts').hidden = prefs.lblMode === 'product';
+  byId('lblFixedField').hidden = prefs.lblQtyMode !== 'fixed';
+  renderLabelPreview();
+}
+
+// Arma la lista de etiquetas a imprimir. En modo docena/unidad cada una lleva su número de serie.
+// plan: qué numeración usa cada producto (se guarda al confirmar que se imprimió).
 function labelEntries() {
-  const base = [
-    ...state.items.filter(i => lbl.selected.has(i.id)).map(i => ({ code: i.sku, name: productName(i), units: i.units })),
-    ...lbl.custom.map(c => ({ code: c, name: '', units: 1 })),
-  ];
-  const out = [];
+  const items = state.items.filter(i => lbl.selected.has(i.id)).sort((a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true }));
+  const out = [], plan = [], skipped = [];
   let truncated = false;
-  for (const e of base) {
-    const n = prefs.lblByStock ? Math.max(1, Math.ceil(e.units)) : Math.max(1, Math.floor(num(prefs.lblCopies)) || 1);
-    for (let k = 0; k < n; k++) {
-      if (out.length >= L.MAX_LABELS) { truncated = true; break; }
-      out.push(e);
+  const push = e => { if (out.length >= L.MAX_LABELS) { truncated = true; return false; } out.push(e); return true; };
+
+  if (prefs.lblMode === 'product') {
+    const base = [...items.map(i => ({ code: i.sku, name: productName(i), units: i.units })), ...lbl.custom.map(c => ({ code: c, name: '', units: 1 }))];
+    for (const e of base) {
+      const n = prefs.lblByStock ? Math.max(1, Math.ceil(e.units)) : Math.max(1, Math.floor(num(prefs.lblCopies)) || 1);
+      for (let k = 0; k < n; k++) if (!push(e)) break;
     }
+    return { out, truncated, products: base.length, plan, skipped };
   }
-  return { out, truncated, products: base.length };
+
+  const pack = prefs.lblMode, info = S.PACKS[pack];
+  for (const i of items) {
+    if (!S.packAllowed(i, pack)) { skipped.push(i); continue; }
+    const count = prefs.lblQtyMode === 'fixed'
+      ? Math.max(1, Math.floor(num(prefs.lblFixed)) || 1)
+      : Math.floor(i.units / info.factor);
+    if (count < 1) { skipped.push(i); continue; }
+    const start = prefs.lblRestart ? 1 : (i.serials?.[pack] || 0) + 1;
+    let printed = 0;
+    for (let k = 0; k < count; k++) {
+      const n = start + k;
+      const tag = `${info.label} N.º ${String(n).padStart(4, '0')}${pack === 'D' ? ' · 12 u.' : ''}`;
+      if (!push({ code: S.serialCode(i.sku, pack, n), name: productName(i), tag })) break;
+      printed++;
+    }
+    if (printed) plan.push({ id: i.id, sku: i.sku, pack, start, count: printed, restart: prefs.lblRestart });
+    if (truncated) break;
+  }
+  return { out, truncated, products: items.length, plan, skipped };
+}
+
+function renderLabelPlan({ plan, skipped }) {
+  const box = byId('lblPlan');
+  if (prefs.lblMode === 'product') { box.innerHTML = ''; return; }
+  const info = S.PACKS[prefs.lblMode];
+  const pad = n => String(n).padStart(4, '0');
+  const rows = plan.slice(0, 5).map(p => `<div class="notice info">${icon('tag')}<span><b class="mono">${esc(p.sku)}</b>: ${info.plural} N.º ${pad(p.start)} a ${pad(p.start + p.count - 1)} (${fmt(p.count)} etiqueta${p.count === 1 ? '' : 's'})</span></div>`);
+  if (plan.length > 5) rows.push(`<div class="notice">${icon('info')}<span>y ${plan.length - 5} productos más.</span></div>`);
+  if (skipped.length) {
+    const why = prefs.lblMode === 'D' ? 'no se controlan en unidades o tienen menos de una docena' : 'no tienen stock';
+    rows.push(`<div class="notice warn">${icon('alert')}<span>Se omiten ${skipped.slice(0, 4).map(i => esc(i.sku)).join(', ')}${skipped.length > 4 ? '…' : ''}: ${why}. Usá "Cantidad fija" si igual querés etiquetas.</span></div>`);
+  }
+  if (!plan.length && !skipped.length) rows.push(`<div class="notice">${icon('info')}<span>Elegí productos para ver la numeración.</span></div>`);
+  box.innerHTML = rows.join('');
 }
 
 function renderLabelList() {
@@ -761,12 +846,15 @@ let previewToken = 0;
 const renderLabelPreview = debounce(async () => {
   if (currentView !== 'etiquetas') return;
   const token = ++previewToken, box = byId('lblPreview');
-  const { out, truncated } = labelEntries();
+  const entries = labelEntries(), { out, truncated } = entries;
+  renderLabelPlan(entries);
   const pages = L.pageCount(out.length, prefs.lblSize);
-  byId('lblTotal').textContent = `${fmt(out.length)} etiqueta${out.length === 1 ? '' : 's'} · ${fmt(pages)} página${pages === 1 ? '' : 's'}${truncated ? ' (máx. 1000)' : ''}`;
+  byId('lblTotal').textContent = `${fmt(out.length)} etiqueta${out.length === 1 ? '' : 's'} · ${fmt(pages)} página${pages === 1 ? '' : 's'}${truncated ? ` (máx. ${fmt(L.MAX_LABELS)})` : ''}`;
   byId('lblPrint').disabled = !out.length;
   const opts = { kind: prefs.lblKind, size: prefs.lblSize, showName: prefs.lblShowName, header: txt(prefs.lblHeader) };
-  const sample = out.length ? [...new Map(out.map(e => [e.code, e])).values()].slice(0, 6) : [{ code: 'EJEMPLO123', name: 'MARCA · PRENDA' }];
+  const example = prefs.lblMode === 'product' ? { code: 'EJEMPLO123', name: 'MARCA · PRENDA' }
+    : { code: `1015${prefs.lblMode}0001`, name: 'MARCA · PRENDA', tag: `${S.PACKS[prefs.lblMode].label} N.º 0001${prefs.lblMode === 'D' ? ' · 12 u.' : ''}` };
+  const sample = out.length ? [...new Map(out.map(e => [e.code, e])).values()].slice(0, 6) : [example];
   box.innerHTML = '<div class="skeleton" style="width:190px;height:95px"></div>';
   try {
     await L.ensureLibs(opts.kind);
@@ -779,14 +867,26 @@ const renderLabelPreview = debounce(async () => {
 }, 120);
 
 async function printLabelsNow() {
-  const { out, truncated } = labelEntries();
+  const { out, truncated, plan } = labelEntries();
   if (!out.length) return toast('Elegí al menos un producto o código.', 'warn');
-  if (truncated) toast('Se imprimen como máximo 1000 etiquetas por vez.', 'warn');
+  if (truncated) toast(`Se imprimen como máximo ${fmt(L.MAX_LABELS)} etiquetas por vez.`, 'warn');
   const btn = byId('lblPrint');
   busy(btn, true);
   try { await L.printLabels(out, { kind: prefs.lblKind, size: prefs.lblSize, showName: prefs.lblShowName, header: txt(prefs.lblHeader) }); }
-  catch (e) { toast(e.message || 'No se pudieron generar las etiquetas.', 'error'); }
-  finally { busy(btn, false); }
+  catch (e) { toast(e.message || 'No se pudieron generar las etiquetas.', 'error'); busy(btn, false); return; }
+  busy(btn, false);
+  if (!plan.length) return;
+  // Solo se avanza la numeración si se imprimió bien; si no, se pueden reimprimir los mismos números.
+  const ok = await ask({
+    title: '¿Se imprimieron bien las etiquetas?',
+    message: `Si confirmás, la próxima tanda sigue desde el número siguiente (por ejemplo ${plan[0].sku}: N.º ${plan[0].start + plan[0].count}). Si hubo un problema, elegí "Volver a imprimir" y se usan los mismos números.`,
+    confirm: 'Sí, guardar numeración', cancel: 'Volver a imprimir',
+  });
+  if (!ok) return;
+  S.reserveSerials(plan);
+  if (prefs.lblRestart) { prefs.lblRestart = false; savePrefs(); byId('lblRestart').checked = false; }
+  toast('Numeración guardada. La próxima tanda continúa desde el número siguiente.');
+  renderLabelPreview();
 }
 
 // =========================================================
@@ -1111,7 +1211,7 @@ function bindEvents() {
   byId('scanUnknown').onchange = e => { prefs.scanUnknown = e.target.value; savePrefs(); };
   byId('scanSound').onchange = e => { prefs.sound = e.target.checked; savePrefs(); };
   byId('scanCamera').onclick = () => openCamera({ continuous: true, onCode: c => handleScan(c, 'cámara') });
-  byId('scanNewSession').onclick = () => { Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), feed: [] }); byId('scanLast').innerHTML = ''; renderScanSession(); toast('Nueva sesión de escaneo', 'info'); focusScan(); };
+  byId('scanNewSession').onclick = () => { Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] }); byId('scanLast').innerHTML = ''; renderScanSession(); toast('Nueva sesión de escaneo', 'info'); focusScan(); };
   byId('scanFeed').addEventListener('click', e => { const b = e.target.closest('[data-revert]'); if (b) revertScan(b.dataset.revert); });
   byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
 
@@ -1138,6 +1238,13 @@ function bindEvents() {
   byId('lblHeader').addEventListener('input', e => { prefs.lblHeader = e.target.value; savePrefs(); renderLabelPreview(); });
   byId('lblShowName').onchange = e => { prefs.lblShowName = e.target.checked; savePrefs(); renderLabelPreview(); };
   byId('lblByStock').onchange = e => { prefs.lblByStock = e.target.checked; savePrefs(); byId('lblCopies').disabled = e.target.checked; renderLabelPreview(); };
+  onSegment(byId('lblMode'), setLblMode);
+  byId('lblQtyMode').onchange = e => { prefs.lblQtyMode = e.target.value; savePrefs(); byId('lblFixedField').hidden = prefs.lblQtyMode !== 'fixed'; renderLabelPreview(); };
+  byId('lblFixed').addEventListener('input', e => { prefs.lblFixed = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); renderLabelPreview(); });
+  byId('lblRestart').onchange = async e => {
+    if (e.target.checked && !(await ask({ title: '¿Reiniciar la numeración?', message: 'Se van a imprimir números que quizás ya existen en otras etiquetas pegadas. Usalo solo si retiraste las etiquetas anteriores.', confirm: 'Reiniciar desde 1' }))) { e.target.checked = false; return; }
+    prefs.lblRestart = e.target.checked; savePrefs(); renderLabelPreview();
+  };
   byId('lblSearch').addEventListener('input', debounce(e => { lbl.q = e.target.value; renderLabelList(); }, 120));
   byId('lblList').addEventListener('change', e => {
     const cb = e.target.closest('input[type="checkbox"]');
@@ -1210,6 +1317,8 @@ function init() {
 
   fillSelects();
   hydrateIcons();
+  $$('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });
+  byId('appVersion').textContent = `v${CONFIG.VERSION}`;
   initRipple();
   renderCreator();
   setTheme(document.documentElement.dataset.theme);
@@ -1226,6 +1335,10 @@ function init() {
   byId('lblHeader').value = prefs.lblHeader;
   byId('lblShowName').checked = prefs.lblShowName;
   byId('lblByStock').checked = prefs.lblByStock;
+  byId('lblQtyMode').value = prefs.lblQtyMode;
+  byId('lblFixed').value = prefs.lblFixed;
+  prefs.lblRestart = false; // por seguridad, nunca arranca activado
+  setLblMode(prefs.lblMode);
   setInvFilter('all');
   byId('voiceAutoSave').checked = prefs.voiceAutoSave;
   byId('voiceSpeak').checked = prefs.voiceSpeak;

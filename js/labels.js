@@ -3,7 +3,7 @@ import { loadScript, esc, byId } from './utils.js';
 
 const JSBARCODE_URL = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js';
 const QR_URL = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
-export const MAX_LABELS = 1000;
+export const MAX_LABELS = 3000;
 
 // w/h en milímetros. "sheet" = hoja con varias etiquetas; si no, una etiqueta por página (rollo).
 export const LABEL_SIZES = {
@@ -36,7 +36,8 @@ function qrSVG(value) {
   return qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
 }
 
-// entry: { code, name } · opts: { kind: 'barcode'|'qr', size, showName, header }
+// entry: { code, name, tag } · tag = texto destacado de etiquetas numeradas ("DOCENA N.º 0003 · 12 u.")
+// opts: { kind: 'barcode'|'qr', size, showName, header }
 export function labelHTML(entry, opts) {
   const s = LABEL_SIZES[opts.size] || LABEL_SIZES.r50x25;
   let kind = opts.kind, code;
@@ -49,9 +50,10 @@ export function labelHTML(entry, opts) {
   const header = opts.header ? `<div class="lbl-header">${esc(opts.header)}</div>` : '';
   const name = opts.showName && entry.name ? `<div class="lbl-name">${esc(entry.name)}</div>` : '';
   const sku = `<div class="lbl-sku">${esc(entry.code)}</div>`;
+  const tag = entry.tag ? `<div class="lbl-tag">${esc(entry.tag)}</div>` : '';
   const body = kind === 'qr'
-    ? `<div class="lbl-code">${code}</div><div class="lbl-text">${header}${sku}${name}</div>`
-    : `${header}<div class="lbl-code">${code}</div>${sku}${name}`;
+    ? `<div class="lbl-code">${code}</div><div class="lbl-text">${header}${tag}${sku}${name}</div>`
+    : `${header}${tag}<div class="lbl-code">${code}</div>${sku}${name}`;
   return `<div class="lbl lbl-${kind}" style="--h:${s.h};width:${s.w}mm;height:${s.h}mm">${body}</div>`;
 }
 
