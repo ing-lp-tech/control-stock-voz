@@ -107,7 +107,14 @@ Después de publicar:
     - *Cada docena*: `1015D0001`, `1015D0002`… y al escanearla se mueven 12 unidades.
     - *Cada unidad*: `1015U0001`… y se mueve 1 unidad.
   - Las etiquetas numeradas continúan la numeración en cada tanda. Si se escanea dos veces la misma, por ejemplo la docena N.º 3 en una salida, la app avisa antes de registrarla.
-  - *Según el stock actual* crea una etiqueta por cada docena o unidad que tenés hoy. Para etiquetar solo la mercadería que acaba de entrar, usá *Cantidad fija*.
+  - **¿Cuántas etiquetas?**
+    - *Todo el stock*: una por cada docena o unidad que hay hoy.
+    - *Una cantidad*: 1, 5, 10, 15… las que elijas, siguiendo la numeración. Ideal para mercadería que acaba de entrar.
+    - *Números específicos*: exactamente los que escribas, por ejemplo `1-7` o `1-7, 10, 15`. Sirve para reimprimir etiquetas rotas; reimprimir números que ya existían no cambia la numeración.
+- **Historial**:
+  - Cada movimiento dice exactamente qué se movió (*−1 docena · 12 unidades*, *+5 unidades*), qué etiqueta se escaneó (*Docena N.º 0002*), a qué hora y cómo se cargó (pistola, cámara, voz o manual).
+  - Se filtra por **código, marca, prenda, período** (hoy, ayer, 7 o 30 días) y tipo de movimiento, con los totales de lo filtrado. El CSV exporta lo filtrado.
+- **Ficha de cada código**: tocá cualquier movimiento, o el botón del reloj en Inventario. Muestra todos los ingresos y salidas con fecha y hora, los totales y qué docenas o unidades numeradas ya salieron.
 - **Deshacer**: botón ↶ arriba o **Ctrl+Z**.
 - Atajos: **/** busca en el inventario, **F2** abre el escáner.
 

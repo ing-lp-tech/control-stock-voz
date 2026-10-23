@@ -274,18 +274,38 @@
        <div class="form-grid" id="lblProductOpts">
         <div class="field"><label for="lblCopies">Copias por producto</label>
          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="lblCopies" type="number" min="1" step="1" inputmode="numeric" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
+         <div class="chips" id="lblCopiesChips" style="margin-top:8px"><button type="button" class="chip" data-n="1">1</button><button type="button" class="chip" data-n="2">2</button><button type="button" class="chip" data-n="5">5</button><button type="button" class="chip" data-n="10">10</button><button type="button" class="chip" data-n="12">12</button></div>
         </div>
         <label class="switch" style="align-self:end;min-height:44px"><input type="checkbox" id="lblByStock"><span class="track"></span>Una por cada unidad en stock</label>
        </div>
        <!-- Modo "docena" / "unidad": etiquetas numeradas, cada una distinta -->
        <div class="stack" id="lblSerialOpts" hidden>
-        <div class="form-grid">
-         <div class="field"><label for="lblQtyMode">Cantidad de etiquetas</label><select id="lblQtyMode" class="input"><option value="stock">Según el stock actual</option><option value="fixed">Cantidad fija por producto</option></select></div>
-         <div class="field" id="lblFixedField"><label for="lblFixed">Etiquetas por producto</label>
-          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="lblFixed" type="number" min="1" step="1" inputmode="numeric" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
+        <div class="field"><span class="label">¿Cuántas etiquetas?</span>
+         <div class="segmented" id="lblQtyMode">
+          <button type="button" data-v="stock"><i data-i="layers"></i>Todo el stock</button>
+          <button type="button" data-v="fixed"><i data-i="plus"></i>Una cantidad</button>
+          <button type="button" data-v="list"><i data-i="edit"></i>Números específicos</button>
+         </div>
+         <p class="hint" id="lblQtyHint"></p>
+        </div>
+        <!-- Una cantidad -->
+        <div class="field" id="lblFixedField">
+         <label for="lblFixed">Cantidad por producto</label>
+         <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="lblFixed" type="number" min="1" step="1" inputmode="numeric" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
+         <div class="chips" id="lblFixedChips" style="margin-top:8px">
+          <button type="button" class="chip" data-n="1">1</button><button type="button" class="chip" data-n="5">5</button><button type="button" class="chip" data-n="10">10</button><button type="button" class="chip" data-n="12">12</button><button type="button" class="chip" data-n="15">15</button><button type="button" class="chip" data-n="20">20</button><button type="button" class="chip" data-n="50">50</button>
          </div>
         </div>
-        <label class="switch"><input type="checkbox" id="lblRestart"><span class="track"></span>Reiniciar la numeración desde el N.º 1</label>
+        <!-- Números específicos -->
+        <div class="field" id="lblListField">
+         <label for="lblNumbers">Números a imprimir</label>
+         <input id="lblNumbers" class="input mono" placeholder="Ej.: 1-7, 10, 15" inputmode="text" autocomplete="off" spellcheck="false">
+         <div class="chips" id="lblListChips" style="margin-top:8px">
+          <button type="button" class="chip" data-list="1">Solo la 1</button><button type="button" class="chip" data-list="1-7">De la 1 a la 7</button><button type="button" class="chip" data-list="1-10">De la 1 a la 10</button><button type="button" class="chip" data-list="1, 10, 15">1, 10 y 15</button>
+         </div>
+         <p class="hint">Rangos con guion (<code>1-7</code>) y números sueltos separados por coma (<code>10, 15</code>). También sirve para reimprimir una etiqueta rota o perdida.</p>
+        </div>
+        <label class="switch" id="lblRestartWrap"><input type="checkbox" id="lblRestart"><span class="track"></span>Reiniciar la numeración desde el N.º 1</label>
         <div id="lblPlan" class="notice-list" style="margin:0"></div>
        </div>
        <div class="form-grid">
@@ -305,10 +325,17 @@
 
    <!-- ===== HISTORIAL ===== -->
    <section class="view" data-view="historial">
-    <div class="card toolbar">
-     <div class="search"><i data-i="search"></i><input id="histSearch" class="input" type="search" placeholder="Buscar por código, marca o nota…" aria-label="Buscar en el historial"></div>
-     <button class="btn btn-ghost" type="button" id="histExport"><i data-i="download"></i><span>CSV</span></button>
-     <button class="btn btn-ghost danger-text" type="button" id="histClear"><i data-i="trash"></i><span class="hide-sm">Borrar</span></button>
+    <div class="card hist-filters">
+     <div class="search"><i data-i="search"></i><input id="histSearch" class="input" type="search" placeholder="Buscar en todo: código, marca, prenda, etiqueta…" aria-label="Buscar en el historial"></div>
+     <div class="field"><label for="histCode">Código</label><input id="histCode" class="input mono" list="skuList" placeholder="Todos" autocomplete="off" spellcheck="false" autocapitalize="characters"></div>
+     <div class="field"><label for="histBrand">Marca</label><select id="histBrand" class="input"><option value="">Todas</option></select></div>
+     <div class="field"><label for="histType">Prenda</label><select id="histType" class="input"><option value="">Todas</option></select></div>
+     <div class="field"><label for="histPeriod">Período</label><select id="histPeriod" class="input"><option value="all">Todo</option><option value="today">Hoy</option><option value="yesterday">Ayer</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select></div>
+     <div class="hist-actions">
+      <button class="btn btn-ghost" type="button" id="histReset" title="Quitar filtros"><i data-i="x"></i><span>Limpiar</span></button>
+      <button class="btn btn-ghost" type="button" id="histExport" title="Exportar lo filtrado"><i data-i="download"></i><span>CSV</span></button>
+      <button class="btn btn-ghost danger-text" type="button" id="histClear" title="Borrar todo el historial"><i data-i="trash"></i></button>
+     </div>
     </div>
     <div class="chips" id="histFilters" style="margin-bottom:14px">
      <button class="chip" type="button" data-k="all">Todos</button>
@@ -317,6 +344,7 @@
      <button class="chip" type="button" data-k="count">Conteos</button>
      <button class="chip" type="button" data-k="edit">Ediciones</button>
     </div>
+    <div id="histSummary" class="hist-summary"></div>
     <div class="card"><div id="histList" class="timeline"></div><div class="list-more"><button class="btn btn-ghost" type="button" id="histMore" hidden>Ver más</button></div></div>
    </section>
 
@@ -462,6 +490,20 @@
  </div>
 </div>
 
+<dialog class="modal modal-lg" id="productDialog">
+ <div class="modal-inner">
+  <div class="modal-head"><div><h3 id="pdTitle">Movimientos</h3><p class="muted" id="pdSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body" id="pdBody"></div>
+  <div class="modal-actions">
+   <button type="button" class="btn btn-ghost" id="pdExport"><i data-i="download"></i>Exportar CSV</button>
+   <button type="button" class="btn btn-ghost" id="pdLabels"><i data-i="tag"></i>Etiquetas</button>
+   <span class="grow"></span>
+   <button type="button" class="btn btn-primary" id="pdEdit"><i data-i="edit"></i>Editar producto</button>
+  </div>
+ </div>
+</dialog>
+
+<datalist id="skuList"></datalist>
 <datalist id="brandList"></datalist>
 <datalist id="typeList"></datalist>
 <div id="printArea" aria-hidden="true"></div>

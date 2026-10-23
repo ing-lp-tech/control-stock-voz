@@ -18,7 +18,7 @@ const PREFS_KEY = 'stockvoz_prefs';
 const prefs = {
   task: 'inventario', formOp: 'sumar', scanOp: 'sumar', scanQty: 1, scanUnknown: 'ask', sound: true, voiceAutoSave: true, voiceSpeak: true,
   lblKind: 'barcode', lblSize: 'r50x25', lblCopies: 1, lblByStock: false, lblShowName: true, lblHeader: '',
-  lblMode: 'product', lblQtyMode: 'stock', lblFixed: 1, lblRestart: false,
+  lblMode: 'product', lblQtyMode: 'stock', lblFixed: 1, lblList: '', lblRestart: false,
   ...readJSON(PREFS_KEY, {}),
 };
 const savePrefs = () => writeJSON(PREFS_KEY, prefs);
@@ -124,16 +124,40 @@ document.addEventListener('click', e => {
 // Plantillas compartidas
 // =========================================================
 const KIND_ICON = { in: 'arrow-in', out: 'arrow-out', count: 'equal', edit: 'edit', delete: 'trash', import: 'upload' };
-function historyRow(h) {
+// Cantidad legible de un movimiento: "−1 docena" (12 unidades), "+5 unidades", "= 240 unidades".
+const plural = (n, one, many) => `${fmt(n)} ${Number(n) === 1 ? one : many}`;
+const UNIT_WORDS = { unidades: ['unidad', 'unidades'], docenas: ['docena', 'docenas'], cajas: ['caja', 'cajas'], paquetes: ['paquete', 'paquetes'], pares: ['par', 'pares'], rollos: ['rollo', 'rollos'] };
+const unitWords = (n, unit) => (UNIT_WORDS[unit] ? plural(n, ...UNIT_WORDS[unit]) : `${fmt(n)} ${unit || ''}`.trim());
+function movementQty(h) {
   const k = S.historyKind(h);
-  const sign = k === 'out' ? '−' : k === 'in' ? '+' : k === 'count' ? '=' : '';
-  const delta = h.quantity != null && ['in', 'out', 'count'].includes(k) ? `${sign}${fmt(k === 'count' ? h.after : h.quantity)}` : '';
-  const change = h.before != null && h.after != null ? ` · ${fmt(h.before)} → ${fmt(h.after)}${h.unit ? ' ' + esc(h.unit) : ''}` : '';
-  const sub = [h.brand, h.type].filter(Boolean).join(' · ');
-  return `<div class="tl-item tl-${k}"><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
-    <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span></div>
-    <div class="tl-sub">${esc(sub || h.note || '')}${change}</div></div>
-    <div class="tl-side">${delta ? `<strong class="delta">${delta}</strong>` : ''}<span>${relTime(h.at)}</span></div></div>`;
+  if (!['in', 'out', 'count'].includes(k)) return null;
+  if (k === 'count') return { main: `= ${unitWords(h.after, h.unit || 'unidades')}`, sub: 'conteo físico' };
+  const sign = k === 'out' ? '−' : '+', e = S.enteredOf(h);
+  if (e?.unit === 'docenas') return { main: `${sign}${unitWords(e.qty, 'docenas')}`, sub: unitWords(h.quantity, 'unidades') };
+  return { main: `${sign}${unitWords(h.quantity ?? e?.qty, e?.unit || h.unit || 'unidades')}`, sub: '' };
+}
+const timeOf = iso => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+const dateTimeOf = iso => new Date(iso).toLocaleString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// opts.time: mostrar la hora (en listas agrupadas por día) en lugar de "hace 5 min".
+function historyRow(h, opts = {}) {
+  const k = S.historyKind(h), q = movementQty(h), si = S.serialInfo(h.serial), src = S.sourceOf(h);
+  const change = h.before != null && h.after != null ? `stock ${fmt(h.before)} → ${fmt(h.after)}${h.unit ? ' ' + esc(h.unit) : ''}` : '';
+  const sub = [esc([h.brand, h.type].filter(Boolean).join(' · ')), change, src && `por ${esc(src)}`].filter(Boolean).join(' · ');
+  return `<div class="tl-item tl-${k}" ${h.sku ? `data-sku="${esc(h.sku)}" tabindex="0" title="Ver todos los movimientos de ${esc(h.sku)}"` : ''}><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
+    <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}</div>
+    <div class="tl-sub">${sub || esc(h.note || '')}</div></div>
+    <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></div></div>`;
+}
+// Agrupa movimientos por día, con la hora de cada uno.
+function historyByDay(rows) {
+  let html = '', day = '';
+  for (const h of rows) {
+    const d = new Date(h.at).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (d !== day) { html += `<div class="tl-day">${esc(d)}</div>`; day = d; }
+    html += historyRow(h, { time: true });
+  }
+  return html;
 }
 const emptyState = (ic, title, text, action = '') => `<div class="empty"><span class="empty-icon">${icon(ic)}</span><strong>${esc(title)}</strong><span>${esc(text)}</span>${action}</div>`;
 
@@ -540,7 +564,11 @@ async function handleScan(raw, source = 'escáner') {
   session.feed.unshift({ id: Date.now() + Math.random(), itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
-  scanFeedback(true, `<div class="scan-result ok"><span class="big">${sign}${fmt(op === 'establecer' ? r.after : r.amount)}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}</div></div></div>`);
+  // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
+  const moved = op === 'establecer' ? `= ${unitWords(r.after, S.unitLabel(r.item.unitName))}`
+    : resolved?.pack === 'D' ? `${sign}1 docena` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
+  const movedSub = resolved?.pack === 'D' && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
+  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}</div></div></div>`);
   renderScanSession();
   focusScan();
 }
@@ -552,7 +580,7 @@ function renderScanSession() {
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}">
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
-        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub">${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div>
+        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div>
         ${f.undone ? '<span class="badge">Revertido</span>' : `<button class="btn btn-ghost btn-sm" type="button" data-revert="${f.id}">${icon('undo', 'sm')}Revertir</button>`}</div>`).join('')
     : emptyState('scan', 'Sin lecturas todavía', 'Escaneá un código con la pistola o la cámara para empezar.');
 }
@@ -634,6 +662,7 @@ function itemRow(i) {
     <div class="inv-tags">${zero ? '<span class="badge badge-danger">Sin stock</span>' : low ? '<span class="badge badge-warn">Bajo mínimo</span>' : ''}<span class="badge">${esc(S.stockTypeLabel(i.stockType))}</span></div>
     <div class="inv-actions">
       <div class="stepper sm"><button type="button" data-act="minus" title="Restar 1" aria-label="Restar 1">${icon('minus')}</button><button type="button" data-act="plus" title="Sumar 1" aria-label="Sumar 1">${icon('plus')}</button></div>
+      <button class="icon-btn" type="button" data-act="history" title="Ver todos sus movimientos">${icon('history')}</button>
       <button class="icon-btn" type="button" data-act="label" title="Imprimir etiqueta">${icon('tag')}</button>
       <button class="icon-btn" type="button" data-act="edit" title="Editar">${icon('edit')}</button>
     </div></div>`;
@@ -686,6 +715,7 @@ function onInventoryClick(e) {
   if (act === 'select') { el.checked ? inv.selected.add(id) : inv.selected.delete(id); el.closest('.inv-row').classList.toggle('selected', el.checked); renderBulkBar(); return; }
   if (act === 'edit') return openEdit(item);
   if (act === 'label') { labelsFor([id]); return; }
+  if (act === 'history') { openProductHistory(item.sku); return; }
   if (act === 'plus' || act === 'minus') {
     const r = S.adjust(id, act === 'plus' ? 1 : -1);
     if (!r.ok) { toast(r.error, 'warn'); sound('warn'); return; }
@@ -772,8 +802,55 @@ function setLblMode(mode) {
   byId('lblModeHint').textContent = LBL_MODE_HINTS[prefs.lblMode];
   byId('lblProductOpts').hidden = prefs.lblMode !== 'product';
   byId('lblSerialOpts').hidden = prefs.lblMode === 'product';
+  setLblQtyMode(prefs.lblQtyMode);
+}
+
+const LBL_QTY_HINTS = {
+  stock: 'Una etiqueta por cada {u} que hay hoy en stock. Continúa la numeración desde la última impresa.',
+  fixed: 'Imprime solo la cantidad que elijas por cada producto (ideal cuando entra mercadería nueva). Continúa la numeración.',
+  list: 'Imprime exactamente los números que escribas, por ejemplo para reimprimir etiquetas.',
+};
+function setLblQtyMode(mode) {
+  prefs.lblQtyMode = ['stock', 'fixed', 'list'].includes(mode) ? mode : 'stock';
+  savePrefs();
+  segmented(byId('lblQtyMode'), prefs.lblQtyMode);
+  const unit = prefs.lblMode === 'D' ? 'docena' : 'unidad';
+  byId('lblQtyHint').textContent = LBL_QTY_HINTS[prefs.lblQtyMode].replace('{u}', unit);
   byId('lblFixedField').hidden = prefs.lblQtyMode !== 'fixed';
+  byId('lblListField').hidden = prefs.lblQtyMode !== 'list';
+  byId('lblRestartWrap').hidden = prefs.lblQtyMode === 'list';
+  syncLblChips();
   renderLabelPreview();
+}
+function syncLblChips() {
+  $$('#lblFixedChips .chip').forEach(c => c.classList.toggle('active', Number(c.dataset.n) === Number(prefs.lblFixed)));
+  $$('#lblCopiesChips .chip').forEach(c => c.classList.toggle('active', Number(c.dataset.n) === Number(prefs.lblCopies) && !prefs.lblByStock));
+  $$('#lblListChips .chip').forEach(c => c.classList.toggle('active', c.dataset.list === txt(prefs.lblList)));
+}
+
+// "1-7, 10, 15" (o "1 a 7") → [1,2,3,4,5,6,7,10,15]. Devuelve también las partes que no se entendieron.
+function parseNumberList(text) {
+  const nums = new Set(), bad = [];
+  const clean = String(text || '').toLowerCase().replace(/\s*(?:-|–|a|al|hasta)\s*(?=\d)/g, '-');
+  for (const part of clean.split(/[,;\s]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) { bad.push(part); continue; }
+    let a = Number(m[1]), b = m[2] ? Number(m[2]) : a;
+    if (a > b) [a, b] = [b, a];
+    for (let n = Math.max(1, a); n <= b && nums.size < L.MAX_LABELS; n++) nums.add(n);
+  }
+  return { numbers: [...nums].sort((x, y) => x - y), bad };
+}
+// [1,2,3,4,7,10,11] → "0001–0004, 0007, 0010–0011"
+function formatRanges(numbers) {
+  const pad = n => String(n).padStart(4, '0'), out = [];
+  for (let i = 0; i < numbers.length; i++) {
+    let j = i;
+    while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j++;
+    out.push(i === j ? pad(numbers[i]) : `${pad(numbers[i])}–${pad(numbers[j])}`);
+    i = j;
+  }
+  return out.length > 6 ? `${out.slice(0, 6).join(', ')}…` : out.join(', ');
 }
 
 // Arma la lista de etiquetas a imprimir. En modo docena/unidad cada una lleva su número de serie.
@@ -794,38 +871,46 @@ function labelEntries() {
   }
 
   const pack = prefs.lblMode, info = S.PACKS[pack];
+  const listed = prefs.lblQtyMode === 'list' ? parseNumberList(prefs.lblList) : null;
   for (const i of items) {
     if (!S.packAllowed(i, pack)) { skipped.push(i); continue; }
-    const count = prefs.lblQtyMode === 'fixed'
-      ? Math.max(1, Math.floor(num(prefs.lblFixed)) || 1)
-      : Math.floor(i.units / info.factor);
-    if (count < 1) { skipped.push(i); continue; }
-    const start = prefs.lblRestart ? 1 : (i.serials?.[pack] || 0) + 1;
-    let printed = 0;
-    for (let k = 0; k < count; k++) {
-      const n = start + k;
+    let numbers;
+    if (listed) numbers = listed.numbers;
+    else {
+      const count = prefs.lblQtyMode === 'fixed' ? Math.max(1, Math.floor(num(prefs.lblFixed)) || 1) : Math.floor(i.units / info.factor);
+      const start = prefs.lblRestart ? 1 : (i.serials?.[pack] || 0) + 1;
+      numbers = Array.from({ length: Math.min(count, L.MAX_LABELS) }, (_, k) => start + k);
+    }
+    if (!numbers.length) { if (!listed) skipped.push(i); continue; }
+    const printed = [];
+    for (const n of numbers) {
       const tag = `${info.label} N.º ${String(n).padStart(4, '0')}${pack === 'D' ? ' · 12 u.' : ''}`;
       if (!push({ code: S.serialCode(i.sku, pack, n), name: productName(i), tag })) break;
-      printed++;
+      printed.push(n);
     }
-    if (printed) plan.push({ id: i.id, sku: i.sku, pack, start, count: printed, restart: prefs.lblRestart });
+    if (printed.length) plan.push({ id: i.id, sku: i.sku, pack, numbers: printed, start: printed[0], last: printed.at(-1), count: printed.length, restart: !listed && prefs.lblRestart, current: i.serials?.[pack] || 0 });
     if (truncated) break;
   }
-  return { out, truncated, products: items.length, plan, skipped };
+  return { out, truncated, products: items.length, plan, skipped, bad: listed?.bad || [] };
 }
 
-function renderLabelPlan({ plan, skipped }) {
+function renderLabelPlan({ plan, skipped, bad }) {
   const box = byId('lblPlan');
   if (prefs.lblMode === 'product') { box.innerHTML = ''; return; }
   const info = S.PACKS[prefs.lblMode];
-  const pad = n => String(n).padStart(4, '0');
-  const rows = plan.slice(0, 5).map(p => `<div class="notice info">${icon('tag')}<span><b class="mono">${esc(p.sku)}</b>: ${info.plural} N.º ${pad(p.start)} a ${pad(p.start + p.count - 1)} (${fmt(p.count)} etiqueta${p.count === 1 ? '' : 's'})</span></div>`);
+  const rows = plan.slice(0, 5).map(p => {
+    const stockNow = Math.floor((S.findById(p.id)?.units || 0) / info.factor);
+    const printedBefore = p.current ? ` · ya impresas hasta la N.º ${String(p.current).padStart(4, '0')}` : '';
+    return `<div class="notice info">${icon('tag')}<span><b class="mono">${esc(p.sku)}</b>: ${info.plural} N.º ${formatRanges(p.numbers)} (${fmt(p.count)} etiqueta${p.count === 1 ? '' : 's'})<br><span class="small muted">Hay ${fmt(stockNow)} ${info.plural} en stock${printedBefore}</span></span></div>`;
+  });
   if (plan.length > 5) rows.push(`<div class="notice">${icon('info')}<span>y ${plan.length - 5} productos más.</span></div>`);
+  if (bad?.length) rows.push(`<div class="notice warn">${icon('alert')}<span>No entendí: <b class="mono">${esc(bad.join(', '))}</b>. Usá números y rangos, por ejemplo <span class="mono">1-7, 10, 15</span>.</span></div>`);
+  if (prefs.lblQtyMode === 'list' && !txt(prefs.lblList)) rows.push(`<div class="notice">${icon('info')}<span>Escribí qué números querés imprimir o tocá un atajo.</span></div>`);
   if (skipped.length) {
     const why = prefs.lblMode === 'D' ? 'no se controlan en unidades o tienen menos de una docena' : 'no tienen stock';
     rows.push(`<div class="notice warn">${icon('alert')}<span>Se omiten ${skipped.slice(0, 4).map(i => esc(i.sku)).join(', ')}${skipped.length > 4 ? '…' : ''}: ${why}. Usá "Cantidad fija" si igual querés etiquetas.</span></div>`);
   }
-  if (!plan.length && !skipped.length) rows.push(`<div class="notice">${icon('info')}<span>Elegí productos para ver la numeración.</span></div>`);
+  if (!plan.length && !skipped.length && !lbl.selected.size) rows.push(`<div class="notice">${icon('info')}<span>Elegí productos para ver la numeración.</span></div>`);
   box.innerHTML = rows.join('');
 }
 
@@ -877,9 +962,12 @@ async function printLabelsNow() {
   busy(btn, false);
   if (!plan.length) return;
   // Solo se avanza la numeración si se imprimió bien; si no, se pueden reimprimir los mismos números.
+  // Reimprimir números que ya existían no cambia la numeración: no hace falta preguntar.
+  if (plan.every(p => !p.restart && p.last <= p.current)) { toast('Etiquetas enviadas a la impresora. La numeración no cambia.', 'info'); return; }
+  const p0 = plan[0], next = (p0.restart ? p0.last : Math.max(p0.current, p0.last)) + 1;
   const ok = await ask({
     title: '¿Se imprimieron bien las etiquetas?',
-    message: `Si confirmás, la próxima tanda sigue desde el número siguiente (por ejemplo ${plan[0].sku}: N.º ${plan[0].start + plan[0].count}). Si hubo un problema, elegí "Volver a imprimir" y se usan los mismos números.`,
+    message: `Si confirmás, la próxima tanda sigue desde el número siguiente (por ejemplo ${p0.sku}: N.º ${String(next).padStart(4, '0')}). Si hubo un problema, elegí "Volver a imprimir" y se usan los mismos números.`,
     confirm: 'Sí, guardar numeración', cancel: 'Volver a imprimir',
   });
   if (!ok) return;
@@ -892,23 +980,116 @@ async function printLabelsNow() {
 // =========================================================
 // Historial
 // =========================================================
-const hist = { q: '', kind: 'all', limit: 100 };
+const hist = { q: '', kind: 'all', code: '', brand: '', type: '', period: 'all', limit: 100 };
+const kindMatches = (h, kind) => kind === 'all' || S.historyKind(h) === kind || (kind === 'edit' && ['delete', 'import'].includes(S.historyKind(h)));
+function periodStart(p) {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  if (p === 'today') return [d, null];
+  if (p === 'yesterday') { const y = new Date(d); y.setDate(y.getDate() - 1); return [y, d]; }
+  if (p === '7' || p === '30') { d.setDate(d.getDate() - Number(p) + 1); return [d, null]; }
+  return [null, null];
+}
+function filteredHistory() {
+  const q = hist.q.toLocaleLowerCase('es-AR'), code = upper(hist.code).replace(/\s+/g, '');
+  const [from, to] = periodStart(hist.period);
+  return state.history.filter(h => kindMatches(h, hist.kind)
+    && (!code || h.sku === code || String(h.sku).includes(code) || h.serial === code)
+    && (!hist.brand || h.brand === hist.brand)
+    && (!hist.type || h.type === hist.type)
+    && (!from || new Date(h.at) >= from) && (!to || new Date(h.at) < to)
+    && (!q || [h.sku, h.brand, h.type, h.note, h.action, h.serial, S.serialInfo(h.serial)?.label].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q))));
+}
+// Totales de una lista de movimientos (ingresos, salidas, neto), en unidades y docenas.
+function movementTotals(rows) {
+  let ins = 0, outs = 0;
+  for (const h of rows) { const k = S.historyKind(h); if (k === 'in') ins += num(h.quantity); else if (k === 'out') outs += num(h.quantity); }
+  const dz = n => `${fmt(n / 12)} docenas`;
+  return { ins, outs, net: ins - outs, dz };
+}
+function renderHistSummary(rows) {
+  const t = movementTotals(rows);
+  const anyFilter = hist.q || hist.code || hist.brand || hist.type || hist.period !== 'all' || hist.kind !== 'all';
+  const code = upper(hist.code).replace(/\s+/g, ''), item = code && (S.findByCode(code) || S.resolveCode(code)?.item);
+  byId('histSummary').innerHTML = `
+    <div class="sum-tile"><span>Movimientos${anyFilter ? ' (filtrados)' : ''}</span><strong>${fmt(rows.length)}</strong><small>${item ? `<a href="#" class="link" data-open-product="${esc(item.sku)}">Ver ficha de ${esc(item.sku)} ${icon('chevron-right', 'sm')}</a>` : '&nbsp;'}</small></div>
+    <div class="sum-tile in"><span>Ingresó</span><strong>+${fmt(t.ins)} u.</strong><small>${t.dz(t.ins)}</small></div>
+    <div class="sum-tile out"><span>Salió</span><strong>−${fmt(t.outs)} u.</strong><small>${t.dz(t.outs)}</small></div>
+    <div class="sum-tile"><span>Diferencia</span><strong>${t.net >= 0 ? '+' : '−'}${fmt(Math.abs(t.net))} u.</strong><small>${t.dz(Math.abs(t.net))}</small></div>`;
+}
+function fillHistSelects() {
+  const uniq = k => [...new Set([...state.items.map(i => i[k]), ...state.history.map(h => h[k])].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  for (const [id, key, all] of [['histBrand', 'brand', 'Todas'], ['histType', 'type', 'Todas']]) {
+    const sel = byId(id), current = hist[key];
+    sel.innerHTML = `<option value="">${all}</option>` + uniq(key).map(v => `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  }
+}
 function renderHistory() {
   if (currentView !== 'historial') return;
+  fillHistSelects();
   $$('#histFilters .chip').forEach(c => c.classList.toggle('active', c.dataset.k === hist.kind));
-  const q = hist.q.toLocaleLowerCase('es-AR');
-  const rows = state.history.filter(h => (hist.kind === 'all' || S.historyKind(h) === hist.kind || (hist.kind === 'edit' && ['delete', 'import'].includes(S.historyKind(h))))
-    && (!q || [h.sku, h.brand, h.type, h.note, h.action].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q))));
-  const shown = rows.slice(0, hist.limit);
-  let html = '', day = '';
-  for (const h of shown) {
-    const d = new Date(h.at).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
-    if (d !== day) { html += `<div class="tl-day">${esc(d)}</div>`; day = d; }
-    html += historyRow(h);
-  }
-  byId('histList').innerHTML = html || emptyState('history', 'Sin movimientos', q || hist.kind !== 'all' ? 'No hay resultados para este filtro.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
+  const rows = filteredHistory(), shown = rows.slice(0, hist.limit);
+  renderHistSummary(rows);
+  const filtered = hist.q || hist.code || hist.brand || hist.type || hist.period !== 'all' || hist.kind !== 'all';
+  byId('histList').innerHTML = historyByDay(shown) || emptyState('history', 'Sin movimientos', filtered ? 'No hay resultados para estos filtros.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
   byId('histMore').hidden = rows.length <= shown.length;
   byId('histMore').textContent = `Ver más (${rows.length - shown.length})`;
+}
+
+// =========================================================
+// Ficha de movimientos de un producto
+// =========================================================
+const pd = { sku: '', kind: 'all' };
+function openProductHistory(sku) {
+  pd.sku = upper(sku); pd.kind = 'all';
+  renderProductHistory();
+  const d = byId('productDialog');
+  if (!d.open) d.showModal();
+}
+function renderProductHistory() {
+  const item = S.findByCode(pd.sku), sku = item?.sku || pd.sku;
+  const all = state.history.filter(h => h.sku === sku);
+  const rows = all.filter(h => kindMatches(h, pd.kind));
+  const t = movementTotals(all);
+  const lastIn = all.find(h => S.historyKind(h) === 'in'), lastOut = all.find(h => S.historyKind(h) === 'out');
+  const d = item ? S.displayQty(item) : null;
+  byId('pdTitle').textContent = `Movimientos de ${sku}`;
+  byId('pdSub').textContent = item ? (productName(item) || 'Sin marca ni prenda') : 'Este producto ya no está en el inventario';
+  byId('pdEdit').hidden = !item; byId('pdLabels').hidden = !item;
+
+  // Estado de cada etiqueta numerada según su último movimiento.
+  const serials = new Map();
+  for (const h of [...all].reverse()) if (h.serial) serials.set(h.serial, h);
+  const bySerial = { D: { out: [], in: [] }, U: { out: [], in: [] } };
+  for (const [serial, h] of serials) {
+    const si = S.serialInfo(serial), k = S.historyKind(h);
+    if (si && (k === 'out' || k === 'in')) bySerial[si.pack][k].push({ n: si.number, at: h.at });
+  }
+  const chips = (list, cls) => list.sort((a, b) => a.n - b.n).map(x => `<span class="serial-chip ${cls}" title="${esc(dateTimeOf(x.at))}">N.º ${String(x.n).padStart(4, '0')}</span>`).join('');
+  const serialBlock = ['D', 'U'].map(p => {
+    const printed = item?.serials?.[p] || 0, b = bySerial[p];
+    if (!printed && !b.out.length && !b.in.length) return '';
+    const name = S.PACKS[p].plural;
+    return `<div class="pd-section"><h4>${icon('tag')}Etiquetas por ${S.PACKS[p].label.toLowerCase()}</h4>
+      <p class="small muted" style="margin-bottom:8px">${printed ? `Impresas: N.º 0001 a ${String(printed).padStart(4, '0')} · ` : ''}salieron ${fmt(b.out.length)} · ingresaron por escaneo ${fmt(b.in.length)}</p>
+      ${b.out.length ? `<p class="small" style="margin-bottom:6px"><b>${name[0].toUpperCase() + name.slice(1)} que salieron</b> (pasá el mouse para ver fecha y hora):</p><div class="serial-chips">${chips(b.out, 'out')}</div>` : ''}
+      ${b.in.length ? `<p class="small" style="margin:10px 0 6px"><b>${name[0].toUpperCase() + name.slice(1)} ingresadas por escaneo:</b></p><div class="serial-chips">${chips(b.in, 'in')}</div>` : ''}</div>`;
+  }).join('');
+
+  byId('pdBody').innerHTML = `
+    <div class="pd-stats mini-stats">
+      <div><strong>${d ? fmt(d.value) : '—'}</strong><span>${d ? `${esc(d.unit)} en stock${item.displayUnit === 'dozen' ? ` (${fmt(item.units)} u.)` : ''}` : 'sin stock'}</span></div>
+      <div><strong style="color:var(--success)">+${fmt(t.ins)}</strong><span>unidades ingresadas · ${t.dz(t.ins)}</span></div>
+      <div><strong style="color:var(--danger)">−${fmt(t.outs)}</strong><span>unidades salidas · ${t.dz(t.outs)}</span></div>
+      <div><strong>${fmt(all.length)}</strong><span>movimientos</span></div>
+    </div>
+    <dl class="kv"><dt>Último ingreso</dt><dd>${lastIn ? esc(dateTimeOf(lastIn.at)) : '—'}</dd><dt>Última salida</dt><dd>${lastOut ? esc(dateTimeOf(lastOut.at)) : '—'}</dd></dl>
+    ${serialBlock}
+    <div class="pd-section"><h4>${icon('history')}Todos los movimientos</h4>
+      <div class="chips" id="pdFilters" style="margin-bottom:6px">
+        ${[['all', 'Todos'], ['in', 'Ingresos'], ['out', 'Salidas'], ['count', 'Conteos'], ['edit', 'Ediciones']].map(([k, l]) => `<button type="button" class="chip ${pd.kind === k ? 'active' : ''}" data-pk="${k}">${l} <span class="count">${all.filter(h => kindMatches(h, k)).length}</span></button>`).join('')}
+      </div>
+      <div class="timeline">${historyByDay(rows) || emptyState('history', 'Sin movimientos', 'No hay movimientos de este tipo para este código.')}</div>
+    </div>`;
 }
 
 // =========================================================
@@ -1153,6 +1334,8 @@ function renderDatalists() {
   const uniq = k => [...new Set(state.items.map(i => i[k]).filter(Boolean))].sort().slice(0, 300);
   byId('brandList').innerHTML = uniq('brand').map(v => `<option value="${esc(v)}">`).join('');
   byId('typeList').innerHTML = uniq('type').map(v => `<option value="${esc(v)}">`).join('');
+  byId('skuList').innerHTML = state.items.slice().sort((a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true })).slice(0, 1000)
+    .map(i => `<option value="${esc(i.sku)}">${esc(productName(i))}</option>`).join('');
 }
 function renderAll() {
   byId('navCount').textContent = state.items.length;
@@ -1164,6 +1347,7 @@ function renderAll() {
   if (currentView === 'etiquetas') { renderLabelList(); renderLabelPreview(); }
   if (currentView === 'cargar') updateFormNotice();
   renderDatalists();
+  if (byId('productDialog').open) renderProductHistory();
 }
 
 function bindEvents() {
@@ -1234,13 +1418,21 @@ function bindEvents() {
   // Etiquetas
   onSegment(byId('lblKind'), v => { prefs.lblKind = v; savePrefs(); segmented(byId('lblKind'), v); renderLabelPreview(); });
   byId('lblSize').onchange = e => { prefs.lblSize = e.target.value; savePrefs(); renderLabelPreview(); };
-  byId('lblCopies').addEventListener('input', e => { prefs.lblCopies = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); renderLabelPreview(); });
+  byId('lblCopies').addEventListener('input', e => { prefs.lblCopies = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); syncLblChips(); renderLabelPreview(); });
   byId('lblHeader').addEventListener('input', e => { prefs.lblHeader = e.target.value; savePrefs(); renderLabelPreview(); });
   byId('lblShowName').onchange = e => { prefs.lblShowName = e.target.checked; savePrefs(); renderLabelPreview(); };
-  byId('lblByStock').onchange = e => { prefs.lblByStock = e.target.checked; savePrefs(); byId('lblCopies').disabled = e.target.checked; renderLabelPreview(); };
+  byId('lblByStock').onchange = e => { prefs.lblByStock = e.target.checked; savePrefs(); byId('lblCopies').disabled = e.target.checked; syncLblChips(); renderLabelPreview(); };
   onSegment(byId('lblMode'), setLblMode);
-  byId('lblQtyMode').onchange = e => { prefs.lblQtyMode = e.target.value; savePrefs(); byId('lblFixedField').hidden = prefs.lblQtyMode !== 'fixed'; renderLabelPreview(); };
-  byId('lblFixed').addEventListener('input', e => { prefs.lblFixed = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); renderLabelPreview(); });
+  onSegment(byId('lblQtyMode'), setLblQtyMode);
+  byId('lblFixed').addEventListener('input', e => { prefs.lblFixed = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); syncLblChips(); renderLabelPreview(); });
+  byId('lblFixedChips').addEventListener('click', e => { const c = e.target.closest('[data-n]'); if (!c) return; byId('lblFixed').value = c.dataset.n; byId('lblFixed').dispatchEvent(new Event('input', { bubbles: true })); });
+  byId('lblCopiesChips').addEventListener('click', e => {
+    const c = e.target.closest('[data-n]'); if (!c) return;
+    if (prefs.lblByStock) { prefs.lblByStock = false; byId('lblByStock').checked = false; byId('lblCopies').disabled = false; }
+    byId('lblCopies').value = c.dataset.n; byId('lblCopies').dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  byId('lblNumbers').addEventListener('input', debounce(e => { prefs.lblList = e.target.value; savePrefs(); syncLblChips(); renderLabelPreview(); }, 200));
+  byId('lblListChips').addEventListener('click', e => { const c = e.target.closest('[data-list]'); if (!c) return; byId('lblNumbers').value = c.dataset.list; prefs.lblList = c.dataset.list; savePrefs(); syncLblChips(); renderLabelPreview(); });
   byId('lblRestart').onchange = async e => {
     if (e.target.checked && !(await ask({ title: '¿Reiniciar la numeración?', message: 'Se van a imprimir números que quizás ya existen en otras etiquetas pegadas. Usalo solo si retiraste las etiquetas anteriores.', confirm: 'Reiniciar desde 1' }))) { e.target.checked = false; return; }
     prefs.lblRestart = e.target.checked; savePrefs(); renderLabelPreview();
@@ -1270,9 +1462,36 @@ function bindEvents() {
 
   // Historial
   byId('histSearch').addEventListener('input', debounce(e => { hist.q = e.target.value; hist.limit = 100; renderHistory(); }, 150));
+  byId('histCode').addEventListener('input', debounce(e => { hist.code = e.target.value; hist.limit = 100; renderHistory(); }, 200));
+  byId('histBrand').onchange = e => { hist.brand = e.target.value; hist.limit = 100; renderHistory(); };
+  byId('histType').onchange = e => { hist.type = e.target.value; hist.limit = 100; renderHistory(); };
+  byId('histPeriod').onchange = e => { hist.period = e.target.value; hist.limit = 100; renderHistory(); };
+  byId('histReset').onclick = () => {
+    Object.assign(hist, { q: '', kind: 'all', code: '', brand: '', type: '', period: 'all', limit: 100 });
+    byId('histSearch').value = ''; byId('histCode').value = ''; byId('histPeriod').value = 'all';
+    renderHistory();
+  };
+  // Tocar cualquier movimiento abre la ficha completa de ese código.
+  const openFromRow = e => {
+    const link = e.target.closest('[data-open-product]');
+    if (link) { e.preventDefault(); openProductHistory(link.dataset.openProduct); return; }
+    const row = e.target.closest('.tl-item[data-sku]');
+    if (!row || (byId('productDialog').open && row.closest('#productDialog'))) return;
+    if (e.type === 'keydown' && e.key !== 'Enter') return;
+    openProductHistory(row.dataset.sku);
+  };
+  document.addEventListener('click', openFromRow);
+  document.addEventListener('keydown', openFromRow);
+  byId('pdBody').addEventListener('click', e => { const c = e.target.closest('[data-pk]'); if (c) { pd.kind = c.dataset.pk; renderProductHistory(); } });
+  byId('pdExport').onclick = () => {
+    const rows = state.history.filter(h => h.sku === (S.findByCode(pd.sku)?.sku || pd.sku));
+    if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${pd.sku}_${new Date().toLocaleDateString('sv-SE')}.csv`)) toast('Este código no tiene movimientos.', 'warn');
+  };
+  byId('pdEdit').onclick = () => { const it = S.findByCode(pd.sku); if (it) { byId('productDialog').close(); openEdit(it); } };
+  byId('pdLabels').onclick = () => { const it = S.findByCode(pd.sku); if (it) { byId('productDialog').close(); labelsFor([it.id]); } };
   byId('histFilters').addEventListener('click', e => { const c = e.target.closest('[data-k]'); if (c) { hist.kind = c.dataset.k; hist.limit = 100; renderHistory(); } });
   byId('histMore').onclick = () => { hist.limit += 100; renderHistory(); };
-  byId('histExport').onclick = () => { if (!IO.exportHistoryCSV()) toast('No hay movimientos para exportar.', 'warn'); };
+  byId('histExport').onclick = () => { if (!IO.exportHistoryCSV(filteredHistory())) toast('No hay movimientos para exportar.', 'warn'); };
   byId('histClear').onclick = async () => { if (await ask({ title: '¿Borrar todo el historial?', message: 'El stock no cambia. Podés deshacerlo enseguida.', confirm: 'Borrar historial', danger: true })) { S.clearHistory(); toast('Historial borrado', { action: () => S.undo() }); } };
 
   // Datos
@@ -1335,8 +1554,8 @@ function init() {
   byId('lblHeader').value = prefs.lblHeader;
   byId('lblShowName').checked = prefs.lblShowName;
   byId('lblByStock').checked = prefs.lblByStock;
-  byId('lblQtyMode').value = prefs.lblQtyMode;
   byId('lblFixed').value = prefs.lblFixed;
+  byId('lblNumbers').value = prefs.lblList;
   prefs.lblRestart = false; // por seguridad, nunca arranca activado
   setLblMode(prefs.lblMode);
   setInvFilter('all');

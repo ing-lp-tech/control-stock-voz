@@ -1,5 +1,5 @@
 // Exportar e importar: Excel (XLSX), CSV y copia de seguridad JSON.
-import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES } from './store.js';
+import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES, enteredOf, sourceOf, serialInfo, historyKind } from './store.js';
 import { loadScript, download, dateStamp, upper, num, round2 } from './utils.js';
 import { CONFIG } from './config.js';
 
@@ -18,11 +18,18 @@ export function inventoryRows(items = state.items) {
   });
 }
 export function historyRows(history = state.history) {
-  return history.map(h => ({
-    'FECHA': new Date(h.at).toLocaleString('es-AR'), 'ACCIÓN': h.action, 'SKU': h.sku, 'MARCA': h.brand, 'PRENDA': h.type,
-    'TIPO DE STOCK': stockTypeLabel(h.stockType), 'ANTES': h.before ?? '', 'DESPUÉS': h.after ?? '', 'CANTIDAD MOVIMIENTO': h.quantity ?? '',
-    'UNIDAD': h.unit || '', 'NOTA': h.note || '',
-  }));
+  const KIND = { in: 'Ingreso', out: 'Salida', count: 'Conteo', edit: 'Edición', delete: 'Eliminación', import: 'Importación' };
+  return history.map(h => {
+    const d = new Date(h.at), e = enteredOf(h), si = serialInfo(h.serial);
+    return {
+      'FECHA': d.toLocaleDateString('es-AR'), 'HORA': d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      'TIPO': KIND[historyKind(h)] || h.action, 'ACCIÓN': h.action, 'SKU': h.sku, 'MARCA': h.brand, 'PRENDA': h.type,
+      'ETIQUETA ESCANEADA': h.serial ? `${h.serial} (${si?.label || ''})` : '',
+      'CANTIDAD CARGADA': e ? e.qty : '', 'UNIDAD CARGADA': e ? e.unit : '',
+      'UNIDADES MOVIDAS': h.quantity ?? '', 'STOCK ANTES': h.before ?? '', 'STOCK DESPUÉS': h.after ?? '', 'UNIDAD DE STOCK': h.unit || '',
+      'TIPO DE STOCK': stockTypeLabel(h.stockType), 'ORIGEN': sourceOf(h), 'NOTA': h.note || '',
+    };
+  });
 }
 
 export function csvDownload(rows, filename) {
@@ -33,7 +40,7 @@ export function csvDownload(rows, filename) {
   return true;
 }
 export const exportInventoryCSV = () => csvDownload(inventoryRows(), `StockVoz_${dateStamp()}.csv`);
-export const exportHistoryCSV = (rows = state.history) => csvDownload(historyRows(rows), `StockVoz_historial_${dateStamp()}.csv`);
+export const exportHistoryCSV = (rows = state.history, name = `StockVoz_historial_${dateStamp()}.csv`) => csvDownload(historyRows(rows), name);
 
 export async function exportXLSX() {
   if (!state.items.length) return false;

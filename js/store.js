@@ -168,7 +168,7 @@ export function reserveSerials(plan) {
   for (const p of plan) {
     const i = findById(p.id);
     if (!i) continue;
-    const last = p.start + p.count - 1;
+    const last = p.last ?? (p.start + p.count - 1);
     if (last > (i.serials?.[p.pack] || 0) || p.restart) { i.serials = { ...i.serials, [p.pack]: last }; changed = true; }
   }
   if (changed) commit('serials');
@@ -178,6 +178,22 @@ export function displayQty(i) {
   return { value: i.units, unit: unitLabel(i.unitName) };
 }
 // Tipo de movimiento para iconos y filtros (los registros de versiones anteriores no tienen "kind").
+// Cantidad del movimiento tal como se cargó. Para registros viejos se reconstruye desde la etiqueta o la nota.
+export function enteredOf(h) {
+  if (h.entered) return h.entered;
+  if (h.serial) { const p = PACKS[h.serial.match(/([DU])\d{4,}$/)?.[1]]; if (p) return { qty: 1, unit: p.factor === 12 ? 'docenas' : (h.unit || 'unidades') }; }
+  const m = String(h.note || '').match(/·\s*([\d.,]+)\s+(docenas|unidades|cajas|paquetes|pares|rollos|kg|g|m|L)\s*·/);
+  if (m) return { qty: Number(m[1].replace(/\./g, '').replace(',', '.')), unit: m[2] };
+  return h.quantity != null ? { qty: h.quantity, unit: h.unit || 'unidades' } : null;
+}
+// Origen del movimiento: pistola, cámara, voz, manual…
+export const sourceOf = h => h.source || String(h.note || '').split(' · ')[0] || '';
+// Número de etiqueta numerada de un movimiento: { pack: 'D'|'U', number }.
+export function serialInfo(serial) {
+  const m = String(serial || '').match(/([DU])(\d{4,})$/);
+  return m ? { pack: m[1], number: Number(m[2]), label: `${PACKS[m[1]].label} N.º ${m[2]}` } : null;
+}
+
 export function historyKind(h) {
   if (h.kind) return h.kind;
   const a = String(h.action || '');
@@ -203,6 +219,8 @@ function log(kind, action, item, d = {}) {
     stockType: item?.stockType || d.stockType || 'inventario', unit: item ? unitLabel(item.unitName) : '',
     before: d.before ?? null, after: d.after ?? null, quantity: d.quantity ?? null, note: d.note || '',
     ...(d.serial ? { serial: d.serial } : {}),
+    ...(d.entered ? { entered: d.entered } : {}), // cantidad tal como se cargó, p. ej. { qty: 1, unit: 'docenas' }
+    ...(d.source ? { source: d.source } : {}),
   });
   if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
 }
@@ -242,7 +260,8 @@ export function applyMovement(v) {
   item.updatedAt = nowIso();
   const kind = op === 'establecer' ? 'count' : op === 'restar' ? 'out' : 'in';
   const shown = `${fmt(qty)} ${u.short}`;
-  log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
+  const source = String(v.source || 'manual').split(' · ')[0];
+  log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, entered: { qty, unit: u.short }, source, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
   commit('movement');
   return { ok: true, item, before, after: item.units, amount, op, created: !existing };
 }
@@ -255,7 +274,7 @@ export function adjust(id, delta, note = 'Ajuste rápido') {
   checkpoint();
   const before = i.units;
   i.units = after; i.updatedAt = nowIso();
-  log(delta > 0 ? 'in' : 'out', delta > 0 ? `Ajuste +${fmt(delta)}` : `Ajuste −${fmt(-delta)}`, i, { before, after, quantity: Math.abs(delta), note });
+  log(delta > 0 ? 'in' : 'out', delta > 0 ? `Ajuste +${fmt(delta)}` : `Ajuste −${fmt(-delta)}`, i, { before, after, quantity: Math.abs(delta), entered: { qty: Math.abs(delta), unit: unitLabel(i.unitName) }, source: 'ajuste rápido', note });
   commit('adjust');
   return { ok: true, item: i, before, after };
 }
