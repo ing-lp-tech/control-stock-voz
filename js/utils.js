@@ -12,6 +12,18 @@ export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;'
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 export const nowIso = () => new Date().toISOString();
 export const fmt = (n, d = 2) => Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: d });
+// Dinero en pesos: "$ 12.500" (los centavos solo si hay).
+const MONEY = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const MONEY_CENTS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const money = n => { const v = Math.round((Number(n) || 0) * 100) / 100; return (Number.isInteger(v) ? MONEY : MONEY_CENTS).format(v); };
+// Lee un importe escrito como en Argentina: "12.500", "12500", "1.234,50", "$ 980". Vacío o inválido → null.
+export function parseMoney(v) {
+  const s = String(v ?? '').replace(/[^\d.,]/g, '');
+  if (!s) return null;
+  const clean = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : /^\d{1,3}(\.\d{3})+$/.test(s) ? s.replace(/\./g, '') : s;
+  const n = Number(clean);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
 export const dateStamp = () => new Date().toLocaleDateString('sv-SE');
 export const initials = name => txt(name).split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 export const readJSON = (key, fallback = null) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };

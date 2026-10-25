@@ -17,6 +17,16 @@ export function parseSpeech(s) {
   let t = txt(s).toLocaleLowerCase('es-AR').replace(/[，]/g, ',');
   for (const [w, n] of Object.entries(NUMBER_WORDS)) t = t.replace(new RegExp('\\b' + w + '\\b', 'gi'), String(n));
 
+  // Precio opcional: "precio 12500", "precio 12.500 pesos", "precio 30 mil". Se saca del texto para que no se tome como código ni cantidad.
+  let price = null;
+  const pm = t.match(/\bprecio(?:\s+de\s+venta)?\s*(?:de|es|:)?\s*\$?\s*(\d[\d.,]*)(\s*mil\b)?(?:\s*pesos)?/i);
+  if (pm) {
+    const raw = pm[1].replace(/[.,]$/, '');
+    const n = raw.includes(',') ? Number(raw.replace(/\./g, '').replace(',', '.')) : /^\d{1,3}(\.\d{3})+$/.test(raw) ? Number(raw.replace(/\./g, '')) : Number(raw);
+    if (Number.isFinite(n) && n > 0) price = pm[2] ? n * 1000 : n;
+    t = t.replace(pm[0], ' ');
+  }
+
   // En móviles el reconocedor puede repetir hipótesis y partir un SKU en segmentos:
   // tomamos los fragmentos dichos después de cada "código" hasta el siguiente campo.
   const codeMarker = /(?:c[oó]digo(?:\s+de\s+barras)?|sku|art[ií]culo)\s*(?:es\s*)?/ig;
@@ -73,7 +83,7 @@ export function parseSpeech(s) {
     : /^litro/.test(unitWord) ? 'l' : 'unit';
   const count = /\b(contar|conteo|conteo f[ií]sico|stock real|dejar en)\b/i.test(t);
   const subtract = /\b(restar|quitar|sacar|descontar|salida|egreso|despacho)\b/i.test(t);
-  return { brand: bm?.[1] || '', type, sku, qty, unit, operation: count ? 'establecer' : subtract ? 'restar' : null };
+  return { brand: bm?.[1] || '', type, sku, qty, unit, price, operation: count ? 'establecer' : subtract ? 'restar' : null };
 }
 
 // Algunos motores móviles reenvían hipótesis acumulativas como si fueran frases nuevas: fusionamos solapamientos.

@@ -1,11 +1,12 @@
 // Remito en PDF: se genera en el dispositivo (sin servidor) y se comparte por WhatsApp.
 import { loadScript, download, waLink } from './utils.js';
-import { remitoCode, PACKS } from './store.js';
+import { remitoCode, PACKS, PAYMENTS, PRICE_PER } from './store.js';
 
 const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
 // Las fuentes estándar del PDF usan Latin-1: se reemplazan los pocos caracteres que no entran.
 const clean = s => String(s ?? '').replace(/[−–—]/g, '-').replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/…/g, '...').replace(/[^\x00-\xFF]/g, '');
 const fmtN = n => Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+const fmtM = n => `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: Number.isInteger(Math.round((n || 0) * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 })}`;
 
 // Número de WhatsApp: solo dígitos; un celular argentino de 10 dígitos se completa con 549.
 export function waNumber(phone) {
@@ -32,7 +33,8 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 16, ink = [17, 18, 20], muted = [107, 109, 115], line = [222, 222, 218];
-  const title = remito.kind === 'entrada' ? 'REMITO DE ENTRADA' : 'REMITO';
+  const priced = !!remito.priced;
+  const title = priced ? (remito.kind === 'entrada' ? 'COMPRA' : 'COMPROBANTE DE VENTA') : remito.kind === 'entrada' ? 'REMITO DE ENTRADA' : 'REMITO';
   const date = new Date(remito.at);
   let y = M;
 
@@ -60,7 +62,10 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
   y += 14 + info.length * 4.5;
 
   // Tabla
-  const cols = [{ x: M, w: 30, h: 'Código' }, { x: M + 30, w: 78, h: 'Descripción' }, { x: M + 108, w: 36, h: 'Cantidad', r: true }, { x: M + 144, w: 34, h: 'Unidades', r: true }];
+  // Con precios: Código · Descripción · Cantidad · Precio · Importe. Sin precios: igual que siempre.
+  const cols = priced
+    ? [{ x: M, w: 26, h: 'Código' }, { x: M + 26, w: 64, h: 'Descripción' }, { x: M + 90, w: 30, h: 'Cantidad', r: true }, { x: M + 120, w: 30, h: 'Precio', r: true }, { x: M + 150, w: 28, h: 'Importe', r: true }]
+    : [{ x: M, w: 30, h: 'Código' }, { x: M + 30, w: 78, h: 'Descripción' }, { x: M + 108, w: 36, h: 'Cantidad', r: true }, { x: M + 144, w: 34, h: 'Unidades', r: true }];
   const tableHead = () => {
     doc.setFillColor(242, 242, 238).rect(M, y, W - 2 * M, 8, 'F');
     doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...ink);
@@ -72,13 +77,17 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
   for (const l of remito.lines) {
     const desc = doc.splitTextToSize(clean(l.name || '-'), cols[1].w - 4);
     const serial = l.serials?.length ? doc.splitTextToSize(clean(`Etiquetas: ${serialText(l.serials)}`), cols[1].w - 4) : [];
-    const h = Math.max(8, 4 + (desc.length + serial.length) * 4.2);
+    const h = Math.max(priced ? 11 : 8, 4 + (desc.length + serial.length) * 4.2);
     if (y + h > 262) { doc.addPage(); y = M; header(); tableHead(); }
     doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(...ink).text(clean(l.sku), cols[0].x + 2, y + 5.2);
     doc.setFont('helvetica', 'normal').text(desc, cols[1].x + 2, y + 5.2);
     if (serial.length) doc.setFontSize(8).setTextColor(...muted).text(serial, cols[1].x + 2, y + 5.2 + desc.length * 4.2);
     doc.setFontSize(9.5).setTextColor(...ink).text(clean(`${fmtN(l.qty)} ${l.unit}`), cols[2].x + cols[2].w - 2, y + 5.2, { align: 'right' });
-    doc.text(fmtN(l.units), cols[3].x + cols[3].w - 2, y + 5.2, { align: 'right' });
+    if (priced) {
+      doc.text(l.price ? fmtM(l.price) : '-', cols[3].x + cols[3].w - 2, y + 5.2, { align: 'right' });
+      if (l.price) doc.setFontSize(7.5).setTextColor(...muted).text(clean(PRICE_PER[l.per] || ''), cols[3].x + cols[3].w - 2, y + 8.8, { align: 'right' }).setFontSize(9.5).setTextColor(...ink);
+      doc.text(fmtM(l.amount), cols[4].x + cols[4].w - 2, y + 5.2, { align: 'right' });
+    } else doc.text(fmtN(l.units), cols[3].x + cols[3].w - 2, y + 5.2, { align: 'right' });
     y += h;
     doc.setDrawColor(...line).line(M, y, W - M, y);
     totalUnits += Number(l.units) || 0;
@@ -86,8 +95,19 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
   // Totales
   y += 6;
   doc.setFont('helvetica', 'bold').setFontSize(10.5).setTextColor(...ink)
-    .text(`Total: ${fmtN(totalUnits)} unidades (${fmtN(totalUnits / 12)} docenas) · ${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}`, W - M, y, { align: 'right' });
+    .text(`${priced ? '' : 'Total: '}${fmtN(totalUnits)} unidades (${fmtN(totalUnits / 12)} docenas) · ${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}`, W - M, y, { align: 'right' });
   y += 8;
+  if (priced) {
+    const rowR = (label, value, big = false) => {
+      doc.setFont('helvetica', big ? 'bold' : 'normal').setFontSize(big ? 13 : 10).setTextColor(...(big ? ink : muted));
+      doc.text(clean(label), W - M - 46, y, { align: 'right' }).text(clean(value), W - M, y, { align: 'right' });
+      y += big ? 8 : 5.5;
+    };
+    if (remito.discount) { rowR('Subtotal', fmtM(remito.subtotal)); rowR(`Descuento ${fmtN(remito.discount)} %`, `- ${fmtM(remito.subtotal - remito.total)}`); }
+    rowR('TOTAL', fmtM(remito.total), true);
+    if (remito.payment) rowR('Forma de pago', PAYMENTS[remito.payment] || '');
+    y += 2;
+  }
   if (remito.note) {
     doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(...muted);
     const n = doc.splitTextToSize(clean(`Observaciones: ${remito.note}`), W - 2 * M);
@@ -106,14 +126,14 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
   return doc.output('blob');
 }
 
-export const remitoFileName = r => `Remito_${remitoCode(r)}${r.contact?.name ? '_' + r.contact.name.replace(/[^\w]+/g, '_').slice(0, 30) : ''}.pdf`;
+export const remitoFileName = r => `${r.priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : 'Remito'}_${remitoCode(r)}${r.contact?.name ? '_' + r.contact.name.replace(/[^\w]+/g, '_').slice(0, 30) : ''}.pdf`;
 
 // Compartir: en el celular abre el menú para compartir con WhatsApp (adjunta el PDF).
 // En la computadora descarga el PDF y abre WhatsApp con el mensaje, para adjuntarlo.
 export async function shareRemito(remito, opts) {
   const blob = await buildRemitoPDF(remito, opts);
   const file = new File([blob], remitoFileName(remito), { type: 'application/pdf' });
-  const text = `Hola${remito.contact?.name ? ' ' + remito.contact.name : ''}, te envío el remito ${remitoCode(remito)} (${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}).`;
+  const text = `Hola${remito.contact?.name ? ' ' + remito.contact.name : ''}, te envío ${remito.priced ? 'el comprobante' : 'el remito'} ${remitoCode(remito)} (${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}${remito.priced ? `, total ${fmtM(remito.total)}` : ''}).`;
   if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
     try { await navigator.share({ files: [file], title: remitoCode(remito), text }); return 'shared'; }
     catch (e) { if (e?.name === 'AbortError') return 'cancelled'; }

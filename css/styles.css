@@ -808,6 +808,57 @@ body.kiosk-mode .content { max-width: 980px; padding: 20px; }
 .kiosk .mode-banner { margin: 0; font-size: 17px; padding: 14px 18px; }
 @media (max-width: 480px) { .scan-step .scan-status { margin-left: 0; } .segmented.mode-seg button { min-height: 48px; font-size: 14.5px; padding: 0 8px; } }
 
+/* ---------- Precios y ventas (opcional) ---------- */
+/* Con el ajuste apagado no se ve nada de precios: la app queda como control de stock puro. */
+body:not(.prices-on) .price-only { display: none !important; }
+.sale-switch { margin-top: 12px; font-weight: 550; color: var(--text); }
+.mini-stats:has(.money-stat:not([hidden])) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 560px) { .mini-stats:has(.money-stat:not([hidden])) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.money-stat strong { color: var(--accent-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed .warn, .scan-result .warn { color: var(--warn); font-weight: 600; }
+.price-tag { color: var(--accent-text); font-weight: 600; }
+.inv-value { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 12px; border-radius: var(--r-lg); background: var(--surface); font-size: 14px; color: var(--text-2); }
+.inv-value .i { flex: none; width: 20px; height: 20px; color: var(--accent-text); }
+.inv-value b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sales-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: center; gap: 16px; margin-bottom: 16px; }
+.sales-strip > div { display: grid; gap: 2px; min-width: 0; }
+.sales-strip span { font-size: 13px; color: var(--muted); font-weight: 550; }
+.sales-strip strong { font-size: clamp(20px, 2.4vw, 26px); font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-strip small { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 700px) { .sales-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sales-strip > .link { grid-column: 1 / -1; } }
+.kiosk-top .switch { min-height: 48px; padding: 0 6px; font-weight: 600; color: var(--text); }
+.rm-priced td { vertical-align: top; }
+.rm-price { width: 120px; height: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.rm-totals { display: grid; grid-template-columns: 140px minmax(0, 220px) minmax(0, 1fr); gap: 12px; align-items: end; }
+.rm-total { display: grid; justify-items: end; gap: 2px; }
+.rm-total span { font-size: 13px; color: var(--muted); text-align: right; }
+.rm-total strong { font-size: 28px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+#rmSavePricesWrap { margin-top: 14px; }
+/* En el celular cada producto de la venta es una tarjeta (sin scroll lateral: el precio siempre se ve). */
+@media (max-width: 640px) {
+  .rm-totals { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .rm-total { grid-column: 1 / -1; }
+  .table-wrap:has(.rm-priced) { overflow: visible; }
+  .rm-priced thead { display: none; }
+  .rm-priced, .rm-priced tbody { display: block; width: 100%; }
+  .rm-priced tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "code amount" "name name" "qty price"; gap: 4px 12px; align-items: center; padding: 12px; }
+  .rm-priced tr + tr { box-shadow: 0 -1px 0 var(--border); }
+  .rm-priced td { padding: 0; white-space: normal; }
+  .rm-priced td:nth-child(1) { grid-area: code; }
+  .rm-priced td:nth-child(2) { grid-area: name; color: var(--text-2); }
+  .rm-priced td:nth-child(3) { grid-area: qty; text-align: left; }
+  .rm-priced td:nth-child(4) { grid-area: price; display: flex; align-items: center; gap: 6px; }
+  .rm-priced td:nth-child(4) .small { order: 2; }
+  .rm-priced td:nth-child(5) { grid-area: amount; font-weight: 700; }
+  .rm-price { width: 110px; }
+  #remitoDialog .modal-actions { flex-direction: column-reverse; align-items: stretch; }
+  #remitoDialog .modal-actions .btn { width: 100%; justify-content: center; }
+  #remitoDialog .modal-actions .grow { display: none; }
+}
+.remito-row .badge { display: inline-flex; vertical-align: middle; }
+.remito-row.is-voided strong { text-decoration: line-through; text-decoration-color: var(--danger); }
+.lbl-price { font: 700 calc(var(--h) * .12mm) / 1.1 Arial, Helvetica, sans-serif; white-space: nowrap; }
+
 /* ---------- Manual de uso ---------- */
 .manual { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; max-width: 880px; }
 .manual-intro h2 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }

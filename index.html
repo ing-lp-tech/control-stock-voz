@@ -87,6 +87,8 @@
      <a class="kpi" href="#/inventario?f=alert" data-tone="warn"><div class="kpi-top"><span class="kpi-label">Alertas de stock</span><span class="kpi-icon"><i data-i="alert"></i></span></div><div class="kpi-value" id="kpiLow">0</div><div class="kpi-foot">sin stock o bajo mínimo</div></a>
     </div>
 
+    <div id="panelSales" class="price-only owner-only"></div>
+
     <div class="quick">
      <a class="quick-tile" href="#/escanear?op=restar"><span class="qt-icon"><i data-i="arrow-out"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar salida</strong><small>Escaneá lo que se va y mandá el remito.</small></a>
      <a class="quick-tile" href="#/escanear?op=sumar"><span class="qt-icon"><i data-i="arrow-in"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar entrada</strong><small>Escaneá la mercadería que llega.</small></a>
@@ -163,6 +165,7 @@
          <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="fQty" type="number" inputmode="decimal" min="0" step="any" placeholder="0"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
         </div>
         <div class="field"><label for="fUnit">Unidad</label><select id="fUnit" class="input" data-options="inputUnits"></select></div>
+        <div class="field span-2 new-only price-only owner-only"><label for="fPrice" id="fPriceLabel">Precio de venta (opcional)</label><input id="fPrice" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
         <details class="more-fields span-2 new-only">
          <summary>Más opciones (stock mínimo, código del fabricante)</summary>
          <div class="form-grid">
@@ -194,6 +197,7 @@
         <button type="button" data-v="establecer"><i data-i="equal"></i>Conteo</button>
        </div>
        <div class="mode-banner" id="scanModeBanner"></div>
+       <label class="switch sale-switch price-only" id="scanSaleWrap"><input type="checkbox" id="scanSale"><span class="track"></span><span id="scanSaleLabel">Es una venta</span></label>
 
        <div id="scanContactField">
         <div class="scan-step"><span class="step-num">2</span><h3 id="scanContactLabel">¿Para qué cliente es?</h3><span class="muted small">Opcional</span></div>
@@ -215,7 +219,7 @@
       </div>
       <div class="card">
        <div class="card-head"><div><h3 id="sessionTitle">Productos de esta salida</h3><p>Tocá una lectura para ver el detalle o revertila si fue un error</p></div><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Empezar de nuevo</button></div>
-       <div class="mini-stats"><div><strong id="ssReads">0</strong><span>lecturas</span></div><div><strong id="ssUnits">0</strong><span>unidades</span></div><div><strong id="ssProducts">0</strong><span>productos</span></div></div>
+       <div class="mini-stats"><div><strong id="ssReads">0</strong><span>lecturas</span></div><div><strong id="ssUnits">0</strong><span>unidades</span></div><div><strong id="ssProducts">0</strong><span>productos</span></div><div class="price-only money-stat" id="ssMoneyBox" hidden><strong id="ssMoney">$ 0</strong><span>total</span></div></div>
        <div id="scanFeed" class="feed"></div>
       </div>
      </div>
@@ -241,7 +245,7 @@
     <div class="card toolbar">
      <div class="search"><i data-i="search"></i><input id="invSearch" class="input" type="search" placeholder="Buscar por código, marca o prenda…" aria-label="Buscar productos"><kbd class="hide-sm">/</kbd></div>
      <select id="invSort" class="input select-sm" aria-label="Ordenar">
-      <option value="sku">Código A → Z</option><option value="brand">Marca A → Z</option><option value="desc">Mayor stock</option><option value="asc">Menor stock</option><option value="recent">Modificados recientemente</option>
+      <option value="sku">Código A → Z</option><option value="brand">Marca A → Z</option><option value="desc">Mayor stock</option><option value="asc">Menor stock</option><option value="recent">Modificados recientemente</option><option value="price" class="price-only">Mayor precio</option>
      </select>
      <a href="#/cargar" class="btn btn-primary"><i data-i="plus"></i><span>Nuevo</span></a>
     </div>
@@ -257,6 +261,7 @@
      <button class="btn btn-sm owner-only" type="button" id="bulkDelete"><i data-i="trash" class="sm"></i>Eliminar</button>
      <button class="icon-btn" type="button" id="bulkClear" title="Quitar selección"><i data-i="x"></i></button>
     </div>
+    <div id="invValue" class="price-only owner-only"></div>
     <div id="invList"></div>
     <p class="foot-note">Los totales solo suman productos controlados en unidades. Tocá el código de un producto para editarlo.</p>
    </section>
@@ -333,6 +338,7 @@
         <div class="field"><label for="lblHeader">Texto superior (opcional)</label><input id="lblHeader" class="input" maxlength="40" placeholder="Ej.: el nombre de tu negocio"></div>
        </div>
        <label class="switch"><input type="checkbox" id="lblShowName"><span class="track"></span>Mostrar marca y prenda</label>
+       <label class="switch price-only"><input type="checkbox" id="lblShowPrice"><span class="track"></span>Mostrar el precio de venta</label>
       </div>
       <hr class="divider">
       <div class="card-head"><h3>3 · Vista previa</h3><span class="badge badge-primary" id="lblTotal">0 etiquetas</span></div>
@@ -387,6 +393,7 @@
      <div class="segmented" id="rpPeriod"><button type="button" data-v="7">7 días</button><button type="button" data-v="30">30 días</button><button type="button" data-v="90">90 días</button><button type="button" data-v="0">Todo</button></div>
      <select id="rpUser" class="input select-sm" aria-label="Filtrar por usuario"><option value="">Todo el equipo</option></select>
      <button class="btn btn-ghost" type="button" id="rpExport"><i data-i="download"></i><span>Exportar movimientos</span></button>
+     <button class="btn btn-ghost price-only" type="button" id="rpExportSales"><i data-i="cash"></i><span>Exportar ventas</span></button>
     </div>
     <div id="rpBody"></div>
    </section>
@@ -396,6 +403,7 @@
     <div class="kiosk" id="kiosk">
      <div class="kiosk-top">
       <div class="segmented lg mode-seg" id="kOp"><button type="button" data-v="restar"><i data-i="arrow-out"></i>Salida</button><button type="button" data-v="sumar"><i data-i="arrow-in"></i>Entrada</button></div>
+      <label class="switch price-only" id="kSaleWrap"><input type="checkbox" id="kSale"><span class="track"></span><span id="kSaleLabel">Venta</span></label>
       <input id="kContact" class="input kiosk-contact" list="contactList" placeholder="Cliente o proveedor (opcional)" autocomplete="off" aria-label="Cliente o proveedor">
       <button class="btn btn-ghost" type="button" id="kExit"><i data-i="x"></i><span>Salir</span></button>
      </div>
@@ -405,6 +413,7 @@
      <div class="kiosk-foot">
       <div class="kiosk-num"><strong id="kCount">0</strong><span>lecturas</span></div>
       <div class="kiosk-num"><strong id="kUnits">0</strong><span>unidades</span></div>
+      <div class="kiosk-num price-only" id="kMoneyBox" hidden><strong id="kMoney">$ 0</strong><span>total</span></div>
       <button class="btn btn-ghost btn-lg" type="button" id="kUndo" disabled><i data-i="undo"></i>Revertir la última</button>
       <button class="btn btn-lg finish-btn" type="button" id="kRemito" disabled><i data-i="check"></i><span id="kFinishLabel">Terminar salida</span></button>
      </div>
@@ -447,6 +456,26 @@
        <li>Tocá <b>Terminar entrada</b>. Podés generar un remito de entrada o terminar sin remito.</li>
       </ol>
       <p class="small muted">También podés cargar entradas por voz o a mano desde <b>Cargar productos</b>.</p>
+     </details>
+
+     <details class="card manual-topic" id="m-ventas">
+      <summary><h3>Precios y ventas (opcional)</h3><span>Si además de controlar el stock querés registrar cuánto vendiste.</span></summary>
+      <p class="small muted">Si usás la app solo para el stock, no hace falta nada de esto: los precios nunca son obligatorios.</p>
+      <ol class="manual-steps">
+       <li><b>Activalo una vez:</b> la dueña entra a <b>Cuenta y nube → Precios y ventas</b> y lo enciende. Se activa para todo el equipo.</li>
+       <li><b>Cargá precios</b> (cuando quieras): en <b>Inventario</b> tocá un producto y completá <b>Precio de venta</b> y, si querés, <b>Precio de costo</b>, por unidad o por docena. Para muchos a la vez, seleccionalos y usá <b>Editar</b>.</li>
+       <li><b>Vender escaneando:</b> en Escanear elegí <b>Salida</b> y dejá encendido <b>Es una venta</b>. Cada lectura suma su precio y ves el <b>total</b> mientras escaneás.</li>
+       <li><b>Terminar venta:</b> revisá los precios (podés cambiarlos ahí mismo), poné un <b>descuento</b> y la <b>forma de pago</b> si querés, y elegí <b>Enviar por WhatsApp</b>, <b>Descargar PDF</b> o <b>Guardar venta</b>.</li>
+       <li>Si un producto no tiene precio, escribilo en ese momento. Podés marcar <b>Guardar estos precios en los productos</b> para la próxima.</li>
+      </ol>
+      <ul class="manual-list">
+       <li><b>Salida sin precio</b> (un traslado, una muestra, una consignación): apagá <b>Es una venta</b> antes de escanear.</li>
+       <li><b>Compras:</b> en una <b>Entrada</b> encendé <b>Es una compra</b> para registrar el costo de lo que llega.</li>
+       <li><b>Anular una venta</b> (solo la dueña): en <b>Clientes → remitos</b> tocá la venta → <b>Anular</b>. Podés devolver la mercadería al stock en el mismo paso.</li>
+       <li><b>Reportes</b> muestra lo vendido en pesos, el ticket promedio, la ganancia estimada y las ventas por cliente y forma de pago.</li>
+       <li>Los empleados ven el precio de venta, pero <b>no el de costo</b>, y no pueden cambiar precios.</li>
+       <li>El comprobante dice <b>«Documento no válido como factura»</b>: no reemplaza a la factura de AFIP/ARCA.</li>
+      </ul>
      </details>
 
      <details class="card manual-topic" id="m-mostrador">
@@ -576,6 +605,11 @@
        <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="sun"></i></span><div><h3>Apariencia</h3><p>Se guarda en este dispositivo</p></div></div></div>
        <div class="segmented" id="themeSeg"><button type="button" data-v="dark"><i data-i="moon"></i>Oscuro</button><button type="button" data-v="light"><i data-i="sun"></i>Claro</button></div>
       </div>
+      <div class="card" id="pricesCard">
+       <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="cash"></i></span><div><h3>Precios y ventas</h3><p>Opcional · para todo el equipo</p></div></div></div>
+       <label class="switch"><input type="checkbox" id="pricesOn"><span class="track"></span><span>Usar precios, ventas y compras</span></label>
+       <p class="hint" id="pricesHint" style="margin-top:10px"></p>
+      </div>
       <a class="admin-link" href="admin.html"><i data-i="shield" class="sm"></i>Panel de administración</a>
      </div>
     </div>
@@ -626,6 +660,10 @@
    <div class="field"><label for="eUnitName">Unidad de stock</label><select id="eUnitName" class="input" data-options="stockUnits"></select></div>
    <div class="field"><label for="eMin">Stock mínimo (alerta)</label><input id="eMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>
    <div class="field"><label for="eStockType">Tipo de stock</label><select id="eStockType" class="input" data-options="stockTypes"></select></div>
+   <div class="field price-only"><label for="ePrice">Precio de venta</label><input id="ePrice" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
+   <div class="field price-only owner-only"><label for="eCost">Precio de costo</label><input id="eCost" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
+   <div class="field price-only" id="ePerField"><label for="ePer">Los precios son</label><select id="ePer" class="input"><option value="unit">Por unidad</option><option value="dozen">Por docena</option></select></div>
+   <p class="hint price-only span-2" id="eMargin"></p>
   </div>
   <div class="modal-actions">
    <button type="button" class="btn btn-ghost danger-text owner-only" id="eDelete"><i data-i="trash"></i>Eliminar</button>
@@ -644,6 +682,7 @@
    <div class="field"><label for="nType">Prenda / tipo</label><input id="nType" class="input" list="typeList"></div>
    <div class="field"><label for="nQty">Cantidad</label><input id="nQty" class="input" type="number" min="0" step="any" inputmode="decimal"></div>
    <div class="field"><label for="nUnit">Unidad</label><select id="nUnit" class="input" data-options="inputUnits"></select></div>
+   <div class="field span-2 price-only owner-only"><label for="nPrice" id="nPriceLabel">Precio de venta (opcional)</label><input id="nPrice" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
    <div class="field span-2"><label for="nMin">Stock mínimo (opcional)</label><input id="nMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>
   </div>
   <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary"><i data-i="check"></i>Guardar y registrar</button></div>
@@ -753,11 +792,13 @@
   <div class="modal-head"><div><h3 id="rmTitle">Nuevo remito</h3><p class="muted" id="rmSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
   <div class="modal-body stack">
    <div id="rmSummary"></div>
+   <label class="switch price-only" id="rmPricedWrap"><input type="checkbox" id="rmPriced"><span class="track"></span><span id="rmPricedLabel">Con precios</span></label>
    <div class="form-grid">
     <div class="field"><label for="rmContact" id="rmContactLabel">Cliente</label><input id="rmContact" class="input" list="contactList" placeholder="Elegí un cliente" autocomplete="off"></div>
     <div class="field"><label for="rmNote">Observaciones</label><input id="rmNote" class="input" maxlength="160" placeholder="Opcional"></div>
    </div>
    <div id="rmLines"></div>
+   <div id="rmTotals"></div>
   </div>
   <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close id="rmCancel">Cancelar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rmFinish" hidden><i data-i="check"></i>Terminar sin remito</button><button type="button" class="btn btn-ghost" id="rmDownload"><i data-i="download"></i>Descargar PDF</button><button type="submit" class="btn btn-primary" id="rmSend"><i data-i="whatsapp"></i>Enviar por WhatsApp</button></div>
  </form>
@@ -775,7 +816,7 @@
  <div class="modal-inner">
   <div class="modal-head"><div><h3 id="rvTitle">Remito</h3><p class="muted" id="rvSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
   <div class="modal-body" id="rvBody"></div>
-  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cerrar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rvPdf"><i data-i="download"></i>PDF</button><button type="button" class="btn btn-primary" id="rvWa"><i data-i="whatsapp"></i>WhatsApp</button></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost danger-text owner-only" id="rvVoid"><i data-i="x"></i>Anular</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rvPdf"><i data-i="download"></i>PDF</button><button type="button" class="btn btn-primary" id="rvWa"><i data-i="whatsapp"></i>WhatsApp</button></div>
  </div>
 </dialog>
 

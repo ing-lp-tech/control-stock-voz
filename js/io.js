@@ -1,19 +1,23 @@
 // Exportar e importar: Excel (XLSX), CSV y copia de seguridad JSON.
-import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES, enteredOf, sourceOf, serialInfo, historyKind } from './store.js';
-import { loadScript, download, dateStamp, upper, num, round2 } from './utils.js';
+import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES, enteredOf, sourceOf, serialInfo, historyKind, pricesOn, pricePerOf, remitoCode, PAYMENTS, PRICE_PER } from './store.js';
+import { loadScript, download, dateStamp, upper, num, round2, parseMoney } from './utils.js';
 import { CONFIG } from './config.js';
 
 const XLSX_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 async function ensureXLSX() { if (!window.XLSX) await loadScript(XLSX_URL); return window.XLSX; }
 
 export function inventoryRows(items = state.items) {
+  // Columnas de precios solo si se usan (con la app como control de stock el archivo queda igual que antes).
+  const withPrices = pricesOn() || items.some(i => i.price || i.cost);
+  const withCost = items.some(i => i.cost);
   return items.map(i => {
     const d = displayQty(i);
+    const prices = withPrices ? { 'PRECIO DE VENTA': i.price || '', ...(withCost ? { 'PRECIO DE COSTO': i.cost || '' } : {}), 'PRECIO POR': pricePerOf(i) === 'dozen' ? 'DOCENA' : 'UNIDAD' } : {};
     return {
       'CÓDIGO SKU': i.sku, 'CÓDIGO DE BARRAS': i.barcode || '', 'MARCA': i.brand, 'PRENDA / TIPO': i.type,
       'TIPO DE STOCK': stockTypeLabel(i.stockType), 'UNIDAD DE STOCK': d.unit, 'CANTIDAD REGISTRADA': d.value,
       'EQUIVALENTE EN UNIDADES': i.unitName === 'unidades' ? i.units : '', 'DOCENAS (SI APLICA)': i.unitName === 'unidades' ? round2(i.units / 12) : '',
-      'STOCK MÍNIMO': i.minStock || '', 'ÚLTIMA MODIFICACIÓN': new Date(i.updatedAt).toLocaleString('es-AR'),
+      'STOCK MÍNIMO': i.minStock || '', ...prices, 'ÚLTIMA MODIFICACIÓN': new Date(i.updatedAt).toLocaleString('es-AR'),
     };
   });
 }
@@ -39,6 +43,21 @@ export function csvDownload(rows, filename) {
   download(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }), filename);
   return true;
 }
+// Ventas y compras con precio: una fila por producto de cada comprobante (fácil de sumar en Excel).
+export function exportSalesCSV(remitos) {
+  const rows = [];
+  for (const r of remitos.filter(x => x.priced)) {
+    const d = new Date(r.at);
+    for (const l of r.lines) rows.push({
+      'FECHA': d.toLocaleDateString('es-AR'), 'HORA': d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      'COMPROBANTE': remitoCode(r), 'TIPO': r.kind === 'entrada' ? 'Compra' : 'Venta', 'ESTADO': r.voided ? `Anulado: ${r.voided.reason}` : 'Válido',
+      'CLIENTE / PROVEEDOR': r.contact?.name || '', 'CÓDIGO': l.sku, 'PRODUCTO': l.name || '', 'CANTIDAD': `${l.qty} ${l.unit}`, 'UNIDADES': l.units,
+      'PRECIO': l.price || 0, 'PRECIO POR': PRICE_PER[l.per] || '', 'IMPORTE': l.amount || 0,
+      'DESCUENTO %': r.discount || 0, 'TOTAL DEL COMPROBANTE': r.total, 'FORMA DE PAGO': PAYMENTS[r.payment] || '', 'USUARIO': r.by || '',
+    });
+  }
+  return csvDownload(rows, `StockVoz_ventas_${dateStamp()}.csv`);
+}
 export const exportInventoryCSV = () => csvDownload(inventoryRows(), `StockVoz_${dateStamp()}.csv`);
 export const exportHistoryCSV = (rows = state.history, name = `StockVoz_historial_${dateStamp()}.csv`) => csvDownload(historyRows(rows), name);
 
@@ -46,7 +65,7 @@ export async function exportXLSX() {
   if (!state.items.length) return false;
   const X = await ensureXLSX();
   const wb = X.utils.book_new(), ws = X.utils.json_to_sheet(inventoryRows());
-  ws['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
+  ws['!cols'] = Object.keys(inventoryRows()[0]).map(k => ({ wch: Math.max(12, Math.min(22, k.length + 2)) }));
   X.utils.book_append_sheet(wb, ws, 'Inventario');
   X.utils.book_append_sheet(wb, X.utils.json_to_sheet(historyRows().length ? historyRows() : [{ 'FECHA': '' }]), 'Historial');
   X.writeFile(wb, `StockVoz_${dateStamp()}.xlsx`);
@@ -54,7 +73,8 @@ export async function exportXLSX() {
 }
 
 export function backupJSON() {
-  const data = { app: 'StockVoz', version: CONFIG.VERSION, exportedAt: new Date().toISOString(), items: state.items, history: state.history };
+  // Incluye clientes, remitos, ventas y ajustes para poder restaurar todo.
+  const data = { app: 'StockVoz', version: CONFIG.VERSION, exportedAt: new Date().toISOString(), items: state.items, history: state.history, extra: state.extra };
   download(new Blob([JSON.stringify(data)], { type: 'application/json' }), `StockVoz_copia_${dateStamp()}.json`);
 }
 
@@ -110,6 +130,10 @@ function normalizeRows(rows) {
       displayUnit: dozen ? 'dozen' : 'unit',
       units: units === '' ? NaN : num(units),
       minStock: num(get('STOCK MINIMO', 'MINIMO')),
+      // Precios opcionales: "12.500", "12500" o "$ 12.500".
+      price: parseMoney(get('PRECIO DE VENTA', 'PRECIO VENTA', 'PRECIO', 'PRECIO UNITARIO', 'PRICE')),
+      cost: parseMoney(get('PRECIO DE COSTO', 'PRECIO COSTO', 'COSTO', 'COST')),
+      pricePer: /^DOCENA/.test(normKey(get('PRECIO POR'))) ? 'dozen' : 'unit',
     };
   }).filter(i => i.sku && Number.isFinite(i.units) && i.units >= 0);
 }
@@ -121,7 +145,7 @@ export async function readImportFile(file) {
     const d = JSON.parse(await file.text());
     const list = Array.isArray(d) ? d : (d.items || []);
     const rows = list.filter(i => i && (i.sku || i.code)).map(i => normalizeItem({ ...i, units: i.units ?? i.totalUnits ?? num(i.dozens) * 12 }));
-    return { rows, total: list.length, history: Array.isArray(d.history) ? d.history : null };
+    return { rows, total: list.length, history: Array.isArray(d.history) ? d.history : null, extra: d.extra && typeof d.extra === 'object' ? d.extra : null };
   }
   let raw;
   if (name.endsWith('.csv')) raw = parseCSV(await file.text());

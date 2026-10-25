@@ -130,6 +130,14 @@ Después de publicar:
   - En la computadora se descarga el PDF y se abre el chat del cliente para adjuntarlo.
   - Quedan numerados (R-00001…) y se pueden reenviar desde Clientes.
 - **Reportes** (solo la dueña): ventas e ingresos por día, lo más vendido, clientes, marcas, prendas, qué hizo cada empleado, productos sin movimiento y un **control de faltantes**: conteos que dieron menos, correcciones y reversiones, salidas sin cliente y movimientos fuera de horario.
+- **Precios y ventas (opcional)**: apagado por defecto; con la app como solo control de stock no aparece ningún campo de precio. La dueña lo activa en **Cuenta y nube → Precios y ventas** (vale para todo el equipo).
+  - Cada producto puede tener **precio de venta** y **precio de costo**, por unidad o por docena (Inventario → editar, o varios a la vez con Editar).
+  - En Escanear, una **Salida** con «Es una venta» encendido suma el precio de cada lectura y muestra el total. Al **Terminar venta** se pueden cambiar precios, poner descuento y forma de pago, y mandar el comprobante por WhatsApp o guardarlo sin enviar.
+  - Una **Entrada** con «Es una compra» registra el costo de lo que llega.
+  - Las ventas se pueden **anular** (solo la dueña), devolviendo o no la mercadería al stock.
+  - **Reportes** suma ventas en pesos, ticket promedio, ganancia estimada, ventas por cliente y por forma de pago; se exportan a CSV.
+  - Los empleados ven el precio de venta, pero **no el de costo**, y no pueden cambiar precios (lo controla el servidor). Requiere volver a ejecutar `supabase/schema.sql`.
+  - El comprobante dice «Documento no válido como factura».
 - **Modo mostrador**: pantalla grande y simple para escanear entradas y salidas, sin menús. Ideal para empleados.
 - **Historial solo para la dueña**: los empleados no lo ven ni lo descargan. Lo garantiza el servidor:
   - al empleado solo le llegan sus movimientos del día;

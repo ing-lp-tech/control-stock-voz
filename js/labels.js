@@ -51,9 +51,10 @@ export function labelHTML(entry, opts) {
   const name = opts.showName && entry.name ? `<div class="lbl-name">${esc(entry.name)}</div>` : '';
   const sku = `<div class="lbl-sku">${esc(entry.code)}</div>`;
   const tag = entry.tag ? `<div class="lbl-tag">${esc(entry.tag)}</div>` : '';
+  const price = entry.price ? `<div class="lbl-price">${esc(entry.price)}</div>` : '';
   const body = kind === 'qr'
-    ? `<div class="lbl-code">${code}</div><div class="lbl-text">${header}${tag}${sku}${name}</div>`
-    : `${header}${tag}<div class="lbl-code">${code}</div>${sku}${name}`;
+    ? `<div class="lbl-code">${code}</div><div class="lbl-text">${header}${tag}${sku}${name}${price}</div>`
+    : `${header}${tag}<div class="lbl-code">${code}</div>${sku}${name}${price}`;
   return `<div class="lbl lbl-${kind}" style="--h:${s.h};width:${s.w}mm;height:${s.h}mm">${body}</div>`;
 }
 

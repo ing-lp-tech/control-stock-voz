@@ -44,17 +44,39 @@ export const state = {
   items: [], history: [], lastBackupAt: null, version: 60,
   // pending: movimientos hechos en este dispositivo que todavía no llegaron a la nube (para combinar con otros usuarios).
   cloud: { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [] },
-  // Datos del negocio que se sincronizan: clientes/proveedores y remitos.
-  extra: { contacts: [], remitos: [], remitoSeq: 0 },
+  // Datos del negocio que se sincronizan: clientes/proveedores, remitos y ajustes (p. ej. usar precios).
+  extra: { contacts: [], remitos: [], remitoSeq: 0, settings: {} },
 };
-const EXTRA_DEFAULT = () => ({ contacts: [], remitos: [], remitoSeq: 0 });
+const EXTRA_DEFAULT = () => ({ contacts: [], remitos: [], remitoSeq: 0, settings: {} });
 const REMITOS_MAX = 500;
 export function normalizeExtra(x) {
   const e = { ...EXTRA_DEFAULT(), ...(x && typeof x === 'object' ? x : {}) };
   e.contacts = Array.isArray(e.contacts) ? e.contacts.filter(c => c && c.id) : [];
   e.remitos = Array.isArray(e.remitos) ? e.remitos.filter(r => r && r.id) : [];
   e.remitoSeq = Math.max(0, Math.floor(num(e.remitoSeq)), ...e.remitos.map(r => num(r.number)));
+  e.settings = e.settings && typeof e.settings === 'object' ? e.settings : {};
   return e;
+}
+
+// ---------- Precios (todo opcional: la app funciona igual sin cargar ningún precio) ----------
+// Cada producto puede tener precio de venta y de costo, por unidad o por docena.
+export const PRICE_PER = { unit: 'c/u', dozen: 'c/docena' };
+export const PAYMENTS = { efectivo: 'Efectivo', transferencia: 'Transferencia', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', mercadopago: 'Mercado Pago', cuenta: 'Cuenta corriente', otro: 'Otro' };
+export const cleanPrice = v => { const n = Number(v); return v !== null && v !== '' && Number.isFinite(n) && n > 0 ? round2(n) : null; };
+export const pricePerOf = i => (i?.pricePer === 'dozen' && i.unitName === 'unidades' ? 'dozen' : 'unit');
+export const perFactor = per => (per === 'dozen' ? 12 : 1);
+// Importe de una cantidad (en unidades de stock) a un precio por unidad o por docena.
+export const lineAmount = (units, price, per = 'unit') => round2((num(units) / perFactor(per)) * num(price));
+// Precio de venta (para salidas) o de costo (para entradas) de un producto; null si no tiene.
+export function priceFor(item, kind = 'venta') {
+  const v = kind === 'compra' ? item?.cost : item?.price;
+  return v > 0 ? { price: v, per: pricePerOf(item) } : null;
+}
+// Ajuste del negocio (lo decide el dueño y se sincroniza con el equipo).
+export const pricesOn = () => !!state.extra.settings?.prices;
+export function setPricesEnabled(on) {
+  state.extra.settings = { ...state.extra.settings, prices: !!on, updatedAt: nowIso() };
+  commit('settings');
 }
 
 // Quién está usando la app (se guarda en cada movimiento). Vacío en modo local.
@@ -112,6 +134,10 @@ export function normalizeItem(i) {
     units: Math.max(0, round2(num(i.units ?? i.totalUnits))),
     minStock: Math.max(0, num(i.minStock)),
     serials: { D: Math.max(0, Math.floor(num(i.serials?.D))), U: Math.max(0, Math.floor(num(i.serials?.U))) },
+    // Precios opcionales: solo se guardan si se cargaron.
+    ...(cleanPrice(i.price) ? { price: cleanPrice(i.price) } : {}),
+    ...(cleanPrice(i.cost) ? { cost: cleanPrice(i.cost) } : {}),
+    ...(i.pricePer === 'dozen' ? { pricePer: 'dozen' } : {}),
     updatedAt: i.updatedAt || nowIso(),
     createdAt: i.createdAt || i.updatedAt || nowIso(),
   };
@@ -290,6 +316,7 @@ export function applyMovement(v) {
     if (txt(v.barcode)) item.barcode = upper(v.barcode);
     if (num(v.minStock) > 0) item.minStock = num(v.minStock);
   }
+  if (cleanPrice(v.price)) applyPrices(item, { price: v.price, pricePer: v.pricePer || pricePerOf(item) });
   item.units = round2(op === 'establecer' ? amount : op === 'restar' ? before - amount : before + amount);
   item.stockType = stockType;
   if (!v.keepDisplay || !existing) item.displayUnit = v.unit || item.displayUnit;
@@ -343,10 +370,47 @@ export function saveItem(id, patch) {
     units: round2(units), minStock: Math.max(0, num(patch.minStock)), updatedAt: nowIso(),
   });
   if (i.unitName !== 'unidades') i.displayUnit = inputUnitFor(i);
+  const priceNote = applyPrices(i, patch);
   // Solo si cambió el stock se registra el valor (al combinar con otros usuarios, fija el stock a ese número).
-  log('edit', 'Edición', i, before !== i.units ? { before, after: i.units, abs: true, note: 'Edición manual del stock' } : { note: 'Edición de datos del producto' });
+  log('edit', 'Edición', i, before !== i.units
+    ? { before, after: i.units, abs: true, note: ['Edición manual del stock', priceNote && `precios: ${priceNote}`].filter(Boolean).join(' · ') }
+    : { note: priceNote ? `Precios: ${priceNote}` : 'Edición de datos del producto' });
   commit('edit');
   return { ok: true, item: i };
+}
+
+// Aplica los precios que vengan en patch (price, cost, pricePer). Devuelve el detalle de lo que cambió.
+function applyPrices(i, patch) {
+  const changes = [];
+  if ('pricePer' in patch) {
+    const per = patch.pricePer === 'dozen' && i.unitName === 'unidades' ? 'dozen' : 'unit';
+    if (per !== pricePerOf(i) && (i.price || i.cost || 'price' in patch || 'cost' in patch)) changes.push(`precio ${PRICE_PER[per]}`);
+    if (per === 'dozen') i.pricePer = 'dozen'; else delete i.pricePer;
+  }
+  for (const [k, label] of [['price', 'venta'], ['cost', 'costo']]) {
+    if (!(k in patch)) continue;
+    const v = cleanPrice(patch[k]);
+    if ((i[k] || null) === v) continue;
+    changes.push(`${label} ${i[k] ? `$ ${fmt(i[k])}` : '—'} → ${v ? `$ ${fmt(v)}` : '—'}`);
+    if (v) i[k] = v; else delete i[k];
+  }
+  return changes.join(', ');
+}
+// Guarda precios de varios productos (p. ej. los que se escribieron al cerrar una venta). field: 'price' | 'cost'.
+export function setItemPrices(changes, field = 'price') {
+  const valid = changes.map(c => ({ ...c, item: findByCode(c.sku), value: cleanPrice(c.value) })).filter(c => c.item && c.value);
+  if (!valid.length) return 0;
+  checkpoint();
+  let n = 0;
+  for (const c of valid) {
+    const note = applyPrices(c.item, { [field]: c.value, pricePer: c.per });
+    if (!note) continue;
+    n++;
+    c.item.updatedAt = nowIso();
+    log('edit', 'Cambio de precio', c.item, { note: `Precios: ${note}` });
+  }
+  commit('prices');
+  return n;
 }
 
 export function deleteItems(ids) {
@@ -360,6 +424,19 @@ export function deleteItems(ids) {
 }
 
 export function bulkSet(ids, field, value) {
+  if (field === 'price' || field === 'cost' || field === 'pricePer') {
+    const set = new Set(ids), targets = state.items.filter(i => set.has(i.id));
+    if (!targets.length) return 0;
+    checkpoint();
+    for (const i of targets) {
+      const note = applyPrices(i, { [field]: field === 'pricePer' ? value : cleanPrice(value) });
+      if (!note) continue;
+      i.updatedAt = nowIso();
+      log('edit', 'Edición múltiple', i, { note: `Precios: ${note}` });
+    }
+    commit('bulk');
+    return targets.length;
+  }
   const allowed = { brand: cleanText, type: cleanText, stockType: v => (STOCK_TYPES[v] ? v : null), unitName: v => (STOCK_UNITS[v] ? v : null), minStock: v => Math.max(0, num(v)) };
   const conv = allowed[field];
   if (!conv) return 0;
@@ -381,11 +458,12 @@ export function bulkSet(ids, field, value) {
 export function clearHistory() { checkpoint(); state.history = []; commit('history'); }
 
 // rows: productos ya normalizados por io.js. replace=true reemplaza todo; si no, combina por SKU.
-export function importItems(rows, replace, history = null) {
+export function importItems(rows, replace, history = null, extra = null) {
   checkpoint();
   if (replace) {
     state.items = rows.map(r => normalizeItem({ ...r, id: undefined }));
     if (Array.isArray(history)) state.history = history.slice(0, HISTORY_MAX);
+    if (extra) state.extra = normalizeExtra(extra); // copia JSON completa: clientes, remitos y ventas
     log('import', 'Importación: reemplazo', null, { note: `${rows.length} productos` });
   } else {
     for (const r of rows) {
@@ -395,6 +473,7 @@ export function importItems(rows, replace, history = null) {
         Object.assign(old, { brand: cleanText(r.brand) || old.brand, type: cleanText(r.type) || old.type, units: round2(num(r.units)), updatedAt: nowIso() });
         if (r.barcode) old.barcode = upper(r.barcode);
         if (r.minStock) old.minStock = num(r.minStock);
+        if (cleanPrice(r.price) || cleanPrice(r.cost)) applyPrices(old, { ...(cleanPrice(r.price) ? { price: r.price } : {}), ...(cleanPrice(r.cost) ? { cost: r.cost } : {}), pricePer: r.pricePer });
         log('import', 'Importación: actualización', old, { before, after: old.units });
       } else {
         const i = normalizeItem({ ...r, id: undefined });
@@ -477,6 +556,7 @@ export function rebase(remote) {
     } else if (local && local.updatedAt > it.updatedAt) {
       // Datos del producto (marca, prenda, mínimo…) editados acá: se conservan. El stock se recalcula abajo.
       Object.assign(it, { brand: local.brand, type: local.type, barcode: local.barcode, minStock: local.minStock, stockType: local.stockType, unitName: local.unitName, displayUnit: local.displayUnit });
+      for (const k of ['price', 'cost', 'pricePer']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
     }
     if (h.before != null && h.after != null) {
       it.units = round2(Math.max(0, k === 'count' || h.abs ? h.after : it.units + (h.after - h.before)));
@@ -512,14 +592,17 @@ function mergeExtra(remoteExtra, localExtra) {
   let seq = Math.max(r.remitoSeq, l.remitoSeq);
   const used = new Set(r.remitos.map(x => x.number));
   for (const x of l.remitos) {
-    if (remitos.has(x.id)) continue;
+    const o = remitos.get(x.id);
+    // Una venta anulada en este dispositivo sigue anulada aunque la nube tenga la versión anterior.
+    if (o) { if (x.voided && !o.voided) remitos.set(x.id, { ...o, voided: x.voided }); continue; }
     const copy = { ...x };
     if (used.has(copy.number)) copy.number = ++seq;
     used.add(copy.number);
     remitos.set(copy.id, copy);
   }
   const list = [...remitos.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, REMITOS_MAX);
-  return { ...r, contacts: [...contacts.values()], remitos: list, remitoSeq: Math.max(seq, ...list.map(x => num(x.number))) };
+  const settings = String(l.settings.updatedAt || '') > String(r.settings.updatedAt || '') ? l.settings : r.settings;
+  return { ...r, contacts: [...contacts.values()], remitos: list, remitoSeq: Math.max(seq, ...list.map(x => num(x.number))), settings };
 }
 
 // ---------- Clientes y proveedores ----------
@@ -555,8 +638,9 @@ export function deleteContact(id) {
 }
 
 // ---------- Remitos ----------
-// lines: [{ sku, name, qty, unit, units, serials: [] }] · kind: 'salida' | 'entrada'
-export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [] }) {
+// lines: [{ sku, name, qty, unit, units, serials: [], price?, per? }] · kind: 'salida' | 'entrada'
+// sale (opcional): { discount, payment } → queda como venta (salida) o compra (entrada), con importes y total.
+export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [], sale = null }) {
   if (!lines.length) return fail('El remito no tiene productos.');
   const number = state.extra.remitoSeq + 1;
   const remito = {
@@ -564,6 +648,15 @@ export function createRemito({ kind = 'salida', contact = null, lines = [], note
     contact: contact ? { id: contact.id, name: contact.name, phone: contact.phone || '', doc: contact.doc || '', address: contact.address || '' } : null,
     lines, entryIds,
   };
+  if (sale) {
+    remito.lines = lines.map(l => {
+      const price = cleanPrice(l.price), per = l.per === 'dozen' ? 'dozen' : 'unit';
+      return { ...l, price: price || 0, per, amount: price ? lineAmount(l.units, price, per) : 0 };
+    });
+    const subtotal = round2(remito.lines.reduce((s, l) => s + l.amount, 0));
+    const discount = Math.min(100, Math.max(0, round2(num(sale.discount))));
+    Object.assign(remito, { priced: true, subtotal, discount, total: round2(subtotal * (1 - discount / 100)), payment: PAYMENTS[sale.payment] ? sale.payment : '' });
+  }
   state.extra.remitoSeq = number;
   state.extra.remitos.unshift(remito);
   if (state.extra.remitos.length > REMITOS_MAX) state.extra.remitos.length = REMITOS_MAX;
@@ -571,6 +664,19 @@ export function createRemito({ kind = 'salida', contact = null, lines = [], note
   return { ok: true, remito };
 }
 export const remitoCode = r => `R-${String(r.number).padStart(5, '0')}`;
+// Anula una venta/remito: no se borra, queda marcado con quién, cuándo y por qué. El stock se corrige aparte.
+export function voidRemito(id, reason) {
+  const r = state.extra.remitos.find(x => x.id === id);
+  if (!r) return fail('No se encontró el comprobante.');
+  if (r.voided) return fail('Ya estaba anulado.');
+  if (!txt(reason)) return fail('Escribí el motivo.');
+  checkpoint();
+  r.voided = { at: nowIso(), by: actor, reason: txt(reason) };
+  commit('remito');
+  return { ok: true, remito: r };
+}
+// Comprobante (venta, compra o remito) al que pertenece un movimiento.
+export const remitoOfEntry = entryId => (entryId ? state.extra.remitos.find(r => r.entryIds?.includes(entryId)) || null : null);
 // Se confirma que estos movimientos ya están en la nube.
 export function markSynced(ids) {
   const sent = new Set(ids);

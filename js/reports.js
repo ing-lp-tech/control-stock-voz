@@ -1,5 +1,5 @@
 // Reportes (solo la dueña): ventas, ingresos, clientes, equipo y controles para detectar faltantes.
-import { esc, fmt, icon } from './utils.js';
+import { esc, fmt, icon, money, round2 } from './utils.js';
 import * as S from './store.js';
 
 const DAY = 86400000;
@@ -11,6 +11,42 @@ const dz = u => `${fmt(u / 12)} doc.`;
 export function periodRows(history, { days = 30, user = '' } = {}) {
   const from = days ? dayKey(Date.now()) - (days - 1) * DAY : 0;
   return history.filter(h => !h.lite && new Date(h.at).getTime() >= from && (!user || h.by === user));
+}
+
+// Comprobantes del período (ventas, compras y remitos).
+export function periodRemitos(remitos, { days = 30, user = '' } = {}) {
+  const from = days ? dayKey(Date.now()) - (days - 1) * DAY : 0;
+  return remitos.filter(r => new Date(r.at).getTime() >= from && (!user || r.by === user));
+}
+
+// Ventas y compras en pesos (solo comprobantes con precios y no anulados).
+// La ganancia es estimada: ventas menos el costo actual de lo vendido (solo de productos con costo cargado).
+function computeSales(state, opts) {
+  const list = periodRemitos(state.extra.remitos, opts).filter(r => r.priced && !r.voided);
+  const sales = list.filter(r => r.kind !== 'entrada'), buys = list.filter(r => r.kind === 'entrada');
+  const total = l => round2(l.reduce((s, r) => s + (Number(r.total) || 0), 0));
+  const bySku = new Map(), byClient = new Map(), byPay = new Map();
+  let costOfSold = 0, revenueWithCost = 0;
+  for (const r of sales) {
+    const k = r.subtotal ? r.total / r.subtotal : 1; // descuento repartido en las líneas
+    for (const l of r.lines) {
+      const amount = (Number(l.amount) || 0) * k, item = S.findByCode(l.sku);
+      const g = bySku.get(l.sku) || { key: l.sku, item, amount: 0, units: 0 };
+      g.amount += amount; g.units += Number(l.units) || 0; bySku.set(l.sku, g);
+      if (item?.cost) { costOfSold += S.lineAmount(l.units, item.cost, S.pricePerOf(item)); revenueWithCost += amount; }
+    }
+    const c = r.contact?.name || 'Sin cliente', gc = byClient.get(c) || { key: c, amount: 0, count: 0 };
+    gc.amount += Number(r.total) || 0; gc.count++; byClient.set(c, gc);
+    const p = S.PAYMENTS[r.payment] || 'Sin indicar', gp = byPay.get(p) || { key: p, amount: 0, count: 0 };
+    gp.amount += Number(r.total) || 0; gp.count++; byPay.set(p, gp);
+  }
+  const sort = m => [...m.values()].sort((a, b) => b.amount - a.amount);
+  const salesTotal = total(sales);
+  return {
+    salesTotal, salesCount: sales.length, ticket: sales.length ? salesTotal / sales.length : 0, buysTotal: total(buys), buysCount: buys.length,
+    profit: revenueWithCost ? round2(revenueWithCost - costOfSold) : null, profitCoverage: salesTotal ? revenueWithCost / salesTotal : 0,
+    bySku: sort(bySku), byClient: sort(byClient), byPay: sort(byPay),
+  };
 }
 
 export function computeReport(state, opts) {
@@ -66,7 +102,8 @@ export function computeReport(state, opts) {
   const idle = state.items.filter(i => i.units > 0 && !moved.has(i.sku)).sort((a, b) => b.units - a.units);
 
   const remitos = state.extra.remitos.filter(r => new Date(r.at).getTime() >= (opts.days ? start : 0) && (!opts.user || r.by === opts.user));
-  return { rows, outs, ins, totalOut: sum(outs), totalIn: sum(ins), daily, bySku, byBrand, byType, byClient, bySupplier, people: [...people.values()].sort((a, b) => b.moves - a.moves), fixes, shortCounts, noClient, offHours, manual, idle, remitos, days };
+  const sales = opts.prices ? computeSales(state, opts) : null;
+  return { sales, rows, outs, ins, totalOut: sum(outs), totalIn: sum(ins), daily, bySku, byBrand, byType, byClient, bySupplier, people: [...people.values()].sort((a, b) => b.moves - a.moves), fixes, shortCounts, noClient, offHours, manual, idle, remitos, days };
 }
 
 // ---------- Gráfico: ingresos y salidas por día (un eje, dos series, leyenda, tooltip y tabla) ----------
@@ -132,13 +169,39 @@ function hbars(list, { label, sub, limit = 10 }) {
     <div class="hbar-track"><span style="width:${Math.max(2, (g.units / max) * 100)}%"></span></div>
     <div class="hbar-val">${fmt(g.units)} u.<span>${dz(g.units)}</span></div></div>`).join('')}</div>`;
 }
+// Igual que hbars, pero en pesos.
+function mbars(list, { label, sub, limit = 8 }) {
+  const top = list.slice(0, limit), max = Math.max(1, ...top.map(g => g.amount));
+  return `<div class="hbars">${top.map(g => `<div class="hbar" ${g.item ? `data-open-product="${esc(g.key)}" role="button" tabindex="0"` : ''}>
+    <div class="hbar-label"><strong>${esc(label(g))}</strong>${sub ? `<span>${esc(sub(g))}</span>` : ''}</div>
+    <div class="hbar-track"><span style="width:${Math.max(2, (g.amount / max) * 100)}%"></span></div>
+    <div class="hbar-val">${money(g.amount)}</div></div>`).join('')}</div>`;
+}
+function salesSection(s) {
+  if (!s) return '';
+  if (!s.salesCount && !s.buysCount) return `<section class="panel"><div class="panel-head"><h3>${icon('cash')} Ventas en pesos</h3><p>Todavía no hay ventas con precio en este período. Al escanear una salida, dejá encendido «Es una venta».</p></div></section>`;
+  const profit = s.profit == null ? '<strong>—</strong><small>Cargá el precio de costo de los productos para estimarla</small>'
+    : `<strong class="${s.profit < 0 ? 'warn' : ''}">${money(s.profit)}</strong><small>${s.profitCoverage < 0.999 ? `sobre el ${fmt(s.profitCoverage * 100, 0)} % de las ventas (productos con costo)` : 'ventas menos el costo de lo vendido'}</small>`;
+  return `
+  <div class="report-stats">
+    <div class="stat"><span>Ventas</span><strong>${money(s.salesTotal)}</strong><small>${fmt(s.salesCount)} venta${s.salesCount === 1 ? '' : 's'}</small></div>
+    <div class="stat"><span>Ticket promedio</span><strong>${money(s.ticket)}</strong><small>por venta</small></div>
+    <div class="stat"><span>Ganancia estimada</span>${profit}</div>
+    <div class="stat"><span>Compras</span><strong>${money(s.buysTotal)}</strong><small>${fmt(s.buysCount)} compra${s.buysCount === 1 ? '' : 's'} con costo</small></div>
+  </div>
+  <div class="grid-2">
+    <section class="panel"><div class="panel-head"><h3>Lo que más facturó</h3><p>Por importe vendido (con descuentos)</p></div>${s.bySku.length ? mbars(s.bySku, { label: g => g.key, sub: g => `${name(g.item) || 'Producto eliminado'} · ${fmt(g.units)} u.` }) : empty('Sin ventas con precio.')}</section>
+    <section class="panel"><div class="panel-head"><h3>Clientes por importe</h3><p>Cuánto compró cada uno</p></div>${s.byClient.length ? mbars(s.byClient, { label: g => g.key, sub: g => `${g.count} compra${g.count === 1 ? '' : 's'}` }) : empty('Sin datos.')}</section>
+    <section class="panel"><div class="panel-head"><h3>Formas de pago</h3><p>Total cobrado por cada una</p></div>${s.byPay.length ? mbars(s.byPay, { label: g => g.key, sub: g => `${g.count} venta${g.count === 1 ? '' : 's'}` }) : empty('Sin datos.')}</section>
+  </div>`;
+}
 const empty = t => `<p class="muted small" style="padding:8px 0">${esc(t)}</p>`;
 const when = iso => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 export function renderReport(r) {
   const people = r.people.filter(p => p.who !== 'sin usuario' || p.moves);
   const alerts = r.fixes.length + r.shortCounts.length + r.offHours.length;
-  return `
+  return `${salesSection(r.sales)}
   <div class="report-stats">
     <div class="stat"><span>Salidas</span><strong>${fmt(r.totalOut)} u.</strong><small>${dz(r.totalOut)} · ${fmt(r.outs.length)} movimientos</small></div>
     <div class="stat"><span>Ingresos</span><strong>${fmt(r.totalIn)} u.</strong><small>${dz(r.totalIn)} · ${fmt(r.ins.length)} movimientos</small></div>

@@ -2,7 +2,7 @@
 import { CONFIG } from './config.js';
 import {
   byId, $, $$, esc, icon, hydrateIcons, toast, ask, fmt, txt, upper, num, debounce, relTime, busy, flashDone, shake,
-  beep, vibrate, initInteractions, animateNumber, readJSON, writeJSON, initials, waLink,
+  beep, vibrate, initInteractions, animateNumber, readJSON, writeJSON, initials, waLink, money, parseMoney, round2,
 } from './utils.js';
 import * as S from './store.js';
 import * as cloud from './cloud.js';
@@ -20,7 +20,8 @@ const PREFS_KEY = 'stockvoz_prefs';
 const prefs = {
   task: 'inventario', formOp: 'sumar', scanOp: 'sumar', scanQty: 1, scanUnknown: 'ask', sound: true, voiceAutoSave: true, voiceSpeak: true,
   lblKind: 'barcode', lblSize: 'r50x25', lblCopies: 1, lblByStock: false, lblShowName: true, lblHeader: '',
-  lblMode: 'product', lblQtyMode: 'stock', lblFixed: 1, lblList: '', lblRestart: false,
+  lblMode: 'product', lblQtyMode: 'stock', lblFixed: 1, lblList: '', lblRestart: false, lblShowPrice: false,
+  saleOut: true, buyIn: false, // con precios activados: las salidas son ventas y las entradas no son compras (se puede cambiar)
   ...readJSON(PREFS_KEY, {}),
 };
 const savePrefs = () => writeJSON(PREFS_KEY, prefs);
@@ -171,6 +172,35 @@ function ownerOnly(what) {
 }
 const canFix = h => canManage() && !h.voided && ['in', 'out', 'count'].includes(S.historyKind(h)) && h.before != null && h.after != null && !!S.findByCode(h.sku);
 
+// =========================================================
+// Precios (opcional): con el ajuste apagado la app es solo control de stock y no muestra nada de esto.
+// =========================================================
+const priceText = (item, kind = 'venta') => { const p = S.priceFor(item, kind); return p ? `${money(p.price)} ${S.PRICE_PER[p.per]}` : ''; };
+// ¿Lo que se escanea ahora es una venta o una compra? (null = solo stock)
+const saleKind = () => (!S.pricesOn() ? null : prefs.scanOp === 'restar' && prefs.saleOut ? 'venta' : prefs.scanOp === 'sumar' && prefs.buyIn ? 'compra' : null);
+function applyPricesUI() {
+  const on = S.pricesOn();
+  document.body.classList.toggle('prices-on', on);
+  byId('pricesOn').checked = on;
+  byId('pricesOn').disabled = !canManage();
+  byId('pricesHint').textContent = on
+    ? 'Activado: podés cargar precios en los productos y registrar ventas y compras. Si lo apagás, los precios se ocultan pero no se borran.'
+    : 'Apagado: la app funciona solo como control de stock. Encendelo si además querés registrar precios, ventas y compras.';
+  if (!canManage()) byId('pricesHint').textContent += ' Solo el dueño de la cuenta puede cambiarlo.';
+}
+// Total en pesos de lo escaneado (con los precios actuales de cada producto).
+function sessionMoney() {
+  const k = saleKind();
+  if (!k) return null;
+  let total = 0;
+  const missing = new Set();
+  for (const f of liveFeed()) {
+    const p = S.priceFor(S.findById(f.itemId), k);
+    if (p) total += S.lineAmount(f.amount, p.price, p.per); else missing.add(f.sku);
+  }
+  return { total: round2(total), missing: missing.size, kind: k };
+}
+
 // opts.time: mostrar la hora (en listas agrupadas por día) en lugar de "hace 5 min".
 function historyRow(h, opts = {}) {
   const k = S.historyKind(h), si = S.serialInfo(h.serial), src = S.sourceOf(h);
@@ -256,6 +286,7 @@ function renderPanel() {
   byId('greeting').textContent = `${h < 12 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches'}${name ? ', ' + name : ''}`;
   byId('todayLabel').textContent = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+  renderPanelSales();
   byId('recentList').innerHTML = state.history.length
     ? state.history.slice(0, 6).map(historyRow).join('')
     : emptyState('history', 'Sin actividad todavía', 'Tus ingresos, salidas y conteos aparecen acá.');
@@ -263,6 +294,19 @@ function renderPanel() {
     ? alerts.slice(0, 6).map(i => `<a class="alert-row" href="#/inventario?f=alert"><span class="tl-icon" style="background:var(--${i.units <= 0 ? 'danger' : 'warn'}-soft);color:var(--${i.units <= 0 ? 'danger' : 'warn'})">${icon('alert')}</span><span class="grow" style="min-width:0"><strong class="mono">${esc(i.sku)}</strong><div class="tl-sub">${esc(productName(i) || 'Sin datos')}</div></span><span class="badge ${i.units <= 0 ? 'badge-danger' : 'badge-warn'}">${i.units <= 0 ? 'Sin stock' : `${fmt(i.units)} / mín. ${fmt(i.minStock)}`}</span></a>`).join('')
     : emptyState('check', 'Todo en orden', 'Te avisamos cuando un producto se quede sin stock o baje del mínimo.');
   renderBanners();
+}
+
+// Ventas de hoy, de los últimos 7 días y del mes (solo dueño y con precios activados).
+function renderPanelSales() {
+  const box = byId('panelSales');
+  if (!S.pricesOn() || !canManage()) { box.innerHTML = ''; return; }
+  const sales = state.extra.remitos.filter(r => r.priced && !r.voided && r.kind !== 'entrada');
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const w0 = new Date(d0); w0.setDate(w0.getDate() - 6);
+  const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1);
+  const sum = from => { const l = sales.filter(r => new Date(r.at) >= from); return { total: l.reduce((s, r) => s + num(r.total), 0), n: l.length }; };
+  const tile = (label, s) => `<div><span>${label}</span><strong>${money(s.total)}</strong><small>${s.n ? `${fmt(s.n)} venta${s.n === 1 ? '' : 's'}` : 'Sin ventas'}</small></div>`;
+  box.innerHTML = `<div class="card sales-strip">${tile('Ventas de hoy', sum(d0))}${tile('Últimos 7 días', sum(w0))}${tile('Este mes', sum(m0))}<a class="link" href="#/reportes">Reportes ${icon('chevron-right', 'sm')}</a></div>`;
 }
 
 function renderBanners() {
@@ -313,6 +357,7 @@ function renderFormProduct(sku, it) {
 function updateFormNotice() {
   const sku = upper(F.sku.value).replace(/\s+/g, ''), it = S.findByCode(sku), qty = num(F.qty.value), u = S.inputUnit(F.unit.value);
   renderFormProduct(sku, it);
+  byId('fPriceLabel').textContent = `Precio de venta ${F.unit.value === 'dozen' ? 'por docena' : 'por unidad'} (opcional)`;
   const msgs = [];
   if (it && it.unitName !== u.stock) msgs.push(['warn', 'alert', `${it.sku} se controla en ${S.unitLabel(it.unitName)}. Cambiá la unidad para no mezclar medidas.`]);
   if (sku && qty > 0 && (!it || it.unitName === u.stock)) {
@@ -344,6 +389,7 @@ function syncUnitWithProduct(preferProduct = false) {
 
 function resetForm() {
   ['sku', 'brand', 'type', 'qty', 'min', 'barcode'].forEach(k => { F[k].value = ''; });
+  byId('fPrice').value = '';
   F.unit.value = 'unit';
   formSource = 'manual';
   updateFormNotice();
@@ -361,6 +407,7 @@ function interpret() {
   if (p.type) { F.type.value = upper(p.type); filled.push(F.type); }
   if (p.qty != null) { F.qty.value = p.qty; filled.push(F.qty); }
   F.unit.value = p.unit; filled.push(F.unit);
+  if (p.price != null && S.pricesOn() && canManage() && !S.findByCode(p.sku)) { byId('fPrice').value = fmt(p.price); filled.push(byId('fPrice')); }
   const op = prefs.task === 'salida' ? 'restar' : prefs.task === 'entrada' ? 'sumar' : (p.operation || prefs.formOp);
   setFormOp(op);
   formSource = 'voz';
@@ -401,7 +448,11 @@ const spell = code => String(code).replace(/([A-Z]+)(\d)/g, '$1 $2').replace(/(\
 function saveProduct(e) {
   e.preventDefault();
   const btn = byId('saveProduct');
+  // Precio opcional, solo para productos nuevos (los existentes se editan desde Inventario).
+  const isNew = !S.findByCode(F.sku.value), priceRaw = byId('fPrice').value, price = isNew && S.pricesOn() && canManage() ? parseMoney(priceRaw) : null;
+  if (isNew && S.pricesOn() && txt(priceRaw) && price == null) { toast('El precio no es un número válido. Ej.: 12500 o 12.500', 'error'); shake(btn); return; }
   const r = S.applyMovement({
+    price, pricePer: F.unit.value === 'dozen' ? 'dozen' : 'unit',
     sku: F.sku.value, brand: F.brand.value, type: F.type.value, qty: F.qty.value, unit: F.unit.value, stockType: prefs.task,
     operation: prefs.formOp, minStock: F.min.value, barcode: F.barcode.value, source: formSource, contact: prefs.formOp === 'establecer' ? null : resolveContact(byId('fContact').value, prefs.formOp),
   });
@@ -507,7 +558,12 @@ const SCAN_MODES = {
   sumar: { name: 'entrada', tone: 'success', icon: 'arrow-in', banner: 'Cada código que escanees se <b>SUMA</b> al stock.', hint: 'Te muestra el resumen y podés guardar el remito de entrada.' },
   establecer: { name: 'conteo', tone: 'info', icon: 'equal', banner: 'La primera lectura de cada producto <b>reinicia</b> su stock y las siguientes suman.', hint: 'Cierra el conteo y deja la lista vacía para el próximo.' },
 };
-const scanMode = () => SCAN_MODES[prefs.scanOp];
+// Con precios activados, una salida puede ser una venta y una entrada una compra.
+const SALE_TEXT = {
+  venta: { banner: 'Cada código que escanees se <b>RESTA</b> del stock y <b>suma su precio</b> a la venta.', hint: 'Te muestra el total; podés poner descuento y forma de pago, y mandar el comprobante por WhatsApp.' },
+  compra: { banner: 'Cada código que escanees se <b>SUMA</b> al stock y registra su <b>costo</b>.', hint: 'Te muestra el total de la compra y podés guardar el remito de entrada.' },
+};
+const scanMode = () => { const base = SCAN_MODES[prefs.scanOp], k = saleKind(); return k ? { ...base, name: k, ...SALE_TEXT[k] } : base; };
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 function setScanOp(op) {
@@ -525,8 +581,20 @@ function setScanOp(op) {
   // Sin paso de cliente en el conteo: los pasos se renumeran.
   byId('scanStepScan').textContent = prefs.scanOp === 'establecer' ? '2' : '3';
   byId('scanStepFinish').textContent = prefs.scanOp === 'establecer' ? '3' : '4';
+  // Interruptor "Es una venta" / "Es una compra" (no aplica al conteo).
+  const sk = prefs.scanOp === 'restar' ? 'venta' : prefs.scanOp === 'sumar' ? 'compra' : null;
+  byId('scanSaleWrap').hidden = byId('kSaleWrap').hidden = !sk;
+  byId('scanSale').checked = byId('kSale').checked = sk === 'venta' ? !!prefs.saleOut : !!prefs.buyIn;
+  byId('scanSaleLabel').textContent = sk === 'venta' ? 'Es una venta: sumar precios y mostrar el total' : 'Es una compra: registrar el costo';
+  byId('kSaleLabel').textContent = sk === 'venta' ? 'Venta' : 'Compra';
   updateContactLabels();
-  renderKiosk();
+  renderScanSession();
+}
+function setSale(on) {
+  if (prefs.scanOp === 'restar') prefs.saleOut = on; else if (prefs.scanOp === 'sumar') prefs.buyIn = on;
+  savePrefs();
+  setScanOp(prefs.scanOp);
+  focusKioskOrScan();
 }
 // Cambiar de modo con lecturas sin terminar mezclaría una salida con una entrada: primero se pregunta.
 async function chooseScanOp(op) {
@@ -545,7 +613,7 @@ async function chooseScanOp(op) {
     resetSession();
   }
   setScanOp(op);
-  toast(`Modo ${SCAN_MODES[prefs.scanOp].name}: ${SCAN_MODES[prefs.scanOp].banner.replace(/<[^>]+>/g, '').toLowerCase()}`, prefs.scanOp === 'restar' ? 'warn' : 'info');
+  toast(`Modo ${scanMode().name}: ${scanMode().banner.replace(/<[^>]+>/g, '').toLowerCase()}`, prefs.scanOp === 'restar' ? 'warn' : 'info');
   focusKioskOrScan();
 }
 const focusKioskOrScan = () => (currentView === 'kiosco' ? byId('kInput').focus({ preventScroll: true }) : focusScan());
@@ -578,12 +646,13 @@ function askNewProduct(code, qty) {
   return new Promise(resolve => {
     const d = byId('newDialog');
     byId('nCode').textContent = code;
-    ['nBrand', 'nType', 'nMin'].forEach(id => { byId(id).value = ''; });
+    ['nBrand', 'nType', 'nMin', 'nPrice'].forEach(id => { byId(id).value = ''; });
     byId('nQty').value = qty;
     byId('nUnit').value = 'unit';
     byId('newForm').onsubmit = e => {
       e.preventDefault();
-      resolve({ brand: byId('nBrand').value, type: byId('nType').value, qty: byId('nQty').value, unit: byId('nUnit').value, minStock: byId('nMin').value });
+      const price = S.pricesOn() && canManage() ? parseMoney(byId('nPrice').value) : null;
+      resolve({ brand: byId('nBrand').value, type: byId('nType').value, qty: byId('nQty').value, unit: byId('nUnit').value, minStock: byId('nMin').value, price, pricePer: byId('nUnit').value === 'dozen' ? 'dozen' : 'unit' });
       d.close();
     };
     d.addEventListener('close', () => resolve(null), { once: true });
@@ -656,7 +725,9 @@ async function handleScan(raw, source = 'escáner') {
   const moved = op === 'establecer' ? `= ${unitWords(r.after, S.unitLabel(r.item.unitName))}`
     : resolved?.pack === 'D' ? `${sign}1 docena` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
   const movedSub = resolved?.pack === 'D' && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
-  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}</div></div></div>`);
+  const sk = saleKind(), pr = sk && S.priceFor(r.item, sk);
+  const priceInfo = !sk ? '' : pr ? ` · <b>${money(S.lineAmount(r.amount, pr.price, pr.per))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
+  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}${priceInfo}</div></div></div>`);
   renderScanSession();
   focusScan();
 }
@@ -666,10 +737,14 @@ function renderScanSession() {
   byId('ssReads').textContent = fmt(session.reads);
   byId('ssUnits').textContent = fmt(session.units);
   byId('ssProducts').textContent = fmt(session.products.size);
+  const sm = sessionMoney(), sk = saleKind();
+  byId('ssMoneyBox').hidden = !sm;
+  if (sm) byId('ssMoney').textContent = money(sm.total);
+  const lineMoney = f => { if (!sk || f.undone) return ''; const pr = S.priceFor(S.findById(f.itemId), sk); return pr ? ` · ${money(S.lineAmount(f.amount, pr.price, pr.per))}` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`; };
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
-        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div>
+        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${lineMoney(f)}</div></div>
         ${f.undone ? '<span class="badge">Revertido</span>' : `<button class="btn btn-ghost btn-sm" type="button" data-revert="${f.id}">${icon('undo', 'sm')}Revertir</button>`}</div>`).join('')
     : emptyState('scan', 'Sin lecturas todavía', 'Escaneá un código con la pistola o la cámara para empezar.');
 }
@@ -735,9 +810,10 @@ function invRows() {
     sku: (a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true }),
     brand: (a, b) => a.brand.localeCompare(b.brand, 'es') || a.sku.localeCompare(b.sku, 'es', { numeric: true }),
     desc: (a, b) => b.units - a.units, asc: (a, b) => a.units - b.units,
+    price: (a, b) => (b.price || 0) / S.perFactor(S.pricePerOf(b)) - (a.price || 0) / S.perFactor(S.pricePerOf(a)),
     recent: (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)),
   };
-  return rows.sort(by[inv.sort] || by.sku);
+  return rows.sort((inv.sort === 'price' && !S.pricesOn() ? null : by[inv.sort]) || by.sku);
 }
 
 function itemRow(i) {
@@ -746,7 +822,7 @@ function itemRow(i) {
   return `<div class="inv-row ${sel ? 'selected' : ''}" data-id="${esc(i.id)}">
     <label class="check" title="Seleccionar"><input type="checkbox" data-act="select" ${sel ? 'checked' : ''} aria-label="Seleccionar ${esc(i.sku)}"><span></span></label>
     <div class="inv-product" data-act="edit"><div class="inv-sku mono">${esc(i.sku)}</div><div class="inv-meta">${esc(productName(i) || 'Sin marca ni prenda')}${i.barcode ? ` · ${esc(i.barcode)}` : ''}</div></div>
-    <div class="inv-stock"><div class="qty ${zero ? 'is-zero' : low ? 'is-low' : ''}">${fmt(d.value)} <small>${esc(d.unit)}</small></div>${sub ? `<div class="qty-sub">${sub}</div>` : ''}</div>
+    <div class="inv-stock"><div class="qty ${zero ? 'is-zero' : low ? 'is-low' : ''}">${fmt(d.value)} <small>${esc(d.unit)}</small></div>${sub ? `<div class="qty-sub">${sub}</div>` : ''}${S.pricesOn() && i.price ? `<div class="qty-sub price-tag">${esc(priceText(i))}</div>` : ''}</div>
     <div class="inv-tags">${zero ? '<span class="badge badge-danger">Sin stock</span>' : low ? '<span class="badge badge-warn">Bajo mínimo</span>' : ''}<span class="badge">${esc(S.stockTypeLabel(i.stockType))}</span></div>
     <div class="inv-actions">
       <div class="stepper sm"><button type="button" data-act="minus" title="Restar 1" aria-label="Restar 1">${icon('minus')}</button><button type="button" data-act="plus" title="Sumar 1" aria-label="Sumar 1">${icon('plus')}</button></div>
@@ -764,6 +840,7 @@ function renderInventory() {
   for (const id of inv.selected) if (!S.findById(id)) inv.selected.delete(id);
   if (currentView !== 'inventario') { renderBulkBar(); return; }
 
+  renderInvValue();
   const rows = invRows(), shown = rows.slice(0, inv.limit);
   const allSel = rows.length > 0 && rows.every(i => inv.selected.has(i.id));
   const someSel = rows.some(i => inv.selected.has(i.id));
@@ -777,6 +854,20 @@ function renderInventory() {
   const head = $('#invList [data-act="select-all"]');
   if (head) head.indeterminate = someSel && !allSel;
   renderBulkBar();
+}
+
+// Cuánto vale lo que hay en stock, a precio de venta y al costo (solo dueño, con precios activados).
+function renderInvValue() {
+  const box = byId('invValue');
+  if (!S.pricesOn() || !canManage() || !state.items.length) { box.innerHTML = ''; return; }
+  let sale = 0, cost = 0, noPrice = 0;
+  for (const i of state.items) {
+    if (i.units <= 0) continue;
+    const per = S.pricePerOf(i);
+    if (i.price) sale += S.lineAmount(i.units, i.price, per); else noPrice++;
+    if (i.cost) cost += S.lineAmount(i.units, i.cost, per);
+  }
+  box.innerHTML = `<div class="inv-value">${icon('cash')}<span>Valor del stock: <b>${money(sale)}</b> a precio de venta${cost ? ` · <b>${money(cost)}</b> al costo` : ''}${noPrice ? ` · <span class="muted">${fmt(noPrice)} producto${noPrice === 1 ? '' : 's'} con stock sin precio</span>` : ''}</span></div>`;
 }
 
 function renderBulkBar() {
@@ -821,15 +912,36 @@ function openEdit(i) {
   // Los empleados pueden editar datos del producto, pero no cambiar el stock a mano.
   byId('eUnits').disabled = !canManage(); byId('eUnitName').disabled = !canManage();
   byId('eUnits').title = canManage() ? '' : 'Solo el dueño puede cambiar el stock a mano';
+  // Precios: el empleado ve el de venta pero no lo cambia; el de costo es solo del dueño.
+  byId('ePrice').value = i.price ? fmt(i.price) : '';
+  byId('eCost').value = i.cost ? fmt(i.cost) : '';
+  byId('ePer').value = S.pricePerOf(i);
+  byId('ePerField').hidden = i.unitName !== 'unidades';
+  byId('ePrice').disabled = byId('ePer').disabled = !canManage();
+  renderMargin();
   byId('editDialog').showModal();
+}
+// Ganancia por unidad o docena según precio de venta y costo.
+function renderMargin() {
+  const price = parseMoney(byId('ePrice').value), cost = parseMoney(byId('eCost').value), per = byId('ePer').value === 'dozen' && !byId('ePerField').hidden ? 'dozen' : 'unit';
+  const el = byId('eMargin');
+  if (!canManage() || !price || !cost) { el.textContent = price && !canManage() ? 'Solo el dueño puede cambiar los precios.' : ''; return; }
+  const gain = price - cost;
+  el.innerHTML = `Ganancia ${per === 'dozen' ? 'por docena' : 'por unidad'}: <b class="${gain < 0 ? 'danger-text' : ''}">${money(gain)}</b> (${fmt((gain / cost) * 100, 1)} % sobre el costo)`;
 }
 function saveEdit(e) {
   e.preventDefault();
   const item = S.findById(editingId);
+  let prices = {};
+  if (S.pricesOn() && canManage()) {
+    const bad = ['ePrice', 'eCost'].find(id => txt(byId(id).value) && parseMoney(byId(id).value) == null);
+    if (bad) { toast('Revisá el precio: escribí solo el número, por ejemplo 12500 o 12.500.', 'error'); byId(bad).focus(); shake(byId('eSave')); return; }
+    prices = { price: parseMoney(byId('ePrice').value), cost: parseMoney(byId('eCost').value), pricePer: byId('ePer').value };
+  }
   const r = S.saveItem(editingId, {
     sku: byId('eSku').value, barcode: byId('eBarcode').value, brand: byId('eBrand').value, type: byId('eType').value,
     units: canManage() ? byId('eUnits').value : item?.units, unitName: canManage() ? byId('eUnitName').value : item?.unitName,
-    minStock: byId('eMin').value, stockType: byId('eStockType').value,
+    minStock: byId('eMin').value, stockType: byId('eStockType').value, ...prices,
   });
   if (!r.ok) { toast(r.error, 'error'); shake(byId('eSave')); return; }
   byId('editDialog').close();
@@ -847,21 +959,39 @@ async function deleteEditing() {
 }
 
 // Acciones masivas
+const BULK_FIELDS = { brand: 'Marca', type: 'Prenda / tipo', stockType: 'Tipo de stock', minStock: 'Stock mínimo', unitName: 'Unidad de stock' };
 function openBulkEdit() {
   byId('bulkSub').textContent = `${inv.selected.size} productos seleccionados`;
+  const fields = { ...BULK_FIELDS, ...(S.pricesOn() && canManage() ? { price: 'Precio de venta', cost: 'Precio de costo', pricePer: 'Precio por unidad o por docena' } : {}) };
+  const cur = byId('bulkField').value;
+  byId('bulkField').innerHTML = Object.entries(fields).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('');
+  if (fields[cur]) byId('bulkField').value = cur;
   renderBulkValue();
   byId('bulkDialog').showModal();
 }
 function renderBulkValue() {
   const f = byId('bulkField').value;
   const opts = f === 'stockType' ? 'stockTypes' : f === 'unitName' ? 'stockUnits' : null;
+  if (f === 'price' || f === 'cost') {
+    byId('bulkValueWrap').innerHTML = `<label for="bulkValue">Nuevo ${f === 'price' ? 'precio de venta' : 'precio de costo'}</label><input id="bulkValue" class="input money" inputmode="decimal" placeholder="Vacío = quitar el precio"><p class="hint">Se aplica por unidad o por docena según cómo esté cargado cada producto.</p>`;
+    return;
+  }
+  if (f === 'pricePer') {
+    byId('bulkValueWrap').innerHTML = `<label for="bulkValue">Los precios son</label><select id="bulkValue" class="input"><option value="unit">Por unidad</option><option value="dozen">Por docena</option></select><p class="hint">Solo cambia cómo se interpreta el precio (no lo convierte). Los productos que no se controlan en unidades quedan por unidad.</p>`;
+    return;
+  }
   byId('bulkValueWrap').innerHTML = `<label for="bulkValue">Nuevo valor</label>${opts ? `<select id="bulkValue" class="input" data-options="${opts}"></select>` : `<input id="bulkValue" class="input" ${f === 'minStock' ? 'type="number" min="0" step="any"' : ''}>`}`
     + (f === 'unitName' ? '<p class="hint">Cambia solo la unidad, no convierte las cantidades.</p>' : '');
   if (opts) fillSelects(byId('bulkValueWrap'));
 }
 function applyBulk(e) {
   e.preventDefault();
-  const field = byId('bulkField').value, value = byId('bulkValue').value;
+  const field = byId('bulkField').value;
+  let value = byId('bulkValue').value;
+  if (field === 'price' || field === 'cost') {
+    if (txt(value) && parseMoney(value) == null) { toast('Escribí solo el número, por ejemplo 12500 o 12.500.', 'error'); return; }
+    value = parseMoney(value);
+  }
   const n = S.bulkSet([...inv.selected], field, value);
   byId('bulkDialog').close();
   toast(`${n} productos actualizados`, { action: () => S.undo() });
@@ -957,7 +1087,7 @@ function labelEntries() {
   const push = e => { if (out.length >= L.MAX_LABELS) { truncated = true; return false; } out.push(e); return true; };
 
   if (prefs.lblMode === 'product') {
-    const base = [...items.map(i => ({ code: i.sku, name: productName(i), units: i.units })), ...lbl.custom.map(c => ({ code: c, name: '', units: 1 }))];
+    const base = [...items.map(i => ({ code: i.sku, name: productName(i), units: i.units, price: labelPrice(i, null) })), ...lbl.custom.map(c => ({ code: c, name: '', units: 1 }))];
     for (const e of base) {
       const n = prefs.lblByStock ? Math.max(1, Math.ceil(e.units)) : Math.max(1, Math.floor(num(prefs.lblCopies)) || 1);
       for (let k = 0; k < n; k++) if (!push(e)) break;
@@ -980,13 +1110,22 @@ function labelEntries() {
     const printed = [];
     for (const n of numbers) {
       const tag = `${info.label} N.º ${String(n).padStart(4, '0')}${pack === 'D' ? ' · 12 u.' : ''}`;
-      if (!push({ code: S.serialCode(i.sku, pack, n), name: productName(i), tag })) break;
+      if (!push({ code: S.serialCode(i.sku, pack, n), name: productName(i), tag, price: labelPrice(i, pack) })) break;
       printed.push(n);
     }
     if (printed.length) plan.push({ id: i.id, sku: i.sku, pack, numbers: printed, start: printed[0], last: printed.at(-1), count: printed.length, restart: !listed && prefs.lblRestart, current: i.serials?.[pack] || 0 });
     if (truncated) break;
   }
   return { out, truncated, products: items.length, plan, skipped, bad: listed?.bad || [] };
+}
+
+// Precio impreso en la etiqueta: el de lo que identifica (una docena, una unidad o el producto como está cargado).
+function labelPrice(i, pack) {
+  const p = S.pricesOn() && prefs.lblShowPrice ? S.priceFor(i) : null;
+  if (!p) return '';
+  if (pack === 'D') return `${money(p.per === 'dozen' ? p.price : p.price * 12)} la docena`;
+  if (pack === 'U') return money(p.per === 'dozen' ? p.price / 12 : p.price);
+  return `${money(p.price)}${p.per === 'dozen' ? ' la docena' : ''}`;
 }
 
 function renderLabelPlan({ plan, skipped, bad }) {
@@ -1032,8 +1171,9 @@ const renderLabelPreview = debounce(async () => {
   byId('lblTotal').textContent = `${fmt(out.length)} etiqueta${out.length === 1 ? '' : 's'} · ${fmt(pages)} página${pages === 1 ? '' : 's'}${truncated ? ` (máx. ${fmt(L.MAX_LABELS)})` : ''}`;
   byId('lblPrint').disabled = !out.length;
   const opts = { kind: prefs.lblKind, size: prefs.lblSize, showName: prefs.lblShowName, header: txt(prefs.lblHeader) };
-  const example = prefs.lblMode === 'product' ? { code: 'EJEMPLO123', name: 'MARCA · PRENDA' }
-    : { code: `1015${prefs.lblMode}0001`, name: 'MARCA · PRENDA', tag: `${S.PACKS[prefs.lblMode].label} N.º 0001${prefs.lblMode === 'D' ? ' · 12 u.' : ''}` };
+  const examplePrice = S.pricesOn() && prefs.lblShowPrice ? money(prefs.lblMode === 'D' ? 30000 : 2500) : '';
+  const example = prefs.lblMode === 'product' ? { code: 'EJEMPLO123', name: 'MARCA · PRENDA', price: examplePrice }
+    : { code: `1015${prefs.lblMode}0001`, name: 'MARCA · PRENDA', tag: `${S.PACKS[prefs.lblMode].label} N.º 0001${prefs.lblMode === 'D' ? ' · 12 u.' : ''}`, price: examplePrice };
   const sample = out.length ? [...new Map(out.map(e => [e.code, e])).values()].slice(0, 6) : [example];
   box.innerHTML = '<div class="skeleton" style="width:190px;height:95px"></div>';
   try {
@@ -1227,6 +1367,7 @@ function openMove(id) {
       ${row('Unidades movidas', h.quantity != null ? `${fmt(h.quantity)}` : '')}
       ${row('Stock', h.before != null && h.after != null ? `${fmt(h.before)} → ${fmt(h.after)} ${esc(h.unit || '')}` : '')}
       ${row(h.contact?.kind === 'proveedor' ? 'Proveedor' : 'Cliente', h.contact ? esc(h.contact.name) : '')}
+      ${(rem => row('Comprobante', rem ? `<a href="#" class="link" data-open-remito="${esc(rem.id)}">${esc(S.remitoCode(rem))}${rem.priced ? ` · ${rem.kind === 'entrada' ? 'compra' : 'venta'} ${money(rem.total)}` : ''}</a>${rem.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}` : ''))(S.remitoOfEntry(h.id))}
       ${row('Registrado por', h.by ? `@${esc(h.by)}` : 'Sin usuario (modo local)')}
       ${row('Cómo', esc(S.sourceOf(h)))}
       ${row('Tarea', h.stockType ? esc(S.stockTypeLabel(h.stockType)) : '')}
@@ -1247,8 +1388,9 @@ function openRemitoView(id) {
   const r = state.extra.remitos.find(x => x.id === id);
   if (!r) return;
   viewingRemito = id;
-  const units = r.lines.reduce((s, l) => s + num(l.units), 0);
-  byId('rvTitle').textContent = `${S.remitoCode(r)} · ${r.kind === 'entrada' ? 'Entrada' : 'Salida'}`;
+  const units = r.lines.reduce((s, l) => s + num(l.units), 0), priced = r.priced;
+  byId('rvTitle').textContent = `${S.remitoCode(r)} · ${priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : r.kind === 'entrada' ? 'Entrada' : 'Salida'}`;
+  byId('rvVoid').hidden = !!r.voided || !canManage();
   byId('rvSub').textContent = `${r.contact?.name || 'Sin cliente'} · ${dateTimeOf(r.at)}`;
   byId('rvBody').innerHTML = `
     <dl class="detail-kv" style="margin-bottom:14px">
@@ -1256,12 +1398,14 @@ function openRemitoView(id) {
       ${r.contact?.doc ? `<dt>CUIT / DNI</dt><dd>${esc(r.contact.doc)}</dd>` : ''}
       ${r.contact?.phone ? `<dt>WhatsApp</dt><dd>${esc(r.contact.phone)}</dd>` : ''}
       ${r.contact?.address ? `<dt>Dirección</dt><dd>${esc(r.contact.address)}</dd>` : ''}
-      <dt>Total</dt><dd>${fmt(units)} unidades (${fmt(units / 12)} docenas)</dd>
+      <dt>${priced ? 'Mercadería' : 'Total'}</dt><dd>${fmt(units)} unidades (${fmt(units / 12)} docenas)</dd>
+      ${priced ? `<dt>Subtotal</dt><dd>${money(r.subtotal)}</dd>${r.discount ? `<dt>Descuento</dt><dd>${fmt(r.discount)} % (−${money(r.subtotal - r.total)})</dd>` : ''}<dt>Total</dt><dd><b>${money(r.total)}</b></dd>${r.payment ? `<dt>Forma de pago</dt><dd>${esc(S.PAYMENTS[r.payment] || r.payment)}</dd>` : ''}` : ''}
       ${r.by ? `<dt>Preparado por</dt><dd>@${esc(r.by)}</dd>` : ''}
       ${r.note ? `<dt>Observaciones</dt><dd>${esc(r.note)}</dd>` : ''}
     </dl>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th></tr></thead><tbody>
-      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td></tr>`).join('')}
+    ${r.voided ? `<div class="notice danger" style="margin-bottom:14px">${icon('x')}<span><b>Anulado</b>${r.voided.by ? ` por @${esc(r.voided.by)}` : ''} el ${esc(dateTimeOf(r.voided.at))}<br>Motivo: ${esc(r.voided.reason)}</span></div>` : ''}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th>${priced ? '<th class="num">Precio</th><th class="num">Importe</th>' : ''}</tr></thead><tbody>
+      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td>${priced ? `<td class="num">${l.price ? `${money(l.price)}<div class="small muted">${S.PRICE_PER[l.per] || ''}</div>` : '—'}</td><td class="num">${money(l.amount)}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>`;
   byId('remitoView').showModal();
 }
@@ -1333,7 +1477,8 @@ function contactStats(c) {
     if (h.contact?.id !== c.id || h.voided) continue;
     moves++; units += S.effectiveQty(h); if (!last || h.at > last) last = h.at;
   }
-  return { units, moves, last, remitos: state.extra.remitos.filter(r => r.contact?.id === c.id).length };
+  const mine = state.extra.remitos.filter(r => r.contact?.id === c.id);
+  return { units, moves, last, remitos: mine.length, amount: mine.filter(r => r.priced && !r.voided).reduce((s, r) => s + num(r.total), 0) };
 }
 function renderContacts() {
   if (currentView !== 'clientes') return;
@@ -1345,7 +1490,7 @@ function renderContacts() {
     return `<div class="contact-row ${ct.filter === c.id ? 'on' : ''}" data-contact="${esc(c.id)}">
       <span class="avatar">${esc(initials(c.name))}</span>
       <div class="grow"><strong>${esc(c.name)}</strong><span>${esc([c.phone, c.doc && `CUIT/DNI ${c.doc}`].filter(Boolean).join(' · ') || 'Sin datos de contacto')}</span>
-        ${st ? `<span class="contact-stat">${st.moves ? `${fmt(st.units)} u. ${c.kind === 'proveedor' ? 'recibidas' : 'vendidas'} · ${st.remitos} remito${st.remitos === 1 ? '' : 's'} · último ${relTime(st.last)}` : 'Sin movimientos todavía'}</span>` : ''}</div>
+        ${st ? `<span class="contact-stat">${st.moves ? `${fmt(st.units)} u. ${c.kind === 'proveedor' ? 'recibidas' : 'vendidas'}${S.pricesOn() && st.amount ? ` · ${money(st.amount)} en ${c.kind === 'proveedor' ? 'compras' : 'ventas'}` : ''} · ${st.remitos} remito${st.remitos === 1 ? '' : 's'} · último ${relTime(st.last)}` : 'Sin movimientos todavía'}</span>` : ''}</div>
       ${phone ? `<a class="icon-btn" href="${waLink(phone, `Hola ${c.name}`)}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">${icon('whatsapp')}</a>` : ''}
       <button class="icon-btn" type="button" data-ct="remitos" title="Ver sus remitos">${icon('file')}</button>
       <button class="icon-btn" type="button" data-ct="edit" title="Editar">${icon('edit')}</button></div>`;
@@ -1358,8 +1503,9 @@ function renderRemitosList() {
   byId('ctRemitosSub').innerHTML = c ? `De <b>${esc(c.name)}</b> · <a href="#" class="link" data-ct-all>ver todos</a>` : 'Los últimos remitos emitidos';
   byId('ctRemitos').innerHTML = list.length ? list.map(r => {
     const units = r.lines.reduce((s, l) => s + num(l.units), 0);
-    return `<div class="remito-row" data-remito="${esc(r.id)}"><div class="grow"><strong>${esc(S.remitoCode(r))} · ${esc(r.contact?.name || 'Sin cliente')}</strong>
-      <span>${r.kind === 'entrada' ? 'Entrada' : 'Salida'} · ${fmt(units)} u. en ${r.lines.length} artículo${r.lines.length === 1 ? '' : 's'} · ${esc(dateTimeOf(r.at))}${r.by ? ` · @${esc(r.by)}` : ''}</span></div>
+    const kind = r.priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : r.kind === 'entrada' ? 'Entrada' : 'Salida';
+    return `<div class="remito-row ${r.voided ? 'is-voided' : ''}" data-remito="${esc(r.id)}"><div class="grow"><strong>${esc(S.remitoCode(r))} · ${esc(r.contact?.name || 'Sin cliente')}${r.priced ? ` · ${money(r.total)}` : ''}${r.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}</strong>
+      <span>${kind} · ${fmt(units)} u. en ${r.lines.length} artículo${r.lines.length === 1 ? '' : 's'}${r.payment ? ` · ${esc(S.PAYMENTS[r.payment] || '')}` : ''} · ${esc(dateTimeOf(r.at))}${r.by ? ` · @${esc(r.by)}` : ''}</span></div>
       <button class="icon-btn" type="button" data-rm="pdf" title="Descargar PDF">${icon('download')}</button>
       <button class="icon-btn" type="button" data-rm="wa" title="Enviar por WhatsApp">${icon('whatsapp')}</button></div>`;
   }).join('') : emptyState('file', 'Sin remitos', 'Se generan desde Escanear, el modo mostrador o al registrar una salida con cliente.');
@@ -1409,7 +1555,8 @@ async function finishScan() {
     focusKioskOrScan();
     return;
   }
-  openRemito({ kind: prefs.scanOp === 'sumar' ? 'entrada' : 'salida', moves: feedMoves(prefs.scanOp), contactName: session.contactName, finish: { name: m.name, reads: live.length, units, products } });
+  // En el comprobante, los productos van en el orden en que se escanearon (la lista de la pantalla va al revés).
+  openRemito({ kind: prefs.scanOp === 'sumar' ? 'entrada' : 'salida', moves: feedMoves(prefs.scanOp).reverse(), contactName: session.contactName, priced: !!saleKind(), finish: { name: m.name, reads: live.length, units, products } });
 }
 // Cierra la sesión después de terminar y deja todo listo para la próxima.
 function endScanSession(remito) {
@@ -1417,35 +1564,131 @@ function endScanSession(remito) {
   if (!f) return;
   pendingRemito.finish = null;
   resetSession();
-  toast(`${cap(f.name)} terminada: ${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'} · ${fmt(f.units)} unidades${remito ? ` · ${S.remitoCode(remito)}` : ''}`);
+  toast(`${cap(f.name)} terminada: ${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'} · ${fmt(f.units)} unidades${remito ? ` · ${S.remitoCode(remito)}` : ''}${remito?.priced ? ` · ${money(remito.total)}` : ''}`);
   setTimeout(focusKioskOrScan, 200);
 }
 
 let pendingRemito = null;
-function openRemito({ kind, moves, contactName = '', finish = null }) {
+// priced: con precios (venta si es salida, compra si es entrada). Se puede cambiar dentro del diálogo.
+function openRemito({ kind, moves, contactName = '', finish = null, priced = null }) {
   if (!moves.length) return toast('No hay productos para el remito.', 'warn');
-  pendingRemito = { kind, lines: linesFromMoves(moves), entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish };
+  const pk = kind === 'entrada' ? 'compra' : 'venta';
+  // Cada línea arranca con el precio guardado del producto; se puede cambiar solo para este comprobante.
+  const lines = linesFromMoves(moves).map(l => { const it = S.findByCode(l.sku), p = S.priceFor(it, pk); return { ...l, per: p?.per || S.pricePerOf(it), price: p?.price ?? null, stored: p?.price ?? null }; });
+  pendingRemito = { kind, pk, lines, entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish, discount: 0, payment: '',
+    priced: S.pricesOn() && (priced ?? (kind === 'entrada' ? prefs.buyIn : prefs.saleOut)) };
   byId('rmTitle').textContent = finish ? `Terminar ${finish.name}` : kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
-  byId('rmSub').textContent = `Remito ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
-  byId('rmFinish').hidden = !finish;
+  byId('rmSub').textContent = `Comprobante ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
   byId('rmCancel').textContent = finish ? 'Seguir escaneando' : 'Cancelar';
-  byId('rmSummary').innerHTML = finish ? `<div class="mode-banner ${kind === 'entrada' ? 'success' : 'danger'}">${icon(kind === 'entrada' ? 'arrow-in' : 'arrow-out')}<span><b>${fmt(finish.reads)} lectura${finish.reads === 1 ? '' : 's'}</b> · ${fmt(finish.units)} unidades de ${fmt(finish.products)} producto${finish.products === 1 ? '' : 's'}. El stock ya está ${kind === 'entrada' ? 'sumado' : 'descontado'}; ahora elegí si querés el remito.</span></div>` : '';
   byId('rmContactLabel').textContent = kind === 'entrada' ? 'Proveedor' : 'Cliente';
   byId('rmContact').value = contactName;
   byId('rmNote').value = '';
-  const total = pendingRemito.lines.reduce((s, l) => s + l.units, 0);
-  byId('rmLines').innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Unidades</th></tr></thead><tbody>
-    ${pendingRemito.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td>${esc(l.name || '—')}${l.serials.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}</td><td class="num">${fmt(l.units)}</td></tr>`).join('')}
-    </tbody></table></div><p class="hint" style="text-align:right">Total: <b>${fmt(total)} unidades</b> (${fmt(total / 12)} docenas)</p>`;
+  byId('rmPriced').checked = pendingRemito.priced;
+  byId('rmPricedLabel').textContent = kind === 'entrada' ? 'Es una compra: registrar costos' : 'Es una venta: precios y total';
+  renderRemitoLines();
   byId('remitoDialog').showModal();
+}
+function renderRemitoLines() {
+  const r = pendingRemito, priced = r.priced && S.pricesOn(), units = r.lines.reduce((s, l) => s + l.units, 0);
+  byId('rmFinish').hidden = !r.finish && !priced;
+  byId('rmFinish').innerHTML = `${icon('check')}${priced ? `Guardar ${r.pk} sin enviar` : 'Terminar sin remito'}`;
+  const serialNote = l => (l.serials.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : '');
+  byId('rmLines').innerHTML = priced
+    ? `<div class="table-wrap"><table class="table rm-priced"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>
+      ${r.lines.map((l, i) => `<tr><td><b class="code">${esc(l.sku)}</b></td><td>${esc(l.name || '—')}${serialNote(l)}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}</td>
+        <td class="num"><input class="input money rm-price ${l.price ? '' : 'has-error'}" data-line="${i}" inputmode="decimal" value="${l.price ? fmt(l.price) : ''}" placeholder="$ 0" aria-label="Precio de ${esc(l.sku)} ${S.PRICE_PER[l.per]}"><div class="small muted">${S.PRICE_PER[l.per]}</div></td>
+        <td class="num" id="rmAmt${i}"></td></tr>`).join('')}
+      </tbody></table></div>`
+    : `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Unidades</th></tr></thead><tbody>
+      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td>${esc(l.name || '—')}${serialNote(l)}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}</td><td class="num">${fmt(l.units)}</td></tr>`).join('')}
+      </tbody></table></div><p class="hint" style="text-align:right">Total: <b>${fmt(units)} unidades</b> (${fmt(units / 12)} docenas)</p>`;
+  byId('rmTotals').innerHTML = priced
+    ? `<div class="rm-totals">
+        <div class="field"><label for="rmDiscount">Descuento %</label><input id="rmDiscount" class="input" inputmode="decimal" placeholder="0" value="${r.discount ? fmt(r.discount) : ''}"></div>
+        <div class="field"><label for="rmPayment">Forma de pago</label><select id="rmPayment" class="input"><option value="">Sin indicar</option>${Object.entries(S.PAYMENTS).map(([v, l]) => `<option value="${v}" ${v === r.payment ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+        <div class="rm-total"><span id="rmSubRow"></span><strong id="rmTotal"></strong></div>
+      </div>
+      <div id="rmPriceWarn"></div>
+      <label class="switch" id="rmSavePricesWrap" hidden><input type="checkbox" id="rmSavePrices" checked><span class="track"></span><span>Guardar los precios nuevos en los productos (para la próxima)</span></label>`
+    : '';
+  updateRemitoTotals();
+}
+// Recalcula importes y total sin redibujar la tabla (para no perder el foco mientras se escribe).
+function updateRemitoTotals() {
+  const r = pendingRemito, priced = r?.priced && S.pricesOn();
+  const finishSummary = f => `<b>${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'}</b> · ${fmt(f.units)} unidades de ${fmt(f.products)} producto${f.products === 1 ? '' : 's'}`;
+  if (!priced) {
+    byId('rmSummary').innerHTML = r.finish ? `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon(r.kind === 'entrada' ? 'arrow-in' : 'arrow-out')}<span>${finishSummary(r.finish)}. El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}; ahora elegí si querés el remito.</span></div>` : '';
+    return;
+  }
+  let sub = 0, missing = 0, changed = 0;
+  r.lines.forEach((l, i) => {
+    const a = l.price ? S.lineAmount(l.units, l.price, l.per) : 0;
+    sub += a;
+    if (!l.price) missing++;
+    if (l.price && l.price !== l.stored) changed++;
+    const c = byId(`rmAmt${i}`);
+    if (c) c.textContent = l.price ? money(a) : '—';
+  });
+  sub = round2(sub);
+  const total = round2(sub * (1 - r.discount / 100));
+  byId('rmSubRow').innerHTML = r.discount ? `Subtotal ${money(sub)} · descuento ${fmt(r.discount)} % (−${money(sub - total)})` : 'Total';
+  byId('rmTotal').textContent = money(total);
+  byId('rmPriceWarn').innerHTML = missing ? `<div class="notice warn">${icon('alert')}<span>${missing === 1 ? 'Un producto no tiene' : `${missing} productos no tienen`} ${r.pk === 'compra' ? 'costo' : 'precio'}: escribilo en la tabla o se registra en $ 0.</span></div>` : '';
+  byId('rmSavePricesWrap').hidden = !changed || !canManage();
+  byId('rmSummary').innerHTML = `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon('cash')}<span>${r.finish ? `${finishSummary(r.finish)} · ` : ''}<b>${cap(r.pk)} por ${money(total)}</b>. ${r.finish ? `El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}.` : ''}</span></div>`;
 }
 function ensureRemito() {
   if (pendingRemito.created) return pendingRemito.created;
-  const op = pendingRemito.kind === 'entrada' ? 'sumar' : 'restar';
-  const r = S.createRemito({ kind: pendingRemito.kind, contact: resolveContact(byId('rmContact').value, op), lines: pendingRemito.lines, note: byId('rmNote').value, entryIds: pendingRemito.entryIds });
+  const pr = pendingRemito, op = pr.kind === 'entrada' ? 'sumar' : 'restar';
+  // Venta/compra solo si hay precios activados y al menos un precio; si no, es un remito común.
+  const sale = pr.priced && S.pricesOn() && pr.lines.some(l => l.price) ? { discount: pr.discount, payment: pr.payment } : null;
+  const lines = pr.lines.map(({ stored, price, per, ...l }) => (sale ? { ...l, price, per } : l));
+  const r = S.createRemito({ kind: pr.kind, contact: resolveContact(byId('rmContact').value, op), lines, note: byId('rmNote').value, entryIds: pr.entryIds, sale });
   if (!r.ok) { toast(r.error, 'error'); return null; }
-  pendingRemito.created = r.remito;
+  pr.created = r.remito;
+  if (sale && canManage() && byId('rmSavePrices')?.checked && !byId('rmSavePricesWrap').hidden) {
+    const n = S.setItemPrices(pr.lines.filter(l => l.price && l.price !== l.stored).map(l => ({ sku: l.sku, value: l.price, per: l.per })), pr.pk === 'compra' ? 'cost' : 'price');
+    if (n) toast(`${n} precio${n === 1 ? '' : 's'} guardado${n === 1 ? '' : 's'} en los productos`, 'info');
+  }
   return r.remito;
+}
+// Guardar la venta (o terminar sin remito) sin mandar ni descargar el PDF.
+function finishWithoutSending() {
+  const pr = pendingRemito;
+  if (!pr) return;
+  const sale = pr.priced && S.pricesOn();
+  const rem = sale ? ensureRemito() : pr.created;
+  if (sale && !rem) return;
+  if (pr.finish) endScanSession(rem);
+  else if (rem) toast(`${S.remitoCode(rem)} guardado${rem.priced ? ` · ${money(rem.total)}` : ''}`);
+  byId('remitoDialog').close();
+}
+// Anular una venta, compra o remito (solo dueño). Opcionalmente revierte también la mercadería.
+async function voidSale(id) {
+  if (!ownerOnly('anular ventas o remitos')) return;
+  const r = state.extra.remitos.find(x => x.id === id);
+  if (!r || r.voided) return;
+  const live = (r.entryIds || []).map(eid => state.history.find(h => h.id === eid)).filter(h => h && !h.voided);
+  const what = r.priced ? (r.kind === 'entrada' ? 'la compra' : 'la venta') : 'el remito';
+  const choice = await ask({
+    title: `¿Anular ${what} ${S.remitoCode(r)}?`,
+    message: `${r.priced ? `Total ${money(r.total)}. Deja de sumar en los reportes. ` : ''}No se borra: queda tachado con tu usuario y el motivo.`,
+    choices: [
+      ...(live.length ? [{ label: r.kind === 'entrada' ? `Anular y sacar la mercadería del stock (${live.length} lectura${live.length === 1 ? '' : 's'})` : `Anular y devolver la mercadería al stock (${live.length} lectura${live.length === 1 ? '' : 's'})`, value: 'stock', primary: true }] : []),
+      { label: live.length ? 'Anular solo el comprobante (el stock no cambia)' : 'Anular', value: 'only', primary: !live.length },
+    ],
+    cancel: 'No anular',
+  });
+  if (!choice) return;
+  const reason = txt(prompt('Motivo de la anulación (por ejemplo: devolución, error de carga):', r.kind === 'entrada' ? 'Error de carga' : 'Devolución'));
+  if (!reason) return toast('Para anular hay que escribir el motivo.', 'warn');
+  let failed = 0;
+  if (choice === 'stock') for (const h of live) if (!S.fixMovement(h.id, { remove: true, reason: `${reason} (${S.remitoCode(r)})` }).ok) failed++;
+  const res = S.voidRemito(id, reason);
+  if (!res.ok) return toast(res.error, 'error');
+  byId('remitoView').close();
+  toast(failed ? `${S.remitoCode(r)} anulado. ${failed} lectura${failed === 1 ? '' : 's'} no se pudo revertir (stock insuficiente): corregila desde el Historial.` : `${S.remitoCode(r)} anulado${choice === 'stock' ? ' y stock corregido' : ''}`, failed ? 'warn' : 'success');
 }
 async function sendRemito(e, mode) {
   e?.preventDefault();
@@ -1483,7 +1726,7 @@ function renderReports() {
   segmented(byId('rpPeriod'), String(rp.days));
   const users = [...new Set(state.history.map(h => h.by).filter(Boolean))].sort();
   byId('rpUser').innerHTML = `<option value="">Todo el equipo</option>${users.map(u => `<option value="${esc(u)}" ${u === rp.user ? 'selected' : ''}>@${esc(u)}</option>`).join('')}`;
-  const r = R.computeReport(state, rp);
+  const r = R.computeReport(state, { ...rp, prices: S.pricesOn() });
   byId('rpBody').innerHTML = state.history.length ? R.renderReport(r) : `<div class="card">${emptyState('layers', 'Todavía no hay datos', 'Los reportes se arman con los movimientos que registres.')}</div>`;
 }
 
@@ -1507,7 +1750,10 @@ function renderKiosk() {
   const verb = `Terminar ${m.name}`;
   byId('kRemito').disabled = byId('scanRemito').disabled = !live.length;
   byId('kFinishLabel').textContent = verb;
-  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${fmt(units)} u.)` : verb;
+  const sm = sessionMoney();
+  byId('kMoneyBox').hidden = !sm;
+  if (sm) byId('kMoney').textContent = money(sm.total);
+  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${sm ? money(sm.total) : `${fmt(units)} u.`})` : verb;
   byId('scanRemito').className = `btn btn-lg btn-block finish-btn ${m.tone}`;
   byId('kRemito').className = `btn btn-lg finish-btn ${m.tone}`;
 }
@@ -1596,7 +1842,7 @@ async function commitImport(replace) {
   if (!ownerOnly('importar datos')) return;
   if (!pendingImport) return;
   if (replace && !(await ask({ title: '¿Reemplazar todo el inventario?', message: 'Los productos actuales se reemplazan por los del archivo. Podés deshacerlo enseguida.', confirm: 'Reemplazar', danger: true }))) return;
-  S.importItems(pendingImport.rows, replace, replace ? pendingImport.history : null);
+  S.importItems(pendingImport.rows, replace, replace ? pendingImport.history : null, replace ? pendingImport.extra : null);
   byId('importDialog').close();
   toast(`Importación aplicada: ${pendingImport.rows.length} productos`, { action: () => S.undo() });
   pendingImport = null;
@@ -1918,6 +2164,7 @@ function renderDatalists() {
     .map(i => `<option value="${esc(i.sku)}">${esc(productName(i))}</option>`).join('');
 }
 function renderAll() {
+  applyPricesUI();
   byId('navCount').textContent = state.items.length;
   byId('undoBtn').disabled = !S.canUndo();
   if (currentView === 'panel') renderPanel();
@@ -1930,6 +2177,8 @@ function renderAll() {
   if (currentView === 'reportes') renderReports();
   renderDatalists();
   if (byId('productDialog').open) renderProductHistory();
+  // Si cambió el ajuste de precios (p. ej. lo cambió el dueño en otro dispositivo), se actualizan los textos de Escanear.
+  if (renderAll.prices !== S.pricesOn()) { renderAll.prices = S.pricesOn(); setScanOp(prefs.scanOp); }
 }
 
 function bindEvents() {
@@ -1976,6 +2225,8 @@ function bindEvents() {
   byId('scanQty').addEventListener('input', () => { prefs.scanQty = num(byId('scanQty').value) || 1; savePrefs(); });
   byId('scanUnknown').onchange = e => { prefs.scanUnknown = e.target.value; savePrefs(); };
   byId('scanSound').onchange = e => { prefs.sound = e.target.checked; savePrefs(); };
+  byId('scanSale').onchange = e => setSale(e.target.checked);
+  byId('kSale').onchange = e => setSale(e.target.checked);
   byId('scanCamera').onclick = () => openCamera({ continuous: true, onCode: c => handleScan(c, 'cámara') });
   byId('scanNewSession').onclick = () => { resetSession(); toast('Lista vacía. Lo escaneado antes ya quedó guardado en el stock.', 'info'); focusScan(); };
   byId('scanFeed').addEventListener('click', e => {
@@ -1998,6 +2249,7 @@ function bindEvents() {
   byId('bulkField').onchange = renderBulkValue;
   byId('bulkForm').addEventListener('submit', applyBulk);
   byId('editForm').addEventListener('submit', saveEdit);
+  ['ePrice', 'eCost', 'ePer'].forEach(id => byId(id).addEventListener('input', renderMargin));
   byId('eDelete').onclick = deleteEditing;
   byId('eLabel').onclick = () => { byId('editDialog').close(); labelsFor([editingId]); };
   byId('eBarcodeCam').onclick = () => openCamera({ onCode: c => { byId('eBarcode').value = upper(c); } });
@@ -2008,6 +2260,7 @@ function bindEvents() {
   byId('lblCopies').addEventListener('input', e => { prefs.lblCopies = Math.max(1, Math.floor(num(e.target.value)) || 1); savePrefs(); syncLblChips(); renderLabelPreview(); });
   byId('lblHeader').addEventListener('input', e => { prefs.lblHeader = e.target.value; savePrefs(); renderLabelPreview(); });
   byId('lblShowName').onchange = e => { prefs.lblShowName = e.target.checked; savePrefs(); renderLabelPreview(); };
+  byId('lblShowPrice').onchange = e => { prefs.lblShowPrice = e.target.checked; savePrefs(); renderLabelPreview(); };
   byId('lblByStock').onchange = e => { prefs.lblByStock = e.target.checked; savePrefs(); byId('lblCopies').disabled = e.target.checked; syncLblChips(); renderLabelPreview(); };
   onSegment(byId('lblMode'), setLblMode);
   onSegment(byId('lblQtyMode'), setLblQtyMode);
@@ -2157,12 +2410,32 @@ function bindExtras() {
     byId('moveDialog').close();
     if (h && !(byId('productDialog').open && pd.sku === upper(h.sku))) setTimeout(() => openProductHistory(h.sku), 150);
   };
-  byId('mvBody').addEventListener('click', e => { const l = e.target.closest('[data-goto-move]'); if (l) { e.preventDefault(); openMove(l.dataset.gotoMove); } });
+  byId('mvBody').addEventListener('click', e => {
+    const l = e.target.closest('[data-goto-move]');
+    if (l) { e.preventDefault(); openMove(l.dataset.gotoMove); return; }
+    const rm = e.target.closest('[data-open-remito]');
+    if (rm) { e.preventDefault(); byId('moveDialog').close(); setTimeout(() => openRemitoView(rm.dataset.openRemito), 150); }
+  });
   byId('ctRemitosSub').addEventListener('click', e => { if (e.target.closest('[data-ct-all]')) { e.preventDefault(); ct.filter = null; renderContacts(); } });
   // Remitos
   byId('scanRemito').onclick = finishScan;
   byId('kRemito').onclick = finishScan;
-  byId('rmFinish').onclick = () => { endScanSession(pendingRemito?.created || null); byId('remitoDialog').close(); };
+  byId('rmFinish').onclick = finishWithoutSending;
+  byId('rmPriced').onchange = e => { pendingRemito.priced = e.target.checked; renderRemitoLines(); };
+  byId('rmLines').addEventListener('input', e => {
+    const inp = e.target.closest('.rm-price');
+    if (!inp || pendingRemito.created) return;
+    pendingRemito.lines[Number(inp.dataset.line)].price = parseMoney(inp.value);
+    inp.classList.toggle('has-error', !parseMoney(inp.value));
+    updateRemitoTotals();
+  });
+  byId('rmTotals').addEventListener('input', e => {
+    if (pendingRemito.created) return;
+    if (e.target.id === 'rmDiscount') pendingRemito.discount = Math.min(100, Math.max(0, num(e.target.value)));
+    if (e.target.id === 'rmPayment') pendingRemito.payment = e.target.value;
+    updateRemitoTotals();
+  });
+  byId('rvVoid').onclick = () => voidSale(viewingRemito);
   // Si el remito ya se numeró (p. ej. se canceló el envío) y se cierra el diálogo, la salida queda terminada.
   byId('remitoDialog').addEventListener('close', () => { if (pendingRemito?.finish && pendingRemito.created) endScanSession(pendingRemito.created); });
   byId('remitoForm').addEventListener('submit', e => sendRemito(e, 'wa'));
@@ -2170,6 +2443,7 @@ function bindExtras() {
   // Reportes
   onSegment(byId('rpPeriod'), v => { rp.days = Number(v); renderReports(); });
   byId('rpUser').onchange = e => { rp.user = e.target.value; renderReports(); };
+  byId('rpExportSales').onclick = () => { if (!IO.exportSalesCSV(R.periodRemitos(state.extra.remitos, rp))) toast('No hay ventas ni compras con precio en el período.', 'warn'); };
   byId('rpExport').onclick = () => { const rows = R.periodRows(state.history, rp); if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${rp.days || 'todo'}dias.csv`)) toast('No hay movimientos en el período.', 'warn'); };
   R.bindChart(byId('rpBody'));
   // Modo mostrador
@@ -2178,6 +2452,18 @@ function bindExtras() {
   byId('kExit').onclick = () => { location.hash = '#/escanear'; };
   byId('kUndo').onclick = () => { const last = session.feed.find(f => !f.undone); if (last) revertScan(last.id); byId('kInput').focus(); };
   byId('kiosk').addEventListener('click', e => { if (!e.target.closest('button, input, a, .segmented')) byId('kInput').focus(); });
+  // Precios y ventas (ajuste del negocio)
+  byId('pricesOn').onchange = e => {
+    if (!ownerOnly('activar o desactivar los precios')) { e.target.checked = S.pricesOn(); return; }
+    S.setPricesEnabled(e.target.checked);
+    toast(e.target.checked ? 'Precios y ventas activados. Cargá precios en Inventario y usá "Es una venta" al escanear salidas.' : 'Precios ocultos. Los que cargaste quedan guardados por si los volvés a activar.', 'info');
+  };
+  // Importes: al salir del campo se muestran con separador de miles (12.500).
+  document.addEventListener('focusout', e => {
+    if (!e.target.matches?.('input.money')) return;
+    const v = parseMoney(e.target.value);
+    if (txt(e.target.value) && v != null) e.target.value = fmt(v);
+  });
   // Manual
   byId('manualOpenAll').onclick = () => { const all = $$('.manual-topic'), open = all.some(d => !d.open); all.forEach(d => { d.open = open; }); byId('manualOpenAll').lastChild.textContent = open ? 'Cerrar todo' : 'Abrir todo'; };
   byId('manualPrint').onclick = () => {
@@ -2220,6 +2506,7 @@ function init() {
   initInteractions();
   renderCreator();
   setTheme(document.documentElement.dataset.theme);
+  applyPricesUI();
   setTask(prefs.task);
   setFormOp(prefs.formOp);
   setScanOp(prefs.scanOp);
@@ -2232,6 +2519,7 @@ function init() {
   byId('lblCopies').disabled = prefs.lblByStock;
   byId('lblHeader').value = prefs.lblHeader;
   byId('lblShowName').checked = prefs.lblShowName;
+  byId('lblShowPrice').checked = prefs.lblShowPrice;
   byId('lblByStock').checked = prefs.lblByStock;
   byId('lblFixed').value = prefs.lblFixed;
   byId('lblNumbers').value = prefs.lblList;

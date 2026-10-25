@@ -248,14 +248,18 @@ begin
   for it in select value from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) loop
     if coalesce(it->>'sku', '') <> '' then v_map := v_map || jsonb_build_object(it->>'sku', it); end if;
   end loop;
-  -- Datos del producto (marca, prenda, etiquetas…) pueden venir del empleado; el stock no.
+  -- Datos del producto (marca, prenda, etiquetas…) pueden venir del empleado; el stock y los precios no
+  -- (los precios de venta y de costo los pone solo el dueño: se conservan los guardados).
   for it in select value from jsonb_array_elements(coalesce(p_incoming, '[]'::jsonb)) loop
     v_sku := it->>'sku';
     if coalesce(v_sku, '') = '' then continue; end if;
     if v_map ? v_sku then
-      v_map := jsonb_set(v_map, array[v_sku], it || jsonb_build_object('units', coalesce(v_map->v_sku->'units', '0'::jsonb)));
+      v_map := jsonb_set(v_map, array[v_sku],
+        (it - 'units' - 'price' - 'cost' - 'pricePer')
+        || (select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) from jsonb_each(v_map->v_sku) where key in ('price', 'cost', 'pricePer'))
+        || jsonb_build_object('units', coalesce(v_map->v_sku->'units', '0'::jsonb)));
     elsif exists (select 1 from jsonb_array_elements(p_new) x where x->>'sku' = v_sku) then
-      v_map := v_map || jsonb_build_object(v_sku, it || jsonb_build_object('units', 0));   -- producto nuevo
+      v_map := v_map || jsonb_build_object(v_sku, (it - 'price' - 'cost' - 'pricePer') || jsonb_build_object('units', 0));   -- producto nuevo
     end if;
   end loop;
   for e in select value from jsonb_array_elements(coalesce(p_new, '[]'::jsonb)) loop
@@ -286,7 +290,8 @@ language sql immutable set search_path = public as $$
 $$;
 
 -- p_known_rev: la versión que ya tiene el dispositivo. Si no cambió, responde casi vacío (ahorra transferencia).
--- Empleados: reciben el stock, los clientes/proveedores, solo SUS movimientos de las últimas 24 h y SUS remitos.
+-- Empleados: reciben el stock (sin el precio de costo), los clientes/proveedores, solo SUS movimientos de las
+-- últimas 24 h y SUS remitos.
 -- Del resto del historial solo se envía lo mínimo para avisar si una etiqueta numerada ya se escaneó.
 create or replace function public.sv_pull(p_token text, p_known_rev int default -1)
 returns json language plpgsql stable security definer set search_path = public, extensions as $$
@@ -301,7 +306,8 @@ begin
     return json_build_object('ok', true, 'rev', d.rev, 'items', d.items, 'history', d.history, 'extra', d.extra, 'updated_at', d.updated_at);
   end if;
   select username into v_user from sv_users where id = v_uid;
-  return json_build_object('ok', true, 'rev', d.rev, 'items', d.items, 'updated_at', d.updated_at, 'role', 'employee',
+  return json_build_object('ok', true, 'rev', d.rev, 'updated_at', d.updated_at, 'role', 'employee',
+    'items', (select coalesce(jsonb_agg(i - 'cost'), '[]'::jsonb) from jsonb_array_elements(coalesce(d.items, '[]'::jsonb)) i),
     'history', (select coalesce(jsonb_agg(
         case when e->>'by' = v_user and (e->>'at')::timestamptz > now() - interval '1 day' then e
              else jsonb_build_object('id', e->'id', 'at', e->'at', 'kind', e->'kind', 'sku', e->'sku', 'serial', e->'serial', 'voided', e->'voided', 'lite', true) end
