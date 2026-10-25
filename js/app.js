@@ -34,7 +34,7 @@ const CREATOR = {
 const VIEWS = {
   panel: ['Panel', 'Resumen de tu inventario'],
   cargar: ['Cargar productos', 'Por voz o a mano, un producto por vez'],
-  escanear: ['Escanear', 'Pistola lectora o cámara'],
+  escanear: ['Escanear', 'Salidas, entradas y conteos con la pistola'],
   inventario: ['Inventario', 'Todos tus productos'],
   etiquetas: ['Etiquetas', 'Códigos de barras y QR para imprimir'],
   historial: ['Historial', 'Todos los movimientos registrados'],
@@ -43,8 +43,9 @@ const VIEWS = {
   clientes: ['Clientes y proveedores', 'Contactos y remitos'],
   reportes: ['Reportes', 'Ventas, ingresos, equipo y control de faltantes'],
   kiosco: ['Modo mostrador', 'Pantalla simple para escanear'],
+  ayuda: ['Ayuda', 'Manual de uso paso a paso'],
 };
-const MORE_VIEWS = ['etiquetas', 'historial', 'datos', 'cuenta', 'clientes', 'reportes', 'kiosco'];
+const MORE_VIEWS = ['etiquetas', 'historial', 'datos', 'cuenta', 'clientes', 'reportes', 'kiosco', 'ayuda'];
 // Solo la dueña: el historial y los reportes (los empleados ni siquiera los descargan).
 const OWNER_VIEWS = ['historial', 'reportes'];
 let currentView = 'panel';
@@ -80,7 +81,13 @@ function showView(view, params = new URLSearchParams()) {
 const onEnter = {
   panel: renderPanel,
   cargar: params => { if (params.get('voz') && recog && !recog.active) toggleMic(); },
-  escanear: () => { renderScanSession(); focusScan(); },
+  escanear: params => {
+    renderScanSession();
+    // Accesos directos del Panel: #/escanear?op=restar abre directo en Salida.
+    const op = params.get('op');
+    if (op) { history.replaceState(null, '', '#/escanear'); if (op !== prefs.scanOp) { chooseScanOp(op); return; } }
+    focusScan();
+  },
   inventario: params => { if (params.get('f')) setInvFilter(params.get('f')); renderInventory(); },
   etiquetas: () => { renderLabelList(); renderLabelPreview(); },
   historial: renderHistory,
@@ -89,6 +96,10 @@ const onEnter = {
   clientes: renderContacts,
   reportes: renderReports,
   kiosco: enterKiosk,
+  ayuda: params => {
+    const t = params.get('s') && byId(`m-${params.get('s')}`);
+    if (t) { t.open = true; setTimeout(() => t.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60); }
+  },
 };
 
 function openSheet() { byId('moreSheet').classList.add('open'); byId('sheetBackdrop').hidden = false; }
@@ -175,7 +186,7 @@ function historyRow(h, opts = {}) {
   const fixNote = h.voided ? `Anulado${h.voided.by ? ` por @${esc(h.voided.by)}` : ''} el ${esc(dateTimeOf(h.voided.at))} · ${esc(h.voided.reason)}`
     : h.corrected ? `Corregido${h.corrected.by ? ` por @${esc(h.corrected.by)}` : ''} el ${esc(dateTimeOf(h.corrected.at))} · ${esc(h.corrected.reason)}` : '';
   const fixBtn = canFix(h) ? `<button type="button" class="icon-btn tl-fix-btn" data-fix="${esc(h.id)}" title="Corregir o anular este movimiento" aria-label="Corregir movimiento">${icon('edit')}</button>` : '';
-  return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''}" ${h.sku ? `data-sku="${esc(h.sku)}" tabindex="0" title="Ver todos los movimientos de ${esc(h.sku)}"` : ''}><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
+  return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''}" data-move="${esc(h.id)}" ${h.sku ? `data-sku="${esc(h.sku)}"` : ''} tabindex="0" title="Ver el detalle"><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
     <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}${h.voided ? ' <span class="badge badge-danger">Anulado</span>' : h.corrected ? ' <span class="badge badge-warn">Corregido</span>' : ''}</div>
     <div class="tl-sub">${sub || esc(h.note || '')}</div>${fixNote ? `<div class="tl-note">${icon('info', 'sm')} ${fixNote}</div>` : ''}${k === 'fix' && h.note ? `<div class="tl-note">${esc(h.note)}</div>` : ''}</div>
     <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-side-row">${fixBtn}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></span></div></div>`;
@@ -490,19 +501,54 @@ function speakForm() {
 const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [], contactName: '' };
 let lastScan = { code: '', at: 0 };
 
+// Textos de cada modo de escaneo: el aviso de color, el botón de terminar y la lista.
+const SCAN_MODES = {
+  restar: { name: 'salida', tone: 'danger', icon: 'arrow-out', banner: 'Cada código que escanees se <b>RESTA</b> del stock.', hint: 'Te muestra el resumen y podés mandar el remito por WhatsApp.' },
+  sumar: { name: 'entrada', tone: 'success', icon: 'arrow-in', banner: 'Cada código que escanees se <b>SUMA</b> al stock.', hint: 'Te muestra el resumen y podés guardar el remito de entrada.' },
+  establecer: { name: 'conteo', tone: 'info', icon: 'equal', banner: 'La primera lectura de cada producto <b>reinicia</b> su stock y las siguientes suman.', hint: 'Cierra el conteo y deja la lista vacía para el próximo.' },
+};
+const scanMode = () => SCAN_MODES[prefs.scanOp];
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
 function setScanOp(op) {
   prefs.scanOp = S.OPERATIONS[op] ? op : 'sumar';
   savePrefs();
+  const m = scanMode();
   segmented(byId('scanOpSeg'), prefs.scanOp);
   segmented(byId('kOp'), prefs.scanOp);
+  const banner = `${icon(m.icon)}<span><b>${cap(m.name)}</b> · ${m.banner}</span>`;
+  for (const id of ['scanModeBanner', 'kModeBanner']) { byId(id).className = `mode-banner ${m.tone}`; byId(id).innerHTML = banner; }
+  byId('scanHero').dataset.mode = prefs.scanOp;
+  byId('scanFinishTitle').textContent = `Terminá ${prefs.scanOp === 'establecer' ? 'el conteo' : `la ${m.name}`}`;
+  byId('scanFinishHint').textContent = m.hint;
+  byId('sessionTitle').textContent = prefs.scanOp === 'establecer' ? 'Productos contados' : `Productos de esta ${m.name}`;
+  // Sin paso de cliente en el conteo: los pasos se renumeran.
+  byId('scanStepScan').textContent = prefs.scanOp === 'establecer' ? '2' : '3';
+  byId('scanStepFinish').textContent = prefs.scanOp === 'establecer' ? '3' : '4';
   updateContactLabels();
   renderKiosk();
-  byId('scanOpHint').textContent = {
-    sumar: 'Suma la cantidad al stock del producto (ingreso de mercadería).',
-    restar: 'Descuenta la cantidad del stock (venta o salida).',
-    establecer: 'Conteo físico: la primera lectura de cada producto reinicia su stock y las siguientes suman. Ideal para inventariar.',
-  }[prefs.scanOp];
 }
+// Cambiar de modo con lecturas sin terminar mezclaría una salida con una entrada: primero se pregunta.
+async function chooseScanOp(op) {
+  if (op === prefs.scanOp) return;
+  const pending = liveFeed().length;
+  if (pending) {
+    const cur = scanMode().name, next = SCAN_MODES[op]?.name || '';
+    const v = await ask({
+      title: `Tenés una ${cur} sin terminar`,
+      message: `Hay ${pending} lectura${pending === 1 ? '' : 's'} de ${cur} (ya descontada${pending === 1 ? '' : 's'} del stock). Terminala para hacer el remito, o cambiá igual y empezá una lista nueva.`,
+      choices: [{ label: `Terminar la ${cur}`, value: 'finish', primary: true }, { label: `Cambiar a ${next} igual`, value: 'switch' }],
+      cancel: `Seguir con la ${cur}`,
+    });
+    if (v === 'finish') { segmented(byId('scanOpSeg'), prefs.scanOp); segmented(byId('kOp'), prefs.scanOp); finishScan(); return; }
+    if (v !== 'switch') { segmented(byId('scanOpSeg'), prefs.scanOp); segmented(byId('kOp'), prefs.scanOp); focusKioskOrScan(); return; }
+    resetSession();
+  }
+  setScanOp(op);
+  toast(`Modo ${SCAN_MODES[prefs.scanOp].name}: ${SCAN_MODES[prefs.scanOp].banner.replace(/<[^>]+>/g, '').toLowerCase()}`, prefs.scanOp === 'restar' ? 'warn' : 'info');
+  focusKioskOrScan();
+}
+const focusKioskOrScan = () => (currentView === 'kiosco' ? byId('kInput').focus({ preventScroll: true }) : focusScan());
 function focusScan() {
   if (currentView !== 'escanear' || document.querySelector('dialog[open]')) return;
   byId('scanInput').focus({ preventScroll: true });
@@ -621,7 +667,7 @@ function renderScanSession() {
   byId('ssUnits').textContent = fmt(session.units);
   byId('ssProducts').textContent = fmt(session.products.size);
   byId('scanFeed').innerHTML = session.feed.length
-    ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}">
+    ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
         <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div></div>
         ${f.undone ? '<span class="badge">Revertido</span>' : `<button class="btn btn-ghost btn-sm" type="button" data-revert="${f.id}">${icon('undo', 'sm')}Revertir</button>`}</div>`).join('')
@@ -1155,6 +1201,72 @@ function saveFix(e) {
 }
 
 // =========================================================
+// Detalle completo de un movimiento (en el celular las filas muestran un resumen)
+// =========================================================
+let viewingMove = null;
+const KIND_NAMES = { in: 'Ingreso', out: 'Salida', count: 'Conteo físico', edit: 'Edición', delete: 'Eliminación', import: 'Importación', fix: 'Corrección' };
+function openMove(id) {
+  const h = state.history.find(x => x.id === id);
+  if (!h) return toast('No se encontró el movimiento.', 'warn');
+  viewingMove = id;
+  const k = S.historyKind(h), q = movementQty(h), si = S.serialInfo(h.serial), item = S.findByCode(h.sku);
+  const row = (label, value) => (value === '' || value == null ? '' : `<dt>${label}</dt><dd>${value}</dd>`);
+  const full = iso => esc(new Date(iso).toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  const target = h.fixOf ? state.history.find(x => x.id === h.fixOf) : null;
+  const corr = h.corrected, tone = k === 'out' ? 'danger' : k === 'in' ? 'success' : k === 'count' ? 'info' : 'warn';
+  byId('mvTitle').textContent = `${h.action || KIND_NAMES[k] || 'Movimiento'} · ${h.sku || '—'}`;
+  byId('mvSub').textContent = new Date(h.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  byId('mvBody').innerHTML = `
+    ${q ? `<div class="detail-head"><strong class="delta" style="color:var(--${tone})${h.voided ? ';text-decoration:line-through;opacity:.6' : ''}">${corr ? `${k === 'out' ? '−' : k === 'in' ? '+' : '= '}${unitWords(k === 'count' ? corr.to.after : corr.to.qty, k === 'count' ? (h.unit || 'unidades') : corr.to.unit)}` : q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}</div>` : ''}
+    <dl class="detail-kv">
+      ${row('Tipo', esc(KIND_NAMES[k] || h.action))}
+      ${row('Código', `<span class="code">${esc(h.sku || '—')}</span>`)}
+      ${row('Producto', esc([h.brand, h.type].filter(Boolean).join(' · ') || (item ? productName(item) : '')))}
+      ${row('Etiqueta escaneada', si ? `${esc(si.label)} <span class="muted">(${esc(h.serial)})</span>` : '')}
+      ${row('Cantidad cargada', S.enteredOf(h) && k !== 'count' ? esc(unitWords(S.enteredOf(h).qty, S.enteredOf(h).unit)) : '')}
+      ${row('Unidades movidas', h.quantity != null ? `${fmt(h.quantity)}` : '')}
+      ${row('Stock', h.before != null && h.after != null ? `${fmt(h.before)} → ${fmt(h.after)} ${esc(h.unit || '')}` : '')}
+      ${row(h.contact?.kind === 'proveedor' ? 'Proveedor' : 'Cliente', h.contact ? esc(h.contact.name) : '')}
+      ${row('Registrado por', h.by ? `@${esc(h.by)}` : 'Sin usuario (modo local)')}
+      ${row('Cómo', esc(S.sourceOf(h)))}
+      ${row('Tarea', h.stockType ? esc(S.stockTypeLabel(h.stockType)) : '')}
+      ${row('Fecha y hora', full(h.at))}
+      ${row('Nota', h.note && k !== 'fix' ? esc(h.note) : '')}
+      ${row('Corrige a', target ? `<a href="#" class="link" data-goto-move="${esc(target.id)}">${esc(target.action)} del ${esc(dateTimeOf(target.at))}</a>` : '')}
+      ${row('Motivo', k === 'fix' && h.note ? esc(h.note.replace(/^.*?:\s(?=[^:]*$)/, '')) : '')}
+    </dl>
+    ${h.voided ? `<div class="notice danger detail-status">${icon('x')}<span><b>Anulado</b>${h.voided.by ? ` por @${esc(h.voided.by)}` : ''} el ${full(h.voided.at)}<br>Motivo: ${esc(h.voided.reason)}</span></div>` : ''}
+    ${corr ? `<div class="notice warn detail-status">${icon('edit')}<span><b>Corregido</b>${corr.by ? ` por @${esc(corr.by)}` : ''} el ${full(corr.at)}: de ${esc(unitWords(corr.from?.qty ?? h.quantity, corr.from?.unit || 'unidades'))} a ${esc(k === 'count' ? unitWords(corr.to.after, h.unit || 'unidades') : unitWords(corr.to.qty, corr.to.unit))}.<br>Motivo: ${esc(corr.reason)}</span></div>` : ''}`;
+  byId('mvFix').hidden = !canFix(h);
+  byId('mvProduct').hidden = !h.sku || !canManage();
+  if (!byId('moveDialog').open) byId('moveDialog').showModal();
+}
+
+let viewingRemito = null;
+function openRemitoView(id) {
+  const r = state.extra.remitos.find(x => x.id === id);
+  if (!r) return;
+  viewingRemito = id;
+  const units = r.lines.reduce((s, l) => s + num(l.units), 0);
+  byId('rvTitle').textContent = `${S.remitoCode(r)} · ${r.kind === 'entrada' ? 'Entrada' : 'Salida'}`;
+  byId('rvSub').textContent = `${r.contact?.name || 'Sin cliente'} · ${dateTimeOf(r.at)}`;
+  byId('rvBody').innerHTML = `
+    <dl class="detail-kv" style="margin-bottom:14px">
+      <dt>${r.kind === 'entrada' ? 'Proveedor' : 'Cliente'}</dt><dd>${esc(r.contact?.name || 'Sin cliente')}</dd>
+      ${r.contact?.doc ? `<dt>CUIT / DNI</dt><dd>${esc(r.contact.doc)}</dd>` : ''}
+      ${r.contact?.phone ? `<dt>WhatsApp</dt><dd>${esc(r.contact.phone)}</dd>` : ''}
+      ${r.contact?.address ? `<dt>Dirección</dt><dd>${esc(r.contact.address)}</dd>` : ''}
+      <dt>Total</dt><dd>${fmt(units)} unidades (${fmt(units / 12)} docenas)</dd>
+      ${r.by ? `<dt>Preparado por</dt><dd>@${esc(r.by)}</dd>` : ''}
+      ${r.note ? `<dt>Observaciones</dt><dd>${esc(r.note)}</dd>` : ''}
+    </dl>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th></tr></thead><tbody>
+      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td></tr>`).join('')}
+    </tbody></table></div>`;
+  byId('remitoView').showModal();
+}
+
+// =========================================================
 // Clientes y proveedores
 // =========================================================
 const kindForOp = op => (op === 'sumar' ? 'proveedor' : 'cliente');
@@ -1176,7 +1288,8 @@ function updateContactLabels() {
   byId('fContactLabel').textContent = f === 'sumar' ? 'Proveedor (de quién entra)' : 'Cliente (a quién sale)';
   byId('fContact').placeholder = f === 'sumar' ? 'Elegí o escribí un proveedor (opcional)' : 'Elegí o escribí un cliente (opcional)';
   byId('scanContactField').hidden = s === 'establecer';
-  byId('scanContactLabel').textContent = s === 'sumar' ? 'Proveedor de esta sesión' : 'Cliente de esta sesión';
+  byId('scanContactLabel').textContent = s === 'sumar' ? '¿De qué proveedor viene?' : '¿Para qué cliente es?';
+  byId('scanContact').placeholder = s === 'sumar' ? 'Escribí o elegí el proveedor' : 'Escribí o elegí el cliente';
   byId('kContact').placeholder = s === 'sumar' ? 'Proveedor (opcional)' : 'Cliente (opcional)';
 }
 function setSessionContact(name, from) {
@@ -1274,12 +1387,49 @@ function linesFromMoves(moves) {
   });
 }
 const feedMoves = op => session.feed.filter(f => !f.undone && f.op === op && f.entryId).map(f => ({ sku: f.sku, units: f.amount, serial: f.serial, entryId: f.entryId }));
+const liveFeed = () => session.feed.filter(f => !f.undone);
+
+function resetSession() {
+  Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] });
+  setSessionContact('');
+  byId('scanLast').innerHTML = '';
+  const k = byId('kResult');
+  k.className = 'kiosk-result';
+  k.innerHTML = '<p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p>';
+  renderScanSession();
+}
+// Paso 4: terminar la salida/entrada (resumen + remito) o el conteo.
+async function finishScan() {
+  const live = liveFeed(), m = scanMode();
+  if (!live.length) return toast('Todavía no escaneaste nada.', 'warn');
+  const units = live.reduce((s, f) => s + f.amount, 0), products = new Set(live.map(f => f.itemId)).size;
+  if (prefs.scanOp === 'establecer') {
+    const ok = await ask({ title: 'Terminar el conteo', message: `Contaste ${fmt(products)} producto${products === 1 ? '' : 's'} en ${fmt(live.length)} lectura${live.length === 1 ? '' : 's'}. El stock ya quedó actualizado.`, confirm: 'Terminar conteo', cancel: 'Seguir contando' });
+    if (ok) { resetSession(); toast(`Conteo terminado: ${fmt(products)} producto${products === 1 ? '' : 's'}`); }
+    focusKioskOrScan();
+    return;
+  }
+  openRemito({ kind: prefs.scanOp === 'sumar' ? 'entrada' : 'salida', moves: feedMoves(prefs.scanOp), contactName: session.contactName, finish: { name: m.name, reads: live.length, units, products } });
+}
+// Cierra la sesión después de terminar y deja todo listo para la próxima.
+function endScanSession(remito) {
+  const f = pendingRemito?.finish;
+  if (!f) return;
+  pendingRemito.finish = null;
+  resetSession();
+  toast(`${cap(f.name)} terminada: ${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'} · ${fmt(f.units)} unidades${remito ? ` · ${S.remitoCode(remito)}` : ''}`);
+  setTimeout(focusKioskOrScan, 200);
+}
+
 let pendingRemito = null;
-function openRemito({ kind, moves, contactName = '' }) {
+function openRemito({ kind, moves, contactName = '', finish = null }) {
   if (!moves.length) return toast('No hay productos para el remito.', 'warn');
-  pendingRemito = { kind, lines: linesFromMoves(moves), entryIds: moves.map(m => m.entryId).filter(Boolean), created: null };
-  byId('rmTitle').textContent = kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
-  byId('rmSub').textContent = `Número ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
+  pendingRemito = { kind, lines: linesFromMoves(moves), entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish };
+  byId('rmTitle').textContent = finish ? `Terminar ${finish.name}` : kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
+  byId('rmSub').textContent = `Remito ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
+  byId('rmFinish').hidden = !finish;
+  byId('rmCancel').textContent = finish ? 'Seguir escaneando' : 'Cancelar';
+  byId('rmSummary').innerHTML = finish ? `<div class="mode-banner ${kind === 'entrada' ? 'success' : 'danger'}">${icon(kind === 'entrada' ? 'arrow-in' : 'arrow-out')}<span><b>${fmt(finish.reads)} lectura${finish.reads === 1 ? '' : 's'}</b> · ${fmt(finish.units)} unidades de ${fmt(finish.products)} producto${finish.products === 1 ? '' : 's'}. El stock ya está ${kind === 'entrada' ? 'sumado' : 'descontado'}; ahora elegí si querés el remito.</span></div>` : '';
   byId('rmContactLabel').textContent = kind === 'entrada' ? 'Proveedor' : 'Cliente';
   byId('rmContact').value = contactName;
   byId('rmNote').value = '';
@@ -1306,8 +1456,11 @@ async function sendRemito(e, mode) {
     if (mode === 'download') { await downloadRemito(remito, remitoOpts()); toast(`${S.remitoCode(remito)} descargado`); }
     else {
       const how = await shareRemito(remito, remitoOpts());
-      toast(how === 'downloaded' ? `${S.remitoCode(remito)} descargado. Adjuntalo en el chat de WhatsApp que se abrió.` : how === 'shared' ? `${S.remitoCode(remito)} compartido` : 'Envío cancelado', how === 'cancelled' ? 'info' : 'success');
+      // Si se canceló el envío, el diálogo queda abierto para reintentar (el remito ya está numerado).
+      if (how === 'cancelled') { toast('Envío cancelado. Podés reintentar o descargar el PDF.', 'info'); return; }
+      toast(how === 'downloaded' ? `${S.remitoCode(remito)} descargado. Adjuntalo en el chat de WhatsApp que se abrió.` : `${S.remitoCode(remito)} compartido`);
     }
+    endScanSession(remito);
     byId('remitoDialog').close();
   } catch (er) { toast(er.message || 'No se pudo generar el PDF.', 'error'); }
   finally { busy(btn, false); }
@@ -1338,19 +1491,25 @@ function renderReports() {
 // Modo mostrador: pantalla grande y simple para escanear
 // =========================================================
 function enterKiosk() {
-  if (prefs.scanOp === 'establecer') setScanOp('restar');
+  // El mostrador no hace conteos: si venía de un conteo con lecturas, se cierra antes.
+  if (prefs.scanOp === 'establecer') { if (liveFeed().length) resetSession(); setScanOp('restar'); }
   segmented(byId('kOp'), prefs.scanOp);
   byId('kContact').value = session.contactName || '';
   renderKiosk();
   setTimeout(() => byId('kInput').focus({ preventScroll: true }), 80);
 }
+// Contadores del mostrador y botón "Terminar" (se comparten con Escanear).
 function renderKiosk() {
-  const live = session.feed.filter(f => !f.undone);
+  const live = liveFeed(), units = live.reduce((s, f) => s + f.amount, 0), m = scanMode();
   byId('kCount').textContent = fmt(live.length);
-  byId('kUnits').textContent = fmt(live.reduce((s, f) => s + f.amount, 0));
+  byId('kUnits').textContent = fmt(units);
   byId('kUndo').disabled = !live.length;
-  byId('kRemito').disabled = !feedMoves(prefs.scanOp).length;
-  byId('scanRemito').disabled = !feedMoves(prefs.scanOp).length;
+  const verb = `Terminar ${m.name}`;
+  byId('kRemito').disabled = byId('scanRemito').disabled = !live.length;
+  byId('kFinishLabel').textContent = verb;
+  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${fmt(units)} u.)` : verb;
+  byId('scanRemito').className = `btn btn-lg btn-block finish-btn ${m.tone}`;
+  byId('kRemito').className = `btn btn-lg finish-btn ${m.tone}`;
 }
 
 // =========================================================
@@ -1813,13 +1972,18 @@ function bindEvents() {
   byId('scanForm').addEventListener('submit', e => { e.preventDefault(); const v = byId('scanInput').value; byId('scanInput').value = ''; handleScan(v, 'escáner'); });
   byId('scanInput').addEventListener('focus', setScanReady);
   byId('scanInput').addEventListener('blur', setScanReady);
-  onSegment(byId('scanOpSeg'), setScanOp);
+  onSegment(byId('scanOpSeg'), chooseScanOp);
   byId('scanQty').addEventListener('input', () => { prefs.scanQty = num(byId('scanQty').value) || 1; savePrefs(); });
   byId('scanUnknown').onchange = e => { prefs.scanUnknown = e.target.value; savePrefs(); };
   byId('scanSound').onchange = e => { prefs.sound = e.target.checked; savePrefs(); };
   byId('scanCamera').onclick = () => openCamera({ continuous: true, onCode: c => handleScan(c, 'cámara') });
-  byId('scanNewSession').onclick = () => { Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] }); renderKiosk(); byId('scanLast').innerHTML = ''; renderScanSession(); toast('Nueva sesión de escaneo', 'info'); focusScan(); };
-  byId('scanFeed').addEventListener('click', e => { const b = e.target.closest('[data-revert]'); if (b) revertScan(b.dataset.revert); });
+  byId('scanNewSession').onclick = () => { resetSession(); toast('Lista vacía. Lo escaneado antes ya quedó guardado en el stock.', 'info'); focusScan(); };
+  byId('scanFeed').addEventListener('click', e => {
+    const b = e.target.closest('[data-revert]');
+    if (b) { revertScan(b.dataset.revert); return; }
+    const row = e.target.closest('[data-move]');
+    if (row) openMove(row.dataset.move);
+  });
   byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
 
   // Inventario
@@ -1900,10 +2064,9 @@ function bindEvents() {
     if (fixBtn) { if (e.type === 'click') { e.stopPropagation(); openFix(fixBtn.dataset.fix); } return; }
     const link = e.target.closest('[data-open-product]');
     if (link) { e.preventDefault(); openProductHistory(link.dataset.openProduct); return; }
-    const row = e.target.closest('.tl-item[data-sku]');
-    if (!row || (byId('productDialog').open && row.closest('#productDialog'))) return;
-    if (e.type === 'keydown' && e.key !== 'Enter') return;
-    openProductHistory(row.dataset.sku);
+    const row = e.target.closest('.tl-item[data-move]');
+    if (!row || (e.type === 'keydown' && e.key !== 'Enter')) return;
+    openMove(row.dataset.move);
   };
   document.addEventListener('click', openFromRow);
   document.addEventListener('keydown', openFromRow);
@@ -1980,11 +2143,28 @@ function bindExtras() {
     if (b.dataset.ct === 'edit') openContact(c);
     else { ct.filter = ct.filter === c.id ? null : c.id; renderContacts(); }
   });
-  byId('ctRemitos').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) remitoAction(b.closest('[data-remito]').dataset.remito, b.dataset.rm); });
+  byId('ctRemitos').addEventListener('click', e => {
+    const row = e.target.closest('[data-remito]');
+    if (!row) return;
+    const b = e.target.closest('[data-rm]');
+    if (b) remitoAction(row.dataset.remito, b.dataset.rm); else openRemitoView(row.dataset.remito);
+  });
+  byId('rvPdf').onclick = () => remitoAction(viewingRemito, 'pdf');
+  byId('rvWa').onclick = () => remitoAction(viewingRemito, 'wa');
+  byId('mvFix').onclick = () => { const id = viewingMove; byId('moveDialog').close(); setTimeout(() => openFix(id), 150); };
+  byId('mvProduct').onclick = () => {
+    const h = state.history.find(x => x.id === viewingMove);
+    byId('moveDialog').close();
+    if (h && !(byId('productDialog').open && pd.sku === upper(h.sku))) setTimeout(() => openProductHistory(h.sku), 150);
+  };
+  byId('mvBody').addEventListener('click', e => { const l = e.target.closest('[data-goto-move]'); if (l) { e.preventDefault(); openMove(l.dataset.gotoMove); } });
   byId('ctRemitosSub').addEventListener('click', e => { if (e.target.closest('[data-ct-all]')) { e.preventDefault(); ct.filter = null; renderContacts(); } });
   // Remitos
-  byId('scanRemito').onclick = () => openRemito({ kind: prefs.scanOp === 'sumar' ? 'entrada' : 'salida', moves: feedMoves(prefs.scanOp), contactName: session.contactName });
-  byId('kRemito').onclick = byId('scanRemito').onclick;
+  byId('scanRemito').onclick = finishScan;
+  byId('kRemito').onclick = finishScan;
+  byId('rmFinish').onclick = () => { endScanSession(pendingRemito?.created || null); byId('remitoDialog').close(); };
+  // Si el remito ya se numeró (p. ej. se canceló el envío) y se cierra el diálogo, la salida queda terminada.
+  byId('remitoDialog').addEventListener('close', () => { if (pendingRemito?.finish && pendingRemito.created) endScanSession(pendingRemito.created); });
   byId('remitoForm').addEventListener('submit', e => sendRemito(e, 'wa'));
   byId('rmDownload').onclick = e => sendRemito(e, 'download');
   // Reportes
@@ -1993,11 +2173,19 @@ function bindExtras() {
   byId('rpExport').onclick = () => { const rows = R.periodRows(state.history, rp); if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${rp.days || 'todo'}dias.csv`)) toast('No hay movimientos en el período.', 'warn'); };
   R.bindChart(byId('rpBody'));
   // Modo mostrador
-  onSegment(byId('kOp'), v => { setScanOp(v); byId('kInput').focus(); });
+  onSegment(byId('kOp'), chooseScanOp);
   byId('kForm').addEventListener('submit', e => { e.preventDefault(); const v = byId('kInput').value; byId('kInput').value = ''; handleScan(v, 'mostrador'); });
   byId('kExit').onclick = () => { location.hash = '#/escanear'; };
   byId('kUndo').onclick = () => { const last = session.feed.find(f => !f.undone); if (last) revertScan(last.id); byId('kInput').focus(); };
   byId('kiosk').addEventListener('click', e => { if (!e.target.closest('button, input, a, .segmented')) byId('kInput').focus(); });
+  // Manual
+  byId('manualOpenAll').onclick = () => { const all = $$('.manual-topic'), open = all.some(d => !d.open); all.forEach(d => { d.open = open; }); byId('manualOpenAll').lastChild.textContent = open ? 'Cerrar todo' : 'Abrir todo'; };
+  byId('manualPrint').onclick = () => {
+    $$('.manual-topic').forEach(d => { d.open = true; });
+    document.body.classList.add('print-manual');
+    window.addEventListener('afterprint', () => document.body.classList.remove('print-manual'), { once: true });
+    window.print();
+  };
 }
 
 function registerServiceWorker() {

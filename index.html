@@ -43,6 +43,7 @@
    <p class="nav-label">Gestión</p>
    <a class="nav-item" href="#/datos" data-nav="datos"><i data-i="database"></i><span>Datos y respaldos</span></a>
    <a class="nav-item" href="#/cuenta" data-nav="cuenta"><i data-i="user"></i><span>Cuenta y nube</span></a>
+   <a class="nav-item" href="#/ayuda" data-nav="ayuda"><i data-i="info"></i><span>Ayuda y manual</span></a>
   </nav>
   <div class="side-foot" id="sideCreator"></div>
  </aside>
@@ -87,10 +88,12 @@
     </div>
 
     <div class="quick">
+     <a class="quick-tile" href="#/escanear?op=restar"><span class="qt-icon"><i data-i="arrow-out"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar salida</strong><small>Escaneá lo que se va y mandá el remito.</small></a>
+     <a class="quick-tile" href="#/escanear?op=sumar"><span class="qt-icon"><i data-i="arrow-in"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar entrada</strong><small>Escaneá la mercadería que llega.</small></a>
      <a class="quick-tile" href="#/cargar?voz=1"><span class="qt-icon"><i data-i="mic"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Dictar por voz</strong><small>Marca, prenda, código y “docenas 18”.</small></a>
-     <a class="quick-tile" href="#/escanear"><span class="qt-icon"><i data-i="scan"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Escanear</strong><small>Pistola lectora o cámara del celular.</small></a>
      <a class="quick-tile" href="#/kiosco"><span class="qt-icon"><i data-i="zap"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Modo mostrador</strong><small>Pantalla grande y simple para escanear entradas y salidas.</small></a>
      <a class="quick-tile" href="#/etiquetas"><span class="qt-icon"><i data-i="tag"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Etiquetas</strong><small>Códigos de barras y QR para imprimir.</small></a>
+     <a class="quick-tile" href="#/ayuda"><span class="qt-icon"><i data-i="info"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>¿Cómo se usa?</strong><small>Manual paso a paso de toda la app.</small></a>
     </div>
 
     <div class="grid-2">
@@ -179,51 +182,56 @@
     </div>
    </section>
 
-   <!-- ===== ESCANEAR ===== -->
+   <!-- ===== ESCANEAR (guiado en pasos) ===== -->
    <section class="view" data-view="escanear">
     <div class="scan-layout">
      <div class="stack">
       <div class="card scan-hero" id="scanHero">
-       <div class="scan-status"><span class="pulse-dot"></span><span id="scanStatusText">Esperando lectura</span></div>
-       <h2>Escaneá con la pistola lectora</h2>
-       <p>Cada lectura se registra al instante con la operación elegida. Funciona aunque el cursor no esté en el campo. También podés escribir el código y presionar Enter.</p>
+       <div class="scan-step"><span class="step-num">1</span><h3>¿Qué vas a registrar?</h3></div>
+       <div class="segmented lg mode-seg" id="scanOpSeg" role="group" aria-label="Qué vas a registrar">
+        <button type="button" data-v="restar"><i data-i="arrow-out"></i>Salida</button>
+        <button type="button" data-v="sumar"><i data-i="arrow-in"></i>Entrada</button>
+        <button type="button" data-v="establecer"><i data-i="equal"></i>Conteo</button>
+       </div>
+       <div class="mode-banner" id="scanModeBanner"></div>
+
+       <div id="scanContactField">
+        <div class="scan-step"><span class="step-num">2</span><h3 id="scanContactLabel">¿Para qué cliente es?</h3><span class="muted small">Opcional</span></div>
+        <div class="input-group"><input id="scanContact" class="input" list="contactList" placeholder="Escribí o elegí el cliente" autocomplete="off"><button type="button" class="icon-btn bordered" id="scanContactNew" title="Nuevo cliente o proveedor"><i data-i="plus"></i></button></div>
+       </div>
+
+       <div class="scan-step"><span class="step-num" id="scanStepScan">3</span><h3>Escaneá los productos</h3><span class="scan-status"><span class="pulse-dot"></span><span id="scanStatusText">Esperando lectura</span></span></div>
        <form id="scanForm" class="scan-input-wrap" autocomplete="off">
         <i data-i="barcode"></i>
-        <input id="scanInput" class="scan-input" placeholder="Esperando código…" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado">
+        <input id="scanInput" class="scan-input" placeholder="Disparale con la pistola o escribí el código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado">
         <button type="submit" class="btn btn-primary">Registrar</button>
        </form>
-       <div class="row center" style="margin-top:14px"><button id="scanCamera" class="btn btn-soft" type="button"><i data-i="camera"></i>Usar la cámara</button><a class="btn btn-ghost" href="#/kiosco"><i data-i="zap"></i>Modo mostrador</a></div>
+       <div class="row" style="margin-top:12px"><button id="scanCamera" class="btn btn-soft btn-sm" type="button"><i data-i="camera" class="sm"></i>Usar la cámara</button><a class="btn btn-ghost btn-sm" href="#/kiosco"><i data-i="zap" class="sm"></i>Pantalla grande (mostrador)</a><a class="btn btn-ghost btn-sm" href="#/ayuda?s=salida"><i data-i="info" class="sm"></i>¿Cómo se usa?</a></div>
        <div class="scan-last" id="scanLast"></div>
+
+       <div class="scan-step"><span class="step-num" id="scanStepFinish">4</span><h3 id="scanFinishTitle">Terminá la salida</h3></div>
+       <button class="btn btn-lg btn-block finish-btn" type="button" id="scanRemito" disabled><i data-i="check"></i><span id="scanFinishLabel">Terminar salida</span></button>
+       <p class="hint" id="scanFinishHint">Te muestra el resumen y podés mandar el remito por WhatsApp.</p>
       </div>
       <div class="card">
-       <div class="card-head"><div><h3>Sesión de escaneo</h3><p>Lecturas desde que abriste esta sesión</p></div><div class="row"><button id="scanRemito" class="btn btn-primary btn-sm" type="button" disabled><i data-i="file" class="sm"></i>Remito</button><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Nueva sesión</button></div></div>
+       <div class="card-head"><div><h3 id="sessionTitle">Productos de esta salida</h3><p>Tocá una lectura para ver el detalle o revertila si fue un error</p></div><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Empezar de nuevo</button></div>
        <div class="mini-stats"><div><strong id="ssReads">0</strong><span>lecturas</span></div><div><strong id="ssUnits">0</strong><span>unidades</span></div><div><strong id="ssProducts">0</strong><span>productos</span></div></div>
        <div id="scanFeed" class="feed"></div>
       </div>
      </div>
      <div class="card stack">
-      <div class="card-head" style="margin:0"><div class="card-title"><span class="card-icon"><i data-i="settings"></i></span><div><h3>Configuración</h3><p>Se aplica a cada lectura</p></div></div></div>
+      <div class="card-head" style="margin:0"><div class="card-title"><span class="card-icon"><i data-i="settings"></i></span><div><h3>Opciones</h3><p>Normalmente no hace falta cambiarlas</p></div></div></div>
       <div class="field"><label for="taskScan">Tarea</label><select id="taskScan" class="input task-select" data-options="stockTypes"></select></div>
-      <div class="field"><span class="label">Cada lectura hace</span>
-       <div class="segmented" id="scanOpSeg" role="group" aria-label="Operación por lectura">
-        <button type="button" data-v="sumar"><i data-i="plus"></i>Entrada</button>
-        <button type="button" data-v="restar"><i data-i="minus"></i>Salida</button>
-        <button type="button" data-v="establecer"><i data-i="equal"></i>Conteo</button>
-       </div>
-       <p class="hint" id="scanOpHint"></p>
-      </div>
-      <div class="field" id="scanContactField"><label for="scanContact" id="scanContactLabel">Cliente de esta sesión</label>
-       <div class="input-group"><input id="scanContact" class="input" list="contactList" placeholder="Opcional · se guarda en cada lectura" autocomplete="off"><button type="button" class="icon-btn bordered" id="scanContactNew" title="Nuevo cliente o proveedor"><i data-i="plus"></i></button></div>
-      </div>
       <div class="field"><label for="scanQty">Cantidad por lectura</label>
        <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="scanQty" type="number" inputmode="decimal" min="0.01" step="any" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
-       <p class="hint">En la unidad del producto (si se controla en unidades, 1 = una prenda). Las etiquetas numeradas mueven siempre lo suyo: una de docena = 12, una de unidad = 1.</p>
+       <p class="hint">1 = una prenda. Las etiquetas numeradas mueven siempre lo suyo: una de docena = 12, una de unidad = 1.</p>
       </div>
       <div class="field"><label for="scanUnknown">Si el código no existe</label>
        <select id="scanUnknown" class="input"><option value="ask">Pedir los datos del producto</option><option value="quick">Crearlo solo con el código</option><option value="reject">Rechazar la lectura</option></select>
       </div>
       <label class="switch"><input type="checkbox" id="scanSound"><span class="track"></span>Sonido y vibración al leer</label>
-      <div class="notice info"><i data-i="info"></i><span>Configurá tu pistola en modo teclado (HID) con Enter al final. Es el modo de fábrica de casi todas.</span></div>
+      <p class="hint" id="scanOpHint" hidden></p>
+      <div class="notice info"><i data-i="info"></i><span>La pistola tiene que estar en modo teclado (HID) con Enter al final. Es el modo de fábrica de casi todas.</span></div>
      </div>
     </div>
    </section>
@@ -387,18 +395,148 @@
    <section class="view" data-view="kiosco">
     <div class="kiosk" id="kiosk">
      <div class="kiosk-top">
-      <div class="segmented lg" id="kOp"><button type="button" data-v="sumar"><i data-i="plus"></i>Entrada</button><button type="button" data-v="restar"><i data-i="minus"></i>Salida</button></div>
+      <div class="segmented lg mode-seg" id="kOp"><button type="button" data-v="restar"><i data-i="arrow-out"></i>Salida</button><button type="button" data-v="sumar"><i data-i="arrow-in"></i>Entrada</button></div>
       <input id="kContact" class="input kiosk-contact" list="contactList" placeholder="Cliente o proveedor (opcional)" autocomplete="off" aria-label="Cliente o proveedor">
       <button class="btn btn-ghost" type="button" id="kExit"><i data-i="x"></i><span>Salir</span></button>
      </div>
+     <div class="mode-banner" id="kModeBanner"></div>
      <form id="kForm" class="kiosk-input" autocomplete="off"><input id="kInput" class="scan-input" placeholder="Escaneá un código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado"></form>
      <div class="kiosk-result" id="kResult"><p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p></div>
      <div class="kiosk-foot">
       <div class="kiosk-num"><strong id="kCount">0</strong><span>lecturas</span></div>
       <div class="kiosk-num"><strong id="kUnits">0</strong><span>unidades</span></div>
       <button class="btn btn-ghost btn-lg" type="button" id="kUndo" disabled><i data-i="undo"></i>Revertir la última</button>
-      <button class="btn btn-primary btn-lg" type="button" id="kRemito" disabled><i data-i="file"></i>Remito</button>
+      <button class="btn btn-lg finish-btn" type="button" id="kRemito" disabled><i data-i="check"></i><span id="kFinishLabel">Terminar salida</span></button>
      </div>
+    </div>
+   </section>
+
+   <!-- ===== AYUDA: manual de uso ===== -->
+   <section class="view" data-view="ayuda">
+    <div class="manual" id="manual">
+     <div class="card manual-intro">
+      <h2>Manual de StockVoz</h2>
+      <p>Guía paso a paso para la dueña o el dueño y para el equipo. Tocá un tema para abrirlo.</p>
+      <div class="row" style="margin-top:14px"><button class="btn btn-ghost btn-sm" type="button" id="manualOpenAll"><i data-i="layers" class="sm"></i>Abrir todo</button><button class="btn btn-ghost btn-sm" type="button" id="manualPrint"><i data-i="print" class="sm"></i>Imprimir o guardar PDF</button></div>
+     </div>
+
+     <details class="card manual-topic" id="m-salida" open>
+      <summary><h3>Registrar una salida de mercadería (escaneando)</h3><span>Lo más usado: cuando la mercadería se va del local o del depósito.</span></summary>
+      <ol class="manual-steps">
+       <li><b>Abrí Escanear.</b> En el celular es el botón verde del medio, abajo. En la computadora, en el menú de la izquierda o con la tecla <kbd>F2</kbd>. También podés tocar <b>Registrar salida</b> en el Panel.</li>
+       <li><b>Paso 1 · Elegí «Salida».</b> Aparece un aviso rojo: <i>«Cada código que escanees se RESTA del stock»</i>. Si dice Entrada o Conteo, cambialo antes de escanear.</li>
+       <li><b>Paso 2 · Elegí el cliente</b> (opcional, pero recomendado): escribí el nombre. Si es nuevo, se crea solo.</li>
+       <li><b>Paso 3 · Escaneá cada producto</b> con la pistola. Cada lectura suena, se pone en verde y aparece en la lista <i>«Productos de esta salida»</i>.
+        <ul>
+         <li>Etiqueta de <b>docena</b> (ej. 1015D0003): resta 12 unidades.</li>
+         <li>Etiqueta de <b>unidad</b> (ej. 1015U0012): resta 1.</li>
+         <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1).</li>
+        </ul></li>
+       <li><b>Paso 4 · Tocá «Terminar salida».</b> Ves el resumen y elegís: <b>Enviar remito por WhatsApp</b>, <b>Descargar PDF</b> o <b>Terminar sin remito</b>. La lista queda vacía para la próxima salida.</li>
+      </ol>
+      <div class="notice warn"><i data-i="alert"></i><span><b>¿Te equivocaste?</b> En la lista tocá <b>Revertir</b> en esa lectura (o «Revertir la última» en el modo mostrador). Si ya terminaste la salida, pedile a la dueña que la anule desde el Historial.</span></div>
+      <div class="notice info"><i data-i="info"></i><span>Si escaneás dos veces la misma docena numerada, la app te avisa antes de descontarla de nuevo.</span></div>
+     </details>
+
+     <details class="card manual-topic" id="m-entrada">
+      <summary><h3>Registrar una entrada de mercadería</h3><span>Cuando llega mercadería nueva del taller o de un proveedor.</span></summary>
+      <ol class="manual-steps">
+       <li>Abrí <b>Escanear</b> y en el paso 1 elegí <b>Entrada</b>. El aviso se pone verde: <i>«se SUMA al stock»</i>.</li>
+       <li>En el paso 2 elegí el <b>proveedor</b> (opcional).</li>
+       <li>Escaneá cada producto. Si un código no existe, la app te pide la marca, la prenda y la cantidad para darlo de alta.</li>
+       <li>Tocá <b>Terminar entrada</b>. Podés generar un remito de entrada o terminar sin remito.</li>
+      </ol>
+      <p class="small muted">También podés cargar entradas por voz o a mano desde <b>Cargar productos</b>.</p>
+     </details>
+
+     <details class="card manual-topic" id="m-mostrador">
+      <summary><h3>Modo mostrador (pantalla grande)</h3><span>Para el empleado que despacha: solo lo necesario, en letra grande.</span></summary>
+      <ol class="manual-steps">
+       <li>Abrilo desde <b>Escanear → Pantalla grande</b>, desde el Panel o desde <b>Más → Mostrador</b>.</li>
+       <li>Arriba elegí <b>Salida</b> o <b>Entrada</b> y el cliente.</li>
+       <li>Escaneá: el resultado aparece gigante (ej. <i>−1 docena</i>) con borde verde si salió bien o rojo si hubo un problema.</li>
+       <li>Al terminar tocá <b>Terminar salida</b>. Para volver a la app normal, tocá <b>Salir</b>.</li>
+      </ol>
+     </details>
+
+     <details class="card manual-topic" id="m-cargar">
+      <summary><h3>Cargar productos por voz o a mano</h3><span>Dar de alta productos nuevos y cargar cantidades sin pistola.</span></summary>
+      <ol class="manual-steps">
+       <li>Abrí <b>Cargar productos</b> y elegí <b>Sumar</b>, <b>Restar</b> o <b>Conteo</b>.</li>
+       <li><b>Por voz:</b> tocá el micrófono y decí, por ejemplo: <i>«Marca URUS, prenda short, código N115, docenas 18»</i>. Decí siempre <b>primero la unidad y después el número</b> (docenas 18, unidades 5).</li>
+       <li>Si el código <b>ya existe</b>, alcanza con <i>«código N115, docenas 2»</i>: se guarda solo y te lo confirma en voz alta.</li>
+       <li><b>A mano:</b> completá código, cantidad y unidad, y tocá <b>Guardar</b>. El botón ✨ genera un código nuevo si el producto no tiene.</li>
+      </ol>
+     </details>
+
+     <details class="card manual-topic" id="m-etiquetas">
+      <summary><h3>Imprimir etiquetas con código de barras o QR</h3><span>Para que cada prenda o docena se pueda escanear.</span></summary>
+      <ol class="manual-steps">
+       <li>Abrí <b>Etiquetas</b> y marcá los productos.</li>
+       <li>Elegí <b>Código de barras</b> (lo lee cualquier pistola) o <b>QR</b> (necesita lector 2D o la cámara).</li>
+       <li>En <b>Cada etiqueta identifica</b> elegí:
+        <ul><li><b>El producto:</b> todas iguales (ej. 1015).</li><li><b>Cada docena:</b> numeradas 1015D0001, 1015D0002… (cada una resta 12).</li><li><b>Cada unidad:</b> numeradas 1015U0001… (cada una resta 1).</li></ul></li>
+       <li>En <b>¿Cuántas etiquetas?</b>: todo el stock, una cantidad (1, 10, 15…) o números específicos (ej. <code>1-7, 10</code> para reimprimir).</li>
+       <li>Elegí el <b>tamaño</b> igual al de tu papel y tocá <b>Imprimir</b>. En la ventana de impresión: márgenes <b>Ninguno</b> y escala <b>100 %</b>. Al terminar, confirmá si salieron bien para que la numeración siga.</li>
+      </ol>
+     </details>
+
+     <details class="card manual-topic" id="m-errores">
+      <summary><h3>Corregir errores</h3><span>Qué hacer si se cargó algo mal.</span></summary>
+      <ul class="manual-list">
+       <li><b>Recién escaneado (cualquiera):</b> en la lista de la salida tocá <b>Revertir</b>. Queda registrado con tu nombre.</li>
+       <li><b>Ya guardado (solo la dueña):</b> en <b>Historial</b> tocá el movimiento → <b>Corregir o anular</b>. Elegí <b>Anular</b> (no ocurrió) o <b>Corregir cantidad</b> (fueron otra cantidad), escribí el motivo y confirmá. El stock se ajusta solo y el original queda tachado.</li>
+       <li><b>Deshacer</b> (botón ↶ arriba): solo sirve unos segundos, hasta que el cambio se guarda en la nube.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic" id="m-clientes">
+      <summary><h3>Clientes, proveedores y remitos</h3><span>A quién se le vendió y comprobantes por WhatsApp.</span></summary>
+      <ul class="manual-list">
+       <li>En <b>Clientes y proveedores</b> podés crear, editar y ver cuánto se llevó cada cliente.</li>
+       <li>Cargá el <b>WhatsApp</b> del cliente para que el remito le llegue directo a su chat.</li>
+       <li>Los remitos quedan numerados (R-00001…). Desde la lista de remitos podés volver a descargarlos o reenviarlos.</li>
+       <li>En el celular, «Enviar por WhatsApp» abre el menú para compartir: elegí WhatsApp y el chat. En la computadora se descarga el PDF y se abre el chat para que lo adjuntes.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic" id="m-inventario">
+      <summary><h3>Inventario, alertas y conteos</h3><span>Ver el stock y controlarlo.</span></summary>
+      <ul class="manual-list">
+       <li>En <b>Inventario</b> buscás por código, marca o prenda. Tocá el código para editar el producto.</li>
+       <li>Poné un <b>stock mínimo</b> en el producto para que aparezca en <b>Alertas</b> cuando baje.</li>
+       <li><b>Conteo físico:</b> en Escanear elegí <b>Conteo</b> y escaneá todo lo que hay. La primera lectura de cada producto reinicia su stock y las siguientes suman.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic owner-only" id="m-duena">
+      <summary><h3>Solo para la dueña: historial, reportes y equipo</h3><span>Control del negocio y de los empleados.</span></summary>
+      <ul class="manual-list">
+       <li><b>Historial:</b> todos los movimientos con fecha, hora, quién y cómo. Filtrá por código, marca, prenda y período. Tocá un movimiento para ver todo el detalle.</li>
+       <li><b>Reportes:</b> lo más vendido, clientes, qué hizo cada empleado y <b>Control de faltantes</b>. Conviene revisarlo una vez por semana.</li>
+       <li><b>Equipo:</b> en <b>Cuenta y nube → Equipo</b> creás usuarios para tus empleados. Pueden cargar, escanear e imprimir, pero no ven el historial ni pueden anular o borrar.</li>
+       <li>Si un empleado deja de trabajar, tocá el candado para <b>deshabilitarlo</b> al instante.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic" id="m-equipos">
+      <summary><h3>Pistola lectora, impresora y celular</h3><span>Conectar los equipos.</span></summary>
+      <ul class="manual-list">
+       <li><b>Pistola:</b> conectala por USB. Probala en el Bloc de notas: si escribe el código y salta de línea, está lista. Funciona en cualquier pantalla de la app.</li>
+       <li><b>Impresora térmica:</b> instalá su driver, creá el tamaño de etiqueta en Windows y elegí el mismo tamaño en Etiquetas.</li>
+       <li><b>Instalar en el celular:</b> abrí la app en Chrome → menú ⋮ → <b>Agregar a la pantalla principal</b>. Funciona aunque se corte internet y sincroniza al volver.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic" id="m-faq">
+      <summary><h3>Preguntas frecuentes</h3></summary>
+      <ul class="manual-list">
+       <li><b>¿Por qué escaneé y sumó en vez de restar?</b> Estaba elegido «Entrada». Mirá siempre el aviso de color del paso 1 antes de escanear.</li>
+       <li><b>¿Qué significa «Cambios por subir»?</b> Que hay movimientos guardados en el dispositivo que se suben a la nube en unos segundos, o cuando vuelve internet.</li>
+       <li><b>¿Dos personas pueden escanear a la vez?</b> Sí. Los movimientos de todos se suman sin pisarse.</li>
+       <li><b>No veo algo en el celular.</b> Tocá <b>Más</b> (abajo a la derecha): ahí están Etiquetas, Clientes, Mostrador, Ayuda y el resto.</li>
+      </ul>
+     </details>
     </div>
    </section>
 
@@ -469,6 +607,7 @@
   <a href="#/reportes" class="sheet-item owner-only"><i data-i="layers"></i>Reportes</a>
   <a href="#/datos" class="sheet-item"><i data-i="database"></i>Datos</a>
   <a href="#/cuenta" class="sheet-item"><i data-i="cloud"></i>Cuenta</a>
+  <a href="#/ayuda" class="sheet-item"><i data-i="info"></i>Ayuda</a>
   <button type="button" class="sheet-item" id="sheetUndo"><i data-i="undo"></i>Deshacer</button>
   <a href="admin.html" class="sheet-item"><i data-i="shield"></i>Admin</a>
  </div>
@@ -613,14 +752,31 @@
  <form class="modal-inner" id="remitoForm" novalidate autocomplete="off">
   <div class="modal-head"><div><h3 id="rmTitle">Nuevo remito</h3><p class="muted" id="rmSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
   <div class="modal-body stack">
+   <div id="rmSummary"></div>
    <div class="form-grid">
     <div class="field"><label for="rmContact" id="rmContactLabel">Cliente</label><input id="rmContact" class="input" list="contactList" placeholder="Elegí un cliente" autocomplete="off"></div>
     <div class="field"><label for="rmNote">Observaciones</label><input id="rmNote" class="input" maxlength="160" placeholder="Opcional"></div>
    </div>
    <div id="rmLines"></div>
   </div>
-  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rmDownload"><i data-i="download"></i>Descargar PDF</button><button type="submit" class="btn btn-primary" id="rmSend"><i data-i="whatsapp"></i>Enviar por WhatsApp</button></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close id="rmCancel">Cancelar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rmFinish" hidden><i data-i="check"></i>Terminar sin remito</button><button type="button" class="btn btn-ghost" id="rmDownload"><i data-i="download"></i>Descargar PDF</button><button type="submit" class="btn btn-primary" id="rmSend"><i data-i="whatsapp"></i>Enviar por WhatsApp</button></div>
  </form>
+</dialog>
+
+<dialog class="modal" id="moveDialog">
+ <div class="modal-inner">
+  <div class="modal-head"><div><h3 id="mvTitle">Detalle del movimiento</h3><p class="muted" id="mvSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body" id="mvBody"></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost danger-text" id="mvFix"><i data-i="edit"></i>Corregir o anular</button><span class="grow"></span><button type="button" class="btn btn-ghost owner-only" id="mvProduct"><i data-i="history"></i>Movimientos del código</button><button type="button" class="btn btn-primary" data-close>Cerrar</button></div>
+ </div>
+</dialog>
+
+<dialog class="modal" id="remitoView">
+ <div class="modal-inner">
+  <div class="modal-head"><div><h3 id="rvTitle">Remito</h3><p class="muted" id="rvSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body" id="rvBody"></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cerrar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rvPdf"><i data-i="download"></i>PDF</button><button type="button" class="btn btn-primary" id="rvWa"><i data-i="whatsapp"></i>WhatsApp</button></div>
+ </div>
 </dialog>
 
 <datalist id="contactList"></datalist>

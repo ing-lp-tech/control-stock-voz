@@ -276,7 +276,7 @@ export function applyMovement(v) {
   const existing = findByCode(code);
   if (existing && existing.unitName !== u.stock) return fail(`${existing.sku} se controla en ${unitLabel(existing.unitName)}. Ingresá la cantidad en esa unidad para no mezclar medidas.`);
   if (op === 'restar' && !existing) return fail(`${code} no existe en el inventario; no se descontó nada.`);
-  if (op === 'restar' && existing.units < amount) return fail(`Stock insuficiente de ${existing.sku}: hay ${fmt(existing.units)} ${unitLabel(existing.unitName)}.`);
+  if (op === 'restar' && existing.units < amount) return fail(`Stock insuficiente de ${existing.sku}: hay ${fmt(existing.units)} ${existing.units === 1 && existing.unitName === 'unidades' ? 'unidad' : unitLabel(existing.unitName)}.`);
 
   checkpoint();
   let item = existing;
