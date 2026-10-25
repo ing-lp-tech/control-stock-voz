@@ -5,7 +5,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 
 const OUT = 'dist';
 // Lo que se publica. Quedan fuera: supabase/, scripts/, README.md, package.json, los módulos sueltos de js/, etc.
-const STATIC = ['index.html', 'admin.html', 'manifest.webmanifest', 'icons', 'assets'];
+const STATIC = ['index.html', 'admin.html', 'manifest.webmanifest', 'favicon.ico', 'icons', 'assets'];
 const BANNER = `/*! StockVoz · © ${new Date().getFullYear()} Ingeniero Emprendedor (molderia-digital.com). Todos los derechos reservados. Prohibida su copia, modificación o distribución sin autorización escrita. */`;
 const min = async (src, loader) => (await transform(src, { loader, minify: true, legalComments: 'none', banner: BANNER, target: loader === 'css' ? ['chrome100', 'safari15'] : 'es2022' })).code;
 

@@ -1,11 +1,12 @@
 // Service worker de StockVoz: la app abre sin internet después de la primera visita.
 // Al publicar cambios, subí VERSION para que los usuarios reciban la actualización.
-const VERSION = 'stockvoz-v6.1.0';
+const VERSION = 'stockvoz-v6.1.1';
 const CORE = [
   './', './index.html', './admin.html', './manifest.webmanifest', './css/styles.css',
   './js/app.js', './js/admin.js', './js/config.js', './js/utils.js', './js/store.js', './js/cloud.js',
   './js/voice.js', './js/scanner.js', './js/labels.js', './js/io.js', './js/remito.js', './js/reports.js',
-  './icons/icon.svg', './icons/sprite.svg', './assets/creador.jpg',
+  './icons/icon.svg', './icons/sprite.svg', './assets/creador.jpg', './favicon.ico',
+  './icons/favicon-32.png', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 // Librerías externas: se guardan para poder imprimir etiquetas y exportar Excel sin conexión.
 const CDN = [
