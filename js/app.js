@@ -2182,8 +2182,11 @@ function bindExtras() {
   byId('manualOpenAll').onclick = () => { const all = $$('.manual-topic'), open = all.some(d => !d.open); all.forEach(d => { d.open = open; }); byId('manualOpenAll').lastChild.textContent = open ? 'Cerrar todo' : 'Abrir todo'; };
   byId('manualPrint').onclick = () => {
     $$('.manual-topic').forEach(d => { d.open = true; });
+    // Se imprime siempre con el tema claro (texto negro sobre blanco) y después se vuelve al tema elegido.
+    const theme = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = 'light';
     document.body.classList.add('print-manual');
-    window.addEventListener('afterprint', () => document.body.classList.remove('print-manual'), { once: true });
+    window.addEventListener('afterprint', () => { document.body.classList.remove('print-manual'); document.documentElement.dataset.theme = theme; }, { once: true });
     window.print();
   };
 }

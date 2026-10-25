@@ -841,7 +841,10 @@ body.kiosk-mode .content { max-width: 980px; padding: 20px; }
   .print-sheet { display: grid; align-content: center; justify-content: center; }
   .print-page .lbl { border-radius: 0; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  /* Manual impreso: solo el contenido, en blanco y negro */
+  /* Manual impreso: solo el contenido, negro sobre blanco. Con el tema oscuro, "color-scheme: dark"
+     pinta el lienzo de la página de negro aunque los fondos sean transparentes: se fuerza el claro. */
+  :root:has(body.print-manual) { color-scheme: light !important; background: #fff !important; }
+  body.print-manual *, body.print-manual *::before, body.print-manual *::after { -webkit-print-color-adjust: economy; print-color-adjust: economy; }
   body.print-manual .sidebar, body.print-manual .topbar, body.print-manual .bottomnav, body.print-manual .legal, body.print-manual .sheet, body.print-manual .toasts, body.print-manual .manual-intro .row, body.print-manual .view:not([data-view="ayuda"]) { display: none !important; }
   body.print-manual .app { display: block; }
   body.print-manual .content { padding: 0; max-width: none; }
@@ -849,7 +852,9 @@ body.kiosk-mode .content { max-width: 980px; padding: 20px; }
   body.print-manual .manual { max-width: none; }
   body.print-manual .manual-topic { break-inside: avoid; border: 1px solid #bbb; }
   body.print-manual .manual-topic > summary::after { display: none; }
-  body.print-manual .manual-steps > li::before { border: 1px solid #000; }
+  body.print-manual .manual-steps > li::before { border: 1px solid #000; background: #fff !important; color: #000 !important; }
+  body.print-manual kbd, body.print-manual code { border: 1px solid #999; }
+  body.print-manual .notice { border: 1px solid #ccc; }
 }
 
 /* Movimiento reducido: se quitan los desplazamientos y se mantienen los fundidos */
