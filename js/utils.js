@@ -41,6 +41,8 @@ export function toast(message, opts = {}) {
   if (!host) {
     host = document.createElement('div');
     host.id = 'toasts'; host.className = 'toasts'; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite');
+    // Como "popover" el aviso se dibuja en la capa superior: se ve aunque haya una ventana (diálogo) abierta.
+    if (typeof host.showPopover === 'function') host.setAttribute('popover', 'manual');
     document.body.append(host);
   }
   const el = document.createElement('div');
@@ -49,8 +51,18 @@ export function toast(message, opts = {}) {
   el.innerHTML = `<span class="toast-icon">${icon(ic)}</span><span class="toast-msg">${esc(message)}</span>${action ? `<button class="toast-action" type="button">${esc(actionLabel)}</button>` : ''}<button class="toast-close" type="button" aria-label="Cerrar">${icon('x')}</button>`;
   host.append(el);
   while (host.children.length > 4) host.firstElementChild.remove();
+  if (host.hasAttribute('popover')) {
+    try { if (host.matches(':popover-open')) host.hidePopover(); host.showPopover(); } catch { /* sin soporte */ }
+  }
   let closed = false;
-  const close = () => { if (closed) return; closed = true; el.classList.add('out'); setTimeout(() => el.remove(), 220); };
+  const close = () => {
+    if (closed) return;
+    closed = true; el.classList.add('out');
+    setTimeout(() => {
+      el.remove();
+      if (!host.children.length && host.hasAttribute('popover')) { try { host.hidePopover(); } catch { /* ya cerrado */ } }
+    }, 220);
+  };
   el.querySelector('.toast-close').onclick = close;
   if (action) el.querySelector('.toast-action').onclick = () => { action(); close(); };
   // El tiempo se pausa mientras la pestaña está oculta, para no perderse un aviso.

@@ -208,7 +208,7 @@ export function enteredOf(h) {
   return h.quantity != null ? { qty: h.quantity, unit: h.unit || 'unidades' } : null;
 }
 // Origen del movimiento: pistola, cámara, voz, manual…
-export const sourceOf = h => h.source || String(h.note || '').split(' · ')[0] || '';
+export const sourceOf = h => h.source || (h.kind === 'fix' ? 'corrección' : String(h.note || '').split(' · ')[0] || '');
 // Número de etiqueta numerada de un movimiento: { pack: 'D'|'U', number }.
 export function serialInfo(serial) {
   const m = String(serial || '').match(/([DU])(\d{4,})$/);
@@ -446,7 +446,7 @@ export function fixMovement(id, change) {
   else h.corrected = { ...stamp, from: h.corrected?.from || { qty: enteredOf(h)?.qty, unit: enteredOf(h)?.unit, quantity: h.quantity }, to };
   const when = new Date(h.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   log('fix', change.remove ? 'Anulación' : 'Corrección', item, {
-    before, after: item.units, quantity: Math.abs(diff), fixOf: h.id, serial: h.serial,
+    before, after: item.units, quantity: Math.abs(diff), fixOf: h.id, serial: h.serial, source: 'corrección',
     note: `${change.remove ? 'Anula' : 'Corrige'} ${String(h.action).toLowerCase()} del ${when}: ${reason}`,
   });
   commit('fix');

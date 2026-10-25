@@ -1102,6 +1102,9 @@ function openFix(id) {
   byId('fixUnit').value = S.inputUnit(unitKey).stock === item.unitName ? unitKey : S.inputUnitFor(item);
   byId('fixQty').value = k === 'count' ? (current?.after ?? h.after) : (current?.qty ?? e?.qty ?? h.quantity);
   byId('fixReason').value = '';
+  byId('fixReason').classList.remove('has-error');
+  byId('fixError').hidden = true;
+  $$('#fixReasons .chip').forEach(c => c.classList.remove('active'));
   // Las etiquetas numeradas mueven siempre lo mismo: solo se pueden anular.
   setFixMode(h.serial ? 'remove' : 'edit');
   byId('fixMode').querySelector('[data-v="edit"]').disabled = !!h.serial;
@@ -1137,9 +1140,18 @@ function saveFix(e) {
   const r = S.fixMovement(fix.id, fix.mode === 'remove'
     ? { remove: true, reason: byId('fixReason').value }
     : { qty: byId('fixQty').value, unit: byId('fixUnit').value, reason: byId('fixReason').value });
-  if (!r.ok) { toast(r.error, 'error'); shake(byId('fixSave')); return; }
+  if (!r.ok) {
+    // El error se muestra dentro de la ventana, al lado del motivo (no detrás).
+    const missingReason = !txt(byId('fixReason').value);
+    byId('fixError').innerHTML = `${icon('alert')}${esc(missingReason ? 'Escribí el motivo o tocá uno de los botones de arriba.' : r.error)}`;
+    byId('fixError').hidden = false;
+    byId('fixReason').classList.toggle('has-error', missingReason);
+    if (missingReason) byId('fixReason').focus();
+    shake(byId('fixSave'));
+    return;
+  }
   byId('fixDialog').close();
-  toast(`${fix.mode === 'remove' ? 'Movimiento anulado' : 'Movimiento corregido'}: stock de ${r.item.sku} ${fmt(r.before)} → ${fmt(r.after)}`);
+  toast(`${fix.mode === 'remove' ? 'Movimiento anulado' : 'Movimiento corregido'}: el stock de ${r.item.sku} pasó de ${fmt(r.before)} a ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}`, { duration: 6000 });
 }
 
 // =========================================================
@@ -1898,7 +1910,17 @@ function bindEvents() {
   onSegment(byId('fixMode'), setFixMode);
   byId('fixQty').addEventListener('input', renderFixPreview);
   byId('fixUnit').addEventListener('change', renderFixPreview);
-  byId('fixReasons').addEventListener('click', e => { const c = e.target.closest('.chip'); if (c) { byId('fixReason').value = c.textContent; $$('#fixReasons .chip').forEach(x => x.classList.toggle('active', x === c)); } });
+  byId('fixReasons').addEventListener('click', e => {
+    const c = e.target.closest('.chip');
+    if (!c) return;
+    byId('fixReason').value = c.textContent;
+    $$('#fixReasons .chip').forEach(x => x.classList.toggle('active', x === c));
+    byId('fixReason').classList.remove('has-error'); byId('fixError').hidden = true;
+  });
+  byId('fixReason').addEventListener('input', () => {
+    byId('fixReason').classList.remove('has-error'); byId('fixError').hidden = true;
+    $$('#fixReasons .chip').forEach(x => x.classList.toggle('active', x.textContent === byId('fixReason').value));
+  });
   byId('fixForm').addEventListener('submit', saveFix);
   byId('memberForm').addEventListener('submit', saveMember);
   byId('accountArea').addEventListener('click', onTeamClick);

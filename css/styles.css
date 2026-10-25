@@ -573,7 +573,11 @@ body.is-employee .owner-only { display: none !important; }
 
 /* ---------- Avisos flotantes (toasts) ---------- */
 .toasts { position: fixed; z-index: 100; right: 20px; bottom: 20px; display: grid; gap: 8px; width: min(400px, calc(100vw - 32px)); pointer-events: none; }
-@media (max-width: 1023px) { .toasts { left: 16px; right: 16px; margin: 0 auto; bottom: calc(var(--bottomnav) + 14px + var(--safe-b)); } }
+.toasts[popover] { inset: auto; right: 20px; bottom: 20px; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); overflow: visible; }
+@media (max-width: 1023px) { .toasts, .toasts[popover] { left: 16px; right: 16px; margin: 0 auto; bottom: calc(var(--bottomnav) + 14px + var(--safe-b)); } }
+.field-error { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13.5px; font-weight: 550; color: var(--danger); }
+.field-error .i { width: 16px; height: 16px; }
+.input.has-error { box-shadow: inset 0 0 0 1.5px var(--danger); }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 11px 11px 11px 14px; border-radius: var(--r-lg); background: var(--surface-3); box-shadow: var(--float-shadow); font-size: 14px; font-weight: 550; animation: toastIn 260ms var(--ease-out); }
 .toast.out { animation: toastOut 160ms ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(100%); } }
