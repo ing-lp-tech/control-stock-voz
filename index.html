@@ -360,6 +360,7 @@
      <div class="hist-actions">
       <button class="btn btn-ghost" type="button" id="histReset" title="Quitar filtros"><i data-i="x"></i><span>Limpiar</span></button>
       <button class="btn btn-ghost" type="button" id="histExport" title="Exportar lo filtrado"><i data-i="download"></i><span>CSV</span></button>
+      <button class="btn btn-ghost owner-only" type="button" id="histSelect" title="Elegir varios movimientos para anularlos o borrarlos" aria-pressed="false"><i data-i="check"></i><span>Seleccionar</span></button>
       <button class="btn btn-ghost danger-text owner-only" type="button" id="histClear" title="Borrar todo el historial"><i data-i="trash"></i></button>
      </div>
     </div>
@@ -371,6 +372,12 @@
      <button class="chip" type="button" data-k="edit">Ediciones</button>
     </div>
     <div id="histSummary" class="hist-summary"></div>
+    <div class="bulk-bar" id="histBulkBar" hidden>
+     <strong id="histBulkCount">Tocá los movimientos</strong>
+     <button class="btn btn-sm" type="button" id="histBulkAll">Todos</button>
+     <button class="btn btn-sm" type="button" id="histBulkDelete"><i data-i="trash" class="sm"></i>Eliminar</button>
+     <button class="icon-btn" type="button" id="histBulkClose" title="Terminar de seleccionar" aria-label="Terminar de seleccionar"><i data-i="x"></i></button>
+    </div>
     <div class="card"><div id="histList" class="timeline"></div><div class="list-more"><button class="btn btn-ghost" type="button" id="histMore" hidden>Ver más</button></div></div>
    </section>
 
@@ -515,6 +522,7 @@
       <ul class="manual-list">
        <li><b>Recién escaneado (cualquiera):</b> en la lista de la salida tocá <b>Revertir</b>. Queda registrado con tu nombre.</li>
        <li><b>Ya guardado (solo la dueña):</b> en <b>Historial</b> tocá el movimiento → <b>Corregir o anular</b>. Elegí <b>Anular</b> (no ocurrió) o <b>Corregir cantidad</b> (fueron otra cantidad), escribí el motivo y confirmá. El stock se ajusta solo y el original queda tachado.</li>
+       <li><b>Varios a la vez (solo la dueña):</b> en <b>Historial</b> tocá <b>Seleccionar</b>, marcá los movimientos (o <b>Elegir todo el día</b> / <b>Todos</b>, según los filtros) y tocá <b>Eliminar</b>. Elegí <b>Anular y corregir el stock</b> (no ocurrieron: el stock vuelve atrás y quedan tachados) o <b>Borrar del historial</b> (desaparecen de la lista y el stock no cambia; sirve para limpiar pruebas).</li>
        <li><b>Deshacer</b> (botón ↶ arriba): solo sirve unos segundos, hasta que el cambio se guarda en la nube.</li>
       </ul>
      </details>
@@ -755,6 +763,22 @@
    <div id="fixPreview"></div>
   </div>
   <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="fixSave"><i data-i="check"></i>Guardar corrección</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal" id="histBulkDialog">
+ <form class="modal-inner" id="hbForm" novalidate autocomplete="off">
+  <div class="modal-head"><div><h3 id="hbTitle">Eliminar movimientos</h3><p class="muted">Solo el dueño de la cuenta. Elegí qué querés hacer.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack">
+   <div class="segmented" id="hbMode"><button type="button" data-v="void"><i data-i="undo"></i>Anular y corregir el stock</button><button type="button" data-v="delete"><i data-i="trash"></i>Borrar del historial</button></div>
+   <div id="hbInfo"></div>
+   <div class="field" id="hbReasonField"><label for="hbReason">Motivo *</label><input id="hbReason" class="input" maxlength="120" placeholder="¿Por qué se anulan?">
+    <div class="chips" id="hbReasons" style="margin-top:8px"><button type="button" class="chip">Error de carga</button><button type="button" class="chip">Escaneo repetido</button><button type="button" class="chip">Movimientos de prueba</button><button type="button" class="chip">Devolución</button><button type="button" class="chip">Producto equivocado</button></div>
+    <p class="field-error" id="hbError" role="alert" hidden></p>
+   </div>
+   <div id="hbPreview"></div>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-danger" id="hbSave"><i data-i="check"></i>Confirmar</button></div>
  </form>
 </dialog>
 

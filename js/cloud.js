@@ -126,6 +126,7 @@ function applyRemote(remote) {
   state.cloud.rev = remote.rev || 0;
   state.cloud.dirty = false;
   state.cloud.pending = [];
+  state.cloud.removed = [];
   state.cloud.lastSyncAt = new Date().toISOString();
   replaceAll(remote.items || [], remote.history || [], remote.extra || {});
 }
@@ -174,7 +175,7 @@ let inflight = null, again = false, pushTimer = null;
 async function pushOnce({ keepalive }) {
   setSync('syncing');
   state.cloud.dirty = false; // si hay cambios durante la subida se vuelven a marcar
-  const sent = [...state.cloud.pending];
+  const sent = [...state.cloud.pending], removed = [...state.cloud.removed];
   const body = { p_token: session.token, p_items: state.items, p_history: state.history.slice(0, CONFIG.CLOUD_HISTORY_LIMIT), p_base_rev: state.cloud.rev, p_extra: state.extra };
   try {
     const json = JSON.stringify(body);
@@ -182,7 +183,7 @@ async function pushOnce({ keepalive }) {
     state.cloud.rev = r.rev;
     state.cloud.owner = dataKey();
     state.cloud.lastSyncAt = new Date().toISOString();
-    markSynced(sent);
+    markSynced(sent, removed);
     clearUndo(); // ya está en la nube: para arreglar errores se usa "Corregir"
     persist();
     setSync('idle');

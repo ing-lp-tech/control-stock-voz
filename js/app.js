@@ -215,19 +215,25 @@ function historyRow(h, opts = {}) {
   const sub = [esc([h.brand, h.type].filter(Boolean).join(' · ')), change, party, who].filter(Boolean).join(' · ');
   const fixNote = h.voided ? `Anulado${h.voided.by ? ` por @${esc(h.voided.by)}` : ''} el ${esc(dateTimeOf(h.voided.at))} · ${esc(h.voided.reason)}`
     : h.corrected ? `Corregido${h.corrected.by ? ` por @${esc(h.corrected.by)}` : ''} el ${esc(dateTimeOf(h.corrected.at))} · ${esc(h.corrected.reason)}` : '';
-  const fixBtn = canFix(h) ? `<button type="button" class="icon-btn tl-fix-btn" data-fix="${esc(h.id)}" title="Corregir o anular este movimiento" aria-label="Corregir movimiento">${icon('edit')}</button>` : '';
-  return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''}" data-move="${esc(h.id)}" ${h.sku ? `data-sku="${esc(h.sku)}"` : ''} tabindex="0" title="Ver el detalle"><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
+  const fixBtn = !opts.select && canFix(h) ? `<button type="button" class="icon-btn tl-fix-btn" data-fix="${esc(h.id)}" title="Corregir o anular este movimiento" aria-label="Corregir movimiento">${icon('edit')}</button>` : '';
+  const sel = opts.select && opts.selected?.has(h.id);
+  const check = opts.select ? `<span class="check tl-check" aria-hidden="true"><input type="checkbox" tabindex="-1" ${sel ? 'checked' : ''}><span></span></span>` : '';
+  return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''} ${sel ? 'selected' : ''}" data-move="${esc(h.id)}" ${h.sku ? `data-sku="${esc(h.sku)}"` : ''} tabindex="0" ${opts.select ? `role="checkbox" aria-checked="${sel ? 'true' : 'false'}" title="Tocá para elegirlo"` : 'title="Ver el detalle"'}>${check}<span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
     <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}${h.voided ? ' <span class="badge badge-danger">Anulado</span>' : h.corrected ? ' <span class="badge badge-warn">Corregido</span>' : ''}</div>
     <div class="tl-sub">${sub || esc(h.note || '')}</div>${fixNote ? `<div class="tl-note">${icon('info', 'sm')} ${fixNote}</div>` : ''}${k === 'fix' && h.note ? `<div class="tl-note">${esc(h.note)}</div>` : ''}</div>
     <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-side-row">${fixBtn}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></span></div></div>`;
 }
-// Agrupa movimientos por día, con la hora de cada uno.
-function historyByDay(rows) {
+// Agrupa movimientos por día, con la hora de cada uno. opts.select: con casillas para elegir varios.
+function historyByDay(rows, opts = {}) {
   let html = '', day = '';
   for (const h of rows) {
-    const d = new Date(h.at).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    if (d !== day) { html += `<div class="tl-day">${esc(d)}</div>`; day = d; }
-    html += historyRow(h, { time: true });
+    const date = new Date(h.at), d = date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (d !== day) {
+      const key = date.toDateString(), all = opts.select && rows.filter(x => new Date(x.at).toDateString() === key).every(x => opts.selected.has(x.id));
+      html += `<div class="tl-day">${opts.select ? `<span>${esc(d.charAt(0).toUpperCase() + d.slice(1))}</span>` : esc(d)}${opts.select ? `<button type="button" class="link tl-day-sel" data-hsel-day="${esc(key)}">${all ? 'Quitar el día' : 'Elegir todo el día'}</button>` : ''}</div>`;
+      day = d;
+    }
+    html += historyRow(h, { time: true, ...opts });
   }
   return html;
 }
@@ -1215,7 +1221,7 @@ async function printLabelsNow() {
 // =========================================================
 // Historial
 // =========================================================
-const hist = { q: '', kind: 'all', code: '', brand: '', type: '', period: 'all', limit: 100 };
+const hist = { q: '', kind: 'all', code: '', brand: '', type: '', period: 'all', limit: 100, select: false, selected: new Set() };
 const kindMatches = (h, kind) => kind === 'all' || S.historyKind(h) === kind || (kind === 'edit' && ['delete', 'import', 'fix'].includes(S.historyKind(h)));
 function periodStart(p) {
   const d = new Date(); d.setHours(0, 0, 0, 0);
@@ -1265,9 +1271,117 @@ function renderHistory() {
   const rows = filteredHistory(), shown = rows.slice(0, hist.limit);
   renderHistSummary(rows);
   const filtered = hist.q || hist.code || hist.brand || hist.type || hist.period !== 'all' || hist.kind !== 'all';
-  byId('histList').innerHTML = historyByDay(shown) || emptyState('history', 'Sin movimientos', filtered ? 'No hay resultados para estos filtros.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
+  if (hist.select && !canManage()) hist.select = false;
+  const ids = new Set(state.history.map(h => h.id));
+  for (const id of hist.selected) if (!ids.has(id)) hist.selected.delete(id);
+  byId('histList').classList.toggle('selecting', hist.select);
+  byId('histList').innerHTML = historyByDay(shown, hist.select ? { select: true, selected: hist.selected } : {}) || emptyState('history', 'Sin movimientos', filtered ? 'No hay resultados para estos filtros.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
   byId('histMore').hidden = rows.length <= shown.length;
   byId('histMore').textContent = `Ver más (${rows.length - shown.length})`;
+  renderHistBulk(rows);
+}
+
+// =========================================================
+// Elegir varios movimientos para anularlos o borrarlos juntos (solo el dueño)
+// =========================================================
+function renderHistBulk(rows = filteredHistory()) {
+  const n = hist.selected.size, all = rows.length > 0 && rows.every(h => hist.selected.has(h.id));
+  byId('histSelect').setAttribute('aria-pressed', String(hist.select));
+  byId('histBulkBar').hidden = !hist.select;
+  byId('histBulkCount').textContent = n ? `${fmt(n)} seleccionado${n === 1 ? '' : 's'}` : 'Tocá los movimientos';
+  byId('histBulkAll').textContent = all ? 'Quitar todos' : `Todos (${fmt(rows.length)})`;
+  byId('histBulkAll').disabled = !rows.length;
+  byId('histBulkDelete').disabled = !n;
+}
+function setHistSelect(on) {
+  if (on && !ownerOnly('eliminar movimientos')) return;
+  hist.select = on;
+  if (!on) hist.selected.clear();
+  renderHistory();
+}
+function toggleHistRow(row) {
+  const id = row.dataset.move, on = !hist.selected.has(id);
+  if (on) hist.selected.add(id); else hist.selected.delete(id);
+  row.classList.toggle('selected', on);
+  row.setAttribute('aria-checked', String(on));
+  const cb = row.querySelector('.tl-check input');
+  if (cb) cb.checked = on;
+  // Sin volver a dibujar la lista (no se pierde el foco): solo la barra y los botones de cada día.
+  const rows = filteredHistory();
+  $$('#histList [data-hsel-day]').forEach(b => {
+    const key = b.dataset.hselDay;
+    b.textContent = rows.filter(h => new Date(h.at).toDateString() === key).every(h => hist.selected.has(h.id)) ? 'Quitar el día' : 'Elegir todo el día';
+  });
+  renderHistBulk(rows);
+}
+const hb = { ids: [], mode: 'void', plan: null };
+function openHistBulk() {
+  if (!ownerOnly('eliminar movimientos')) return;
+  hb.ids = [...hist.selected];
+  if (!hb.ids.length) return;
+  hb.plan = S.planVoid(hb.ids);
+  const n = hb.ids.length;
+  byId('hbTitle').textContent = `Eliminar ${fmt(n)} movimiento${n === 1 ? '' : 's'}`;
+  byId('hbMode').querySelector('[data-v="void"]').disabled = !hb.plan.ok;
+  byId('hbReason').value = '';
+  byId('hbReason').classList.remove('has-error');
+  byId('hbError').hidden = true;
+  $$('#hbReasons .chip').forEach(c => c.classList.remove('active'));
+  setHbMode(hb.plan.ok ? 'void' : 'delete');
+  byId('histBulkDialog').showModal();
+}
+function setHbMode(mode) {
+  hb.mode = mode;
+  segmented(byId('hbMode'), mode);
+  const plan = hb.plan, n = hb.ids.length, moves = hb.ids.map(id => state.history.find(h => h.id === id)).filter(Boolean);
+  const pl = (x, one, many) => `${fmt(x)} ${x === 1 ? one : many}`;
+  const inRemito = moves.filter(h => { const r = S.remitoOfEntry(h.id); return r && !r.voided; }).length;
+  byId('hbReasonField').hidden = mode !== 'void';
+  const notes = [];
+  if (mode === 'void') {
+    notes.push(`<div class="notice info">${icon('info')}<span>El stock vuelve a como estaba antes de estos movimientos. <b>No se borran:</b> quedan tachados en el historial con tu usuario y el motivo, y dejan de contar en los reportes.</span></div>`);
+    if (plan.skipped.length) notes.push(`<div class="notice warn">${icon('alert')}<span>${pl(plan.skipped.length, 'no se puede anular', 'no se pueden anular')} (ya anulado${plan.skipped.length === 1 ? '' : 's'}, ediciones, importaciones o productos borrados): se deja${plan.skipped.length === 1 ? '' : 'n'} como está${plan.skipped.length === 1 ? '' : 'n'}.</span></div>`);
+    if (plan.blocked.length) notes.push(`<div class="notice danger">${icon('alert')}<span>${pl(plan.blocked.length, 'no se puede anular', 'no se pueden anular')} porque el stock quedaría negativo: ${[...new Set(plan.blocked.map(h => h.sku))].map(s => `<b class="mono">${esc(s)}</b>`).join(', ')}.</span></div>`);
+    if (inRemito) notes.push(`<div class="notice">${icon('file')}<span>${pl(inRemito, 'es parte', 'son parte')} de un remito o venta: el comprobante sigue vigente. Para anularlo, abrí el movimiento y tocá el comprobante.</span></div>`);
+  } else {
+    const stockMoves = moves.filter(h => !h.voided && ['in', 'out', 'count'].includes(S.historyKind(h))).length;
+    notes.push(`<div class="notice warn">${icon('trash')}<span>Se quitan del historial y de los reportes. <b>El stock actual no cambia.</b> Sirve para limpiar pruebas o registros que sobran. Podés deshacerlo enseguida con «Deshacer».</span></div>`);
+    if (stockMoves) notes.push(`<div class="notice">${icon('info')}<span>${pl(stockMoves, 'de estos sumó o restó', 'de estos sumaron o restaron')} stock. Si querés que el stock vuelva atrás, elegí <b>«Anular y corregir el stock»</b>.</span></div>`);
+  }
+  byId('hbInfo').innerHTML = notes.join('');
+  if (mode === 'void' && plan.skus.length) {
+    const max = 8, list = plan.skus.slice(0, max).map(s => `<span><b class="mono">${esc(s.item.sku)}</b>: ${fmt(s.before)} → <b>${fmt(s.after)}</b> ${esc(S.unitLabel(s.item.unitName))}</span>`).join('');
+    byId('hbPreview').innerHTML = `<div class="notice success">${icon('check')}<span>Así queda el stock:<span class="hb-list">${list}${plan.skus.length > max ? `<span class="muted">y ${pl(plan.skus.length - max, 'código más', 'códigos más')}</span>` : ''}</span></span></div>`;
+  } else byId('hbPreview').innerHTML = '';
+  byId('hbSave').innerHTML = mode === 'void'
+    ? `${icon('undo')}Anular ${pl(plan.ok, 'movimiento', 'movimientos')}`
+    : `${icon('trash')}Borrar ${pl(n, 'movimiento', 'movimientos')}`;
+  byId('hbSave').disabled = mode === 'void' && !plan.ok;
+}
+function saveHistBulk(e) {
+  e.preventDefault();
+  if (hb.mode === 'void') {
+    const reason = txt(byId('hbReason').value);
+    if (!reason) {
+      byId('hbError').innerHTML = `${icon('alert')}Escribí el motivo o tocá uno de los botones de arriba.`;
+      byId('hbError').hidden = false;
+      byId('hbReason').classList.add('has-error');
+      byId('hbReason').focus();
+      shake(byId('hbSave'));
+      return;
+    }
+    const r = S.voidMovements(hb.ids, reason);
+    if (!r.ok) { byId('hbError').innerHTML = `${icon('alert')}${esc(r.error)}`; byId('hbError').hidden = false; shake(byId('hbSave')); return; }
+    byId('histBulkDialog').close();
+    setHistSelect(false);
+    const left = hb.ids.length - r.done;
+    toast(`${fmt(r.done)} movimiento${r.done === 1 ? '' : 's'} anulado${r.done === 1 ? '' : 's'} y stock corregido${left ? ` · ${fmt(left)} quedaron sin cambios` : ''}`, { type: left ? 'warn' : 'success', action: () => S.undo(), duration: 7000 });
+    return;
+  }
+  const n = S.deleteMovements(hb.ids);
+  byId('histBulkDialog').close();
+  setHistSelect(false);
+  toast(`${fmt(n)} movimiento${n === 1 ? '' : 's'} borrado${n === 1 ? '' : 's'} del historial`, { action: () => S.undo(), duration: 7000 });
 }
 
 // =========================================================
@@ -2317,8 +2431,23 @@ function bindEvents() {
     if (fixBtn) { if (e.type === 'click') { e.stopPropagation(); openFix(fixBtn.dataset.fix); } return; }
     const link = e.target.closest('[data-open-product]');
     if (link) { e.preventDefault(); openProductHistory(link.dataset.openProduct); return; }
+    const day = e.target.closest('[data-hsel-day]');
+    if (day && e.type === 'click') {
+      const rows = filteredHistory().filter(h => new Date(h.at).toDateString() === day.dataset.hselDay);
+      const all = rows.every(h => hist.selected.has(h.id));
+      rows.forEach(h => (all ? hist.selected.delete(h.id) : hist.selected.add(h.id)));
+      renderHistory();
+      return;
+    }
     const row = e.target.closest('.tl-item[data-move]');
-    if (!row || (e.type === 'keydown' && e.key !== 'Enter')) return;
+    if (!row) return;
+    if (hist.select && row.closest('#histList')) {
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      toggleHistRow(row);
+      return;
+    }
+    if (e.type === 'keydown' && e.key !== 'Enter') return;
     openMove(row.dataset.move);
   };
   document.addEventListener('click', openFromRow);
@@ -2350,6 +2479,27 @@ function bindEvents() {
   byId('pdLabels').onclick = () => { const it = S.findByCode(pd.sku); if (it) { byId('productDialog').close(); labelsFor([it.id]); } };
   byId('histFilters').addEventListener('click', e => { const c = e.target.closest('[data-k]'); if (c) { hist.kind = c.dataset.k; hist.limit = 100; renderHistory(); } });
   byId('histMore').onclick = () => { hist.limit += 100; renderHistory(); };
+  byId('histSelect').onclick = () => setHistSelect(!hist.select);
+  byId('histBulkClose').onclick = () => setHistSelect(false);
+  byId('histBulkAll').onclick = () => {
+    const rows = filteredHistory(), all = rows.every(h => hist.selected.has(h.id));
+    rows.forEach(h => (all ? hist.selected.delete(h.id) : hist.selected.add(h.id)));
+    renderHistory();
+  };
+  byId('histBulkDelete').onclick = openHistBulk;
+  onSegment(byId('hbMode'), v => { if (!byId('hbMode').querySelector(`[data-v="${v}"]`).disabled) setHbMode(v); });
+  byId('hbReasons').addEventListener('click', e => {
+    const c = e.target.closest('.chip');
+    if (!c) return;
+    byId('hbReason').value = c.textContent;
+    $$('#hbReasons .chip').forEach(x => x.classList.toggle('active', x === c));
+    byId('hbReason').classList.remove('has-error'); byId('hbError').hidden = true;
+  });
+  byId('hbReason').addEventListener('input', () => {
+    byId('hbReason').classList.remove('has-error'); byId('hbError').hidden = true;
+    $$('#hbReasons .chip').forEach(x => x.classList.toggle('active', x.textContent === byId('hbReason').value));
+  });
+  byId('hbForm').addEventListener('submit', saveHistBulk);
   byId('histExport').onclick = () => { if (!IO.exportHistoryCSV(filteredHistory())) toast('No hay movimientos para exportar.', 'warn'); };
   byId('histClear').onclick = async () => { if (!ownerOnly('borrar el historial')) return; if (await ask({ title: '¿Borrar todo el historial?', message: 'El stock no cambia. Podés deshacerlo enseguida.', confirm: 'Borrar historial', danger: true })) { S.clearHistory(); toast('Historial borrado', { action: () => S.undo() }); } };
 

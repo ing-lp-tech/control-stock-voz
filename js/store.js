@@ -1,6 +1,7 @@
 // Estado del inventario: productos, historial, persistencia local y deshacer.
 // Todas las modificaciones pasan por este módulo y notifican a la interfaz y a la sincronización.
 import { uid, nowIso, txt, upper, num, round2, fmt } from './utils.js';
+import { CONFIG } from './config.js';
 
 const KEY = 'stockvoz_v5_state'; // misma clave que v5: los datos existentes se conservan
 const OLD_KEYS = ['stockData_v26', 'stockvoz_data_v4'];
@@ -43,7 +44,8 @@ export function inputUnitFor(item) {
 export const state = {
   items: [], history: [], lastBackupAt: null, version: 60,
   // pending: movimientos hechos en este dispositivo que todavía no llegaron a la nube (para combinar con otros usuarios).
-  cloud: { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [] },
+  // removed: movimientos borrados acá que la nube todavía tiene (para que no vuelvan al combinar).
+  cloud: { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [], removed: [] },
   // Datos del negocio que se sincronizan: clientes/proveedores, remitos y ajustes (p. ej. usar precios).
   extra: { contacts: [], remitos: [], remitoSeq: 0, settings: {} },
 };
@@ -103,7 +105,7 @@ export function commit(reason, { sync = true } = {}) {
 // ---------- Deshacer ----------
 const undoStack = [];
 function checkpoint() {
-  undoStack.push(JSON.stringify({ items: state.items, history: state.history, extra: state.extra }));
+  undoStack.push(JSON.stringify({ items: state.items, history: state.history, extra: state.extra, removed: state.cloud.removed }));
   if (undoStack.length > UNDO_MAX) undoStack.shift();
 }
 export const canUndo = () => undoStack.length > 0;
@@ -115,6 +117,7 @@ export function undo() {
   const x = JSON.parse(s);
   state.items = x.items; state.history = x.history;
   if (x.extra) state.extra = x.extra;
+  if (x.removed) state.cloud.removed = x.removed;
   commit('undo');
   return true;
 }
@@ -154,6 +157,7 @@ export function load() {
       state.lastBackupAt = x.lastBackupAt || null;
       state.cloud = { ...state.cloud, ...(x.cloud || {}) };
       if (!Array.isArray(state.cloud.pending)) state.cloud.pending = [];
+      if (!Array.isArray(state.cloud.removed)) state.cloud.removed = [];
       state.extra = normalizeExtra(x.extra);
     } else {
       for (const k of OLD_KEYS) {
@@ -455,7 +459,23 @@ export function bulkSet(ids, field, value) {
   return targets.length;
 }
 
-export function clearHistory() { checkpoint(); state.history = []; commit('history'); }
+export function clearHistory() { checkpoint(); markRemoved(state.history.map(h => h.id)); state.history = []; commit('history'); }
+// Borra movimientos del historial sin tocar el stock (para limpiar pruebas o registros que sobran).
+export function deleteMovements(ids) {
+  const del = new Set(ids), before = state.history.length;
+  checkpoint();
+  state.history = state.history.filter(h => !del.has(h.id));
+  const n = before - state.history.length;
+  if (!n) { undoStack.pop(); return 0; }
+  markRemoved([...del]);
+  commit('history');
+  return n;
+}
+function markRemoved(ids) {
+  const list = state.cloud.removed;
+  for (const id of ids) if (id && !list.includes(id)) list.push(id);
+  if (list.length > 5000) list.splice(0, list.length - 5000);
+}
 
 // rows: productos ya normalizados por io.js. replace=true reemplaza todo; si no, combina por SKU.
 export function importItems(rows, replace, history = null, extra = null) {
@@ -492,6 +512,55 @@ export function importItems(rows, replace, history = null, extra = null) {
 export function fixMovement(id, change) {
   const h = state.history.find(x => x.id === id);
   if (!h) return fail('No se encontró el movimiento.');
+  return fixEntry(h, change, true);
+}
+// ¿Se puede anular? Solo ingresos, salidas y conteos de productos que siguen en el inventario.
+export function canVoid(h) {
+  return !!h && !h.voided && ['in', 'out', 'count'].includes(historyKind(h)) && h.before != null && h.after != null && state.items.some(i => i.sku === h.sku);
+}
+// Cuánto movió el stock ese movimiento (con su corrección, si la tuvo).
+function movedDelta(h) {
+  const k = historyKind(h), current = h.corrected ? h.corrected.to : { quantity: h.quantity, after: h.after };
+  return k === 'count' ? num(current.after ?? h.after) - h.before : (k === 'out' ? -1 : 1) * num(current.quantity);
+}
+// Orden para anular varios: primero las salidas (devuelven stock), después conteos e ingresos; los más nuevos primero.
+const VOID_ORDER = { out: 0, count: 1, in: 2 };
+function voidList(ids) {
+  return ids.map(id => state.history.find(x => x.id === id)).filter(Boolean)
+    .sort((a, b) => (VOID_ORDER[historyKind(a)] ?? 9) - (VOID_ORDER[historyKind(b)] ?? 9) || String(b.at).localeCompare(String(a.at)));
+}
+// Simula la anulación de varios movimientos: cómo queda el stock de cada código y cuáles no se pueden anular.
+export function planVoid(ids) {
+  const units = new Map(), skus = new Map(), skipped = [], blocked = [];
+  let ok = 0;
+  for (const h of voidList(ids)) {
+    if (!canVoid(h)) { skipped.push(h); continue; }
+    const item = state.items.find(i => i.sku === h.sku);
+    const cur = units.has(h.sku) ? units.get(h.sku) : item.units, next = round2(cur - movedDelta(h));
+    if (next < 0) { blocked.push(h); continue; }
+    units.set(h.sku, next);
+    if (!skus.has(h.sku)) skus.set(h.sku, { item, before: item.units });
+    skus.get(h.sku).after = next;
+    ok++;
+  }
+  return { ok, skus: [...skus.values()], skipped, blocked };
+}
+// Anula varios movimientos juntos (un solo "Deshacer"). Los que no se pueden anular se informan y se saltean.
+export function voidMovements(ids, reason) {
+  if (!txt(reason)) return fail('Escribí el motivo de la anulación.');
+  checkpoint();
+  let done = 0;
+  const failed = [];
+  for (const h of voidList(ids)) {
+    if (!canVoid(h)) continue;
+    const r = fixEntry(h, { remove: true, reason }, false);
+    if (r.ok) done++; else failed.push({ h, error: r.error });
+  }
+  if (!done) { undoStack.pop(); return fail(failed[0]?.error || 'No hay movimientos para anular.'); }
+  commit('fix');
+  return { ok: true, done, failed };
+}
+function fixEntry(h, change, save) {
   if (h.voided) return fail('Este movimiento ya fue anulado.');
   const k = historyKind(h);
   if (!['in', 'out', 'count'].includes(k) || h.before == null || h.after == null) return fail('Solo se pueden corregir ingresos, salidas y conteos.');
@@ -500,8 +569,7 @@ export function fixMovement(id, change) {
   const reason = txt(change.reason);
   if (!reason) return fail('Escribí el motivo de la corrección.');
 
-  const current = h.corrected ? h.corrected.to : { quantity: h.quantity, after: h.after };
-  const oldDelta = k === 'count' ? num(current.after ?? h.after) - h.before : (k === 'out' ? -1 : 1) * num(current.quantity);
+  const oldDelta = movedDelta(h);
   let newDelta = 0, to = null;
   if (!change.remove) {
     const u = inputUnit(change.unit);
@@ -516,7 +584,7 @@ export function fixMovement(id, change) {
   if (diff === 0 && !change.remove) return fail('La cantidad nueva es igual a la registrada.');
   if (item.units + diff < 0) return fail(`No se puede: el stock de ${item.sku} quedaría negativo (hoy hay ${fmt(item.units)} ${unitLabel(item.unitName)}).`);
 
-  checkpoint();
+  if (save) checkpoint();
   const before = item.units;
   item.units = round2(before + diff);
   item.updatedAt = nowIso();
@@ -528,7 +596,7 @@ export function fixMovement(id, change) {
     before, after: item.units, quantity: Math.abs(diff), fixOf: h.id, serial: h.serial, source: 'corrección',
     note: `${change.remove ? 'Anula' : 'Corrige'} ${String(h.action).toLowerCase()} del ${when}: ${reason}`,
   });
-  commit('fix');
+  if (save) commit('fix');
   return { ok: true, item, before, after: item.units, diff };
 }
 
@@ -537,8 +605,9 @@ export function fixMovement(id, change) {
 // encima los movimientos hechos acá que todavía no se subieron. Así nadie pisa el trabajo de otro:
 // si dos personas sacan una docena del mismo código, se descuentan las dos.
 export function rebase(remote) {
-  const pending = new Set(state.cloud.pending);
-  const remoteHistory = (remote.history || []).filter(h => h && h.at);
+  const pending = new Set(state.cloud.pending), removed = new Set(state.cloud.removed);
+  const remoteAll = (remote.history || []).filter(h => h && h.at);
+  const remoteHistory = remoteAll.filter(h => !removed.has(h.id));
   const remoteIds = new Set(remoteHistory.map(h => h.id));
   const items = new Map((remote.items || []).filter(i => i && i.sku).map(normalizeItem).map(i => [i.sku, i]));
   const localItems = new Map(state.items.map(i => [i.sku, i]));
@@ -568,9 +637,13 @@ export function rebase(remote) {
     const it = items.get(sku);
     if (it) it.serials = { D: Math.max(it.serials.D, local.serials?.D || 0), U: Math.max(it.serials.U, local.serials?.U || 0) };
   }
-  // Historial: unión sin duplicados; las anulaciones/correcciones hechas acá se mantienen en el movimiento original.
+  // Historial: el de la nube más lo hecho acá que todavía no se subió. Un movimiento que ya se había subido y la
+  // nube no tiene fue borrado en otro dispositivo: no se recupera (salvo los viejos que la nube ya no guarda).
+  // Las anulaciones/correcciones hechas acá se mantienen en el movimiento original.
+  const trimmed = remote.role !== 'employee' && remoteAll.length >= CONFIG.CLOUD_HISTORY_LIMIT;
+  const oldest = remoteAll.reduce((m, h) => (String(h.at) < m ? String(h.at) : m), '\uffff');
   const merged = new Map(remoteHistory.map(h => [h.id, h]));
-  for (const h of state.history) if (!merged.has(h.id)) merged.set(h.id, h);
+  for (const h of state.history) if (!merged.has(h.id) && (pending.has(h.id) || (trimmed && String(h.at) < oldest))) merged.set(h.id, h);
   for (const h of mine) {
     if (!h.fixOf) continue;
     const target = merged.get(h.fixOf), localTarget = state.history.find(x => x.id === h.fixOf);
@@ -678,9 +751,10 @@ export function voidRemito(id, reason) {
 // Comprobante (venta, compra o remito) al que pertenece un movimiento.
 export const remitoOfEntry = entryId => (entryId ? state.extra.remitos.find(r => r.entryIds?.includes(entryId)) || null : null);
 // Se confirma que estos movimientos ya están en la nube.
-export function markSynced(ids) {
-  const sent = new Set(ids);
+export function markSynced(ids, removed = []) {
+  const sent = new Set(ids), gone = new Set(removed);
   state.cloud.pending = state.cloud.pending.filter(id => !sent.has(id));
+  state.cloud.removed = state.cloud.removed.filter(id => !gone.has(id));
 }
 
 // ---------- Datos que llegan de la nube ----------
@@ -710,7 +784,7 @@ export function mergeData(items, history, extra) {
 
 export function markBackup() { state.lastBackupAt = nowIso(); persist(); }
 export function wipeLocal() {
-  state.items = []; state.history = []; state.cloud = { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [] };
+  state.items = []; state.history = []; state.cloud = { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [], removed: [] };
   state.extra = EXTRA_DEFAULT();
   undoStack.length = 0;
   commit('wipe', { sync: false });
