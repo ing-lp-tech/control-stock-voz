@@ -1,10 +1,10 @@
 // Service worker de StockVoz: la app abre sin internet después de la primera visita.
 // Al publicar cambios, subí VERSION para que los usuarios reciban la actualización.
-const VERSION = 'stockvoz-v6.0.0';
+const VERSION = 'stockvoz-v6.1.0';
 const CORE = [
   './', './index.html', './admin.html', './manifest.webmanifest', './css/styles.css',
   './js/app.js', './js/admin.js', './js/config.js', './js/utils.js', './js/store.js', './js/cloud.js',
-  './js/voice.js', './js/scanner.js', './js/labels.js', './js/io.js',
+  './js/voice.js', './js/scanner.js', './js/labels.js', './js/io.js', './js/remito.js', './js/reports.js',
   './icons/icon.svg', './icons/sprite.svg', './assets/creador.jpg',
 ];
 // Librerías externas: se guardan para poder imprimir etiquetas y exportar Excel sin conexión.
@@ -12,6 +12,7 @@ const CDN = [
   'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js',
   'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
   'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
 ];
 
 // Vercel con "cleanUrls" redirige /index.html → /. Una respuesta redirigida no se puede servir a una navegación,

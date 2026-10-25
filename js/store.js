@@ -42,8 +42,24 @@ export function inputUnitFor(item) {
 
 export const state = {
   items: [], history: [], lastBackupAt: null, version: 60,
-  cloud: { owner: null, rev: 0, dirty: false, lastSyncAt: null },
+  // pending: movimientos hechos en este dispositivo que todavía no llegaron a la nube (para combinar con otros usuarios).
+  cloud: { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [] },
+  // Datos del negocio que se sincronizan: clientes/proveedores y remitos.
+  extra: { contacts: [], remitos: [], remitoSeq: 0 },
 };
+const EXTRA_DEFAULT = () => ({ contacts: [], remitos: [], remitoSeq: 0 });
+const REMITOS_MAX = 500;
+export function normalizeExtra(x) {
+  const e = { ...EXTRA_DEFAULT(), ...(x && typeof x === 'object' ? x : {}) };
+  e.contacts = Array.isArray(e.contacts) ? e.contacts.filter(c => c && c.id) : [];
+  e.remitos = Array.isArray(e.remitos) ? e.remitos.filter(r => r && r.id) : [];
+  e.remitoSeq = Math.max(0, Math.floor(num(e.remitoSeq)), ...e.remitos.map(r => num(r.number)));
+  return e;
+}
+
+// Quién está usando la app (se guarda en cada movimiento). Vacío en modo local.
+let actor = '';
+export const setActor = name => { actor = name || ''; };
 
 // ---------- Suscripción a cambios ----------
 const listeners = new Set();
@@ -65,15 +81,18 @@ export function commit(reason, { sync = true } = {}) {
 // ---------- Deshacer ----------
 const undoStack = [];
 function checkpoint() {
-  undoStack.push(JSON.stringify({ items: state.items, history: state.history }));
+  undoStack.push(JSON.stringify({ items: state.items, history: state.history, extra: state.extra }));
   if (undoStack.length > UNDO_MAX) undoStack.shift();
 }
 export const canUndo = () => undoStack.length > 0;
+// Después de sincronizar, deshacer ya no es seguro (otros pueden haber usado esos datos): se usa "Corregir".
+export const clearUndo = () => { undoStack.length = 0; };
 export function undo() {
   const s = undoStack.pop();
   if (!s) return false;
   const x = JSON.parse(s);
   state.items = x.items; state.history = x.history;
+  if (x.extra) state.extra = x.extra;
   commit('undo');
   return true;
 }
@@ -108,6 +127,8 @@ export function load() {
       state.history = Array.isArray(x.history) ? x.history : [];
       state.lastBackupAt = x.lastBackupAt || null;
       state.cloud = { ...state.cloud, ...(x.cloud || {}) };
+      if (!Array.isArray(state.cloud.pending)) state.cloud.pending = [];
+      state.extra = normalizeExtra(x.extra);
     } else {
       for (const k of OLD_KEYS) {
         const old = localStorage.getItem(k);
@@ -160,7 +181,7 @@ export function resolveCode(code) {
   return { item: owner, pack: m[2], number: Number(m[3]), serial: c };
 }
 // Último movimiento registrado de una etiqueta numerada (para avisar si se escanea dos veces).
-export const lastSerialEvent = serial => state.history.find(h => h.serial === serial) || null;
+export const lastSerialEvent = serial => state.history.find(h => h.serial === serial && !h.voided && h.kind !== 'fix') || null;
 
 // Guarda hasta qué número se imprimió, para que la próxima tanda continúe la numeración.
 export function reserveSerials(plan) {
@@ -194,6 +215,13 @@ export function serialInfo(serial) {
   return m ? { pack: m[1], number: Number(m[2]), label: `${PACKS[m[1]].label} N.º ${m[2]}` } : null;
 }
 
+// Unidades que realmente movió un registro, considerando anulaciones y correcciones posteriores.
+export function effectiveQty(h) {
+  if (h.voided) return 0;
+  if (h.corrected) return num(h.corrected.to?.quantity);
+  return num(h.quantity);
+}
+
 export function historyKind(h) {
   if (h.kind) return h.kind;
   const a = String(h.action || '');
@@ -213,7 +241,7 @@ export function generateSku(brand = '', type = '') {
 }
 
 function log(kind, action, item, d = {}) {
-  state.history.unshift({
+  const entry = {
     id: uid(), at: nowIso(), kind, action,
     sku: item?.sku || d.sku || '', brand: item?.brand || '', type: item?.type || '',
     stockType: item?.stockType || d.stockType || 'inventario', unit: item ? unitLabel(item.unitName) : '',
@@ -221,8 +249,16 @@ function log(kind, action, item, d = {}) {
     ...(d.serial ? { serial: d.serial } : {}),
     ...(d.entered ? { entered: d.entered } : {}), // cantidad tal como se cargó, p. ej. { qty: 1, unit: 'docenas' }
     ...(d.source ? { source: d.source } : {}),
-  });
+    ...(d.abs ? { abs: true } : {}),             // el stock se fijó a un valor (no es una suma/resta)
+    ...(d.fixOf ? { fixOf: d.fixOf } : {}),      // corrección o anulación de otro movimiento
+    ...(d.contact ? { contact: d.contact } : {}), // cliente o proveedor
+    ...(actor ? { by: actor } : {}),
+  };
+  state.history.unshift(entry);
   if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
+  state.cloud.pending.push(entry.id);
+  if (state.cloud.pending.length > 5000) state.cloud.pending.splice(0, state.cloud.pending.length - 5000);
+  return entry;
 }
 const fail = error => ({ ok: false, error });
 
@@ -261,9 +297,9 @@ export function applyMovement(v) {
   const kind = op === 'establecer' ? 'count' : op === 'restar' ? 'out' : 'in';
   const shown = `${fmt(qty)} ${u.short}`;
   const source = String(v.source || 'manual').split(' · ')[0];
-  log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, entered: { qty, unit: u.short }, source, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
+  const entry = log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, entered: { qty, unit: u.short }, source, contact: v.contact ? { id: v.contact.id, name: v.contact.name, kind: v.contact.kind } : undefined, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
   commit('movement');
-  return { ok: true, item, before, after: item.units, amount, op, created: !existing };
+  return { ok: true, item, before, after: item.units, amount, op, created: !existing, entryId: entry.id };
 }
 
 export function adjust(id, delta, note = 'Ajuste rápido') {
@@ -307,7 +343,8 @@ export function saveItem(id, patch) {
     units: round2(units), minStock: Math.max(0, num(patch.minStock)), updatedAt: nowIso(),
   });
   if (i.unitName !== 'unidades') i.displayUnit = inputUnitFor(i);
-  log('edit', 'Edición', i, { before, after: i.units, note: 'Edición manual' });
+  // Solo si cambió el stock se registra el valor (al combinar con otros usuarios, fija el stock a ese número).
+  log('edit', 'Edición', i, before !== i.units ? { before, after: i.units, abs: true, note: 'Edición manual del stock' } : { note: 'Edición de datos del producto' });
   commit('edit');
   return { ok: true, item: i };
 }
@@ -369,15 +406,188 @@ export function importItems(rows, replace, history = null) {
   commit('import');
 }
 
+// ---------- Corrección de movimientos ----------
+// Corrige la cantidad de un ingreso/salida/conteo o lo anula. No borra nada: el original queda marcado
+// (quién, cuándo y por qué) y se agrega un movimiento de corrección que ajusta el stock.
+// change: { remove: true } o { qty, unit }, más { reason }
+export function fixMovement(id, change) {
+  const h = state.history.find(x => x.id === id);
+  if (!h) return fail('No se encontró el movimiento.');
+  if (h.voided) return fail('Este movimiento ya fue anulado.');
+  const k = historyKind(h);
+  if (!['in', 'out', 'count'].includes(k) || h.before == null || h.after == null) return fail('Solo se pueden corregir ingresos, salidas y conteos.');
+  const item = state.items.find(i => i.sku === h.sku);
+  if (!item) return fail(`El producto ${h.sku} ya no está en el inventario.`);
+  const reason = txt(change.reason);
+  if (!reason) return fail('Escribí el motivo de la corrección.');
+
+  const current = h.corrected ? h.corrected.to : { quantity: h.quantity, after: h.after };
+  const oldDelta = k === 'count' ? num(current.after ?? h.after) - h.before : (k === 'out' ? -1 : 1) * num(current.quantity);
+  let newDelta = 0, to = null;
+  if (!change.remove) {
+    const u = inputUnit(change.unit);
+    if (u.stock !== item.unitName) return fail(`${item.sku} se controla en ${unitLabel(item.unitName)}. Elegí una unidad compatible.`);
+    const qty = Number(String(change.qty ?? '').replace(',', '.'));
+    if (!Number.isFinite(qty) || qty < 0 || (qty === 0 && k !== 'count')) return fail('Ingresá una cantidad válida (o anulá el movimiento).');
+    const amount = round2(qty * u.factor);
+    newDelta = k === 'count' ? amount - h.before : (k === 'out' ? -amount : amount);
+    to = { qty, unit: u.short, quantity: k === 'count' ? Math.abs(amount - h.before) : amount, after: k === 'count' ? amount : null };
+  }
+  const diff = round2(newDelta - oldDelta);
+  if (diff === 0 && !change.remove) return fail('La cantidad nueva es igual a la registrada.');
+  if (item.units + diff < 0) return fail(`No se puede: el stock de ${item.sku} quedaría negativo (hoy hay ${fmt(item.units)} ${unitLabel(item.unitName)}).`);
+
+  checkpoint();
+  const before = item.units;
+  item.units = round2(before + diff);
+  item.updatedAt = nowIso();
+  const stamp = { at: nowIso(), by: actor, reason };
+  if (change.remove) h.voided = stamp;
+  else h.corrected = { ...stamp, from: h.corrected?.from || { qty: enteredOf(h)?.qty, unit: enteredOf(h)?.unit, quantity: h.quantity }, to };
+  const when = new Date(h.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  log('fix', change.remove ? 'Anulación' : 'Corrección', item, {
+    before, after: item.units, quantity: Math.abs(diff), fixOf: h.id, serial: h.serial,
+    note: `${change.remove ? 'Anula' : 'Corrige'} ${String(h.action).toLowerCase()} del ${when}: ${reason}`,
+  });
+  commit('fix');
+  return { ok: true, item, before, after: item.units, diff };
+}
+
+// ---------- Combinar con cambios de otros usuarios ----------
+// Cuando otro dispositivo (o un empleado) guardó antes, se parte de los datos de la nube y se vuelven a aplicar
+// encima los movimientos hechos acá que todavía no se subieron. Así nadie pisa el trabajo de otro:
+// si dos personas sacan una docena del mismo código, se descuentan las dos.
+export function rebase(remote) {
+  const pending = new Set(state.cloud.pending);
+  const remoteHistory = (remote.history || []).filter(h => h && h.at);
+  const remoteIds = new Set(remoteHistory.map(h => h.id));
+  const items = new Map((remote.items || []).filter(i => i && i.sku).map(normalizeItem).map(i => [i.sku, i]));
+  const localItems = new Map(state.items.map(i => [i.sku, i]));
+  const mine = state.history.filter(h => pending.has(h.id) && !remoteIds.has(h.id)).reverse(); // del más viejo al más nuevo
+
+  for (const h of mine) {
+    const k = historyKind(h);
+    if (k === 'delete') { items.delete(h.sku); continue; }
+    let it = items.get(h.sku);
+    const local = localItems.get(h.sku);
+    if (!it) {
+      if (!local) continue;
+      it = normalizeItem({ ...local, units: 0 });
+      items.set(h.sku, it);
+    } else if (local && local.updatedAt > it.updatedAt) {
+      // Datos del producto (marca, prenda, mínimo…) editados acá: se conservan. El stock se recalcula abajo.
+      Object.assign(it, { brand: local.brand, type: local.type, barcode: local.barcode, minStock: local.minStock, stockType: local.stockType, unitName: local.unitName, displayUnit: local.displayUnit });
+    }
+    if (h.before != null && h.after != null) {
+      it.units = round2(Math.max(0, k === 'count' || h.abs ? h.after : it.units + (h.after - h.before)));
+      it.updatedAt = h.at > it.updatedAt ? h.at : it.updatedAt;
+    }
+  }
+  // Numeración de etiquetas: gana el número más alto.
+  for (const [sku, local] of localItems) {
+    const it = items.get(sku);
+    if (it) it.serials = { D: Math.max(it.serials.D, local.serials?.D || 0), U: Math.max(it.serials.U, local.serials?.U || 0) };
+  }
+  // Historial: unión sin duplicados; las anulaciones/correcciones hechas acá se mantienen en el movimiento original.
+  const merged = new Map(remoteHistory.map(h => [h.id, h]));
+  for (const h of state.history) if (!merged.has(h.id)) merged.set(h.id, h);
+  for (const h of mine) {
+    if (!h.fixOf) continue;
+    const target = merged.get(h.fixOf), localTarget = state.history.find(x => x.id === h.fixOf);
+    if (target && localTarget) { if (localTarget.voided) target.voided = localTarget.voided; if (localTarget.corrected) target.corrected = localTarget.corrected; }
+  }
+  state.items = [...items.values()];
+  state.history = [...merged.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, HISTORY_MAX);
+  state.extra = mergeExtra(remote.extra, state.extra);
+  state.cloud.rev = remote.rev || 0;
+  commit('merge');
+}
+// Clientes: gana la versión editada más recientemente. Remitos: se unen; si dos dispositivos usaron el mismo
+// número, el remito hecho acá toma el siguiente número libre.
+function mergeExtra(remoteExtra, localExtra) {
+  const r = normalizeExtra(remoteExtra), l = normalizeExtra(localExtra);
+  const contacts = new Map(r.contacts.map(c => [c.id, c]));
+  for (const c of l.contacts) { const o = contacts.get(c.id); if (!o || String(c.updatedAt || '') > String(o.updatedAt || '')) contacts.set(c.id, c); }
+  const remitos = new Map(r.remitos.map(x => [x.id, x]));
+  let seq = Math.max(r.remitoSeq, l.remitoSeq);
+  const used = new Set(r.remitos.map(x => x.number));
+  for (const x of l.remitos) {
+    if (remitos.has(x.id)) continue;
+    const copy = { ...x };
+    if (used.has(copy.number)) copy.number = ++seq;
+    used.add(copy.number);
+    remitos.set(copy.id, copy);
+  }
+  const list = [...remitos.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, REMITOS_MAX);
+  return { ...r, contacts: [...contacts.values()], remitos: list, remitoSeq: Math.max(seq, ...list.map(x => num(x.number))) };
+}
+
+// ---------- Clientes y proveedores ----------
+export const CONTACT_KINDS = { cliente: 'Cliente', proveedor: 'Proveedor' };
+export const contacts = (kind = null) => state.extra.contacts
+  .filter(c => !c.deleted && (!kind || c.kind === kind))
+  .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+export const findContact = id => state.extra.contacts.find(c => c.id === id && !c.deleted) || null;
+export const findContactByName = (name, kind) => {
+  const n = upper(name);
+  return state.extra.contacts.find(c => !c.deleted && upper(c.name) === n && (!kind || c.kind === kind)) || null;
+};
+export function saveContact(c) {
+  const name = txt(c.name);
+  if (!name) return fail('Escribí el nombre.');
+  const kind = CONTACT_KINDS[c.kind] ? c.kind : 'cliente';
+  const dup = state.extra.contacts.find(x => !x.deleted && x.id !== c.id && upper(x.name) === upper(name) && x.kind === kind);
+  if (dup) return fail(`Ya existe un ${CONTACT_KINDS[kind].toLowerCase()} llamado ${dup.name}.`);
+  const data = { name, kind, phone: txt(c.phone).replace(/[^\d+]/g, ''), doc: txt(c.doc), address: txt(c.address), note: txt(c.note), updatedAt: nowIso() };
+  let contact = c.id && state.extra.contacts.find(x => x.id === c.id);
+  if (contact) Object.assign(contact, data);
+  else { contact = { id: uid(), createdAt: nowIso(), ...data }; state.extra.contacts.push(contact); }
+  commit('contacts');
+  return { ok: true, contact };
+}
+// Se marca como borrado (no se elimina) para que no "reaparezca" al combinar con otro dispositivo.
+export function deleteContact(id) {
+  const c = state.extra.contacts.find(x => x.id === id);
+  if (!c) return false;
+  c.deleted = true; c.updatedAt = nowIso();
+  commit('contacts');
+  return true;
+}
+
+// ---------- Remitos ----------
+// lines: [{ sku, name, qty, unit, units, serials: [] }] · kind: 'salida' | 'entrada'
+export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [] }) {
+  if (!lines.length) return fail('El remito no tiene productos.');
+  const number = state.extra.remitoSeq + 1;
+  const remito = {
+    id: uid(), number, at: nowIso(), kind, note: txt(note), by: actor || '',
+    contact: contact ? { id: contact.id, name: contact.name, phone: contact.phone || '', doc: contact.doc || '', address: contact.address || '' } : null,
+    lines, entryIds,
+  };
+  state.extra.remitoSeq = number;
+  state.extra.remitos.unshift(remito);
+  if (state.extra.remitos.length > REMITOS_MAX) state.extra.remitos.length = REMITOS_MAX;
+  commit('remito');
+  return { ok: true, remito };
+}
+export const remitoCode = r => `R-${String(r.number).padStart(5, '0')}`;
+// Se confirma que estos movimientos ya están en la nube.
+export function markSynced(ids) {
+  const sent = new Set(ids);
+  state.cloud.pending = state.cloud.pending.filter(id => !sent.has(id));
+}
+
 // ---------- Datos que llegan de la nube ----------
-export function replaceAll(items, history) {
+export function replaceAll(items, history, extra) {
   state.items = (items || []).filter(i => i && i.sku).map(normalizeItem);
   state.history = (history || []).filter(h => h && h.at);
+  if (extra !== undefined) state.extra = normalizeExtra(extra);
   commit('cloud', { sync: false });
 }
 // Combina por SKU (gana la versión modificada más recientemente) y une los historiales sin duplicar.
-export function mergeData(items, history) {
+export function mergeData(items, history, extra) {
   checkpoint();
+  if (extra) state.extra = mergeExtra(extra, state.extra);
   const map = new Map(state.items.map(i => [i.sku, i]));
   for (const r of (items || []).filter(i => i && i.sku).map(normalizeItem)) {
     const l = map.get(r.sku);
@@ -394,7 +604,8 @@ export function mergeData(items, history) {
 
 export function markBackup() { state.lastBackupAt = nowIso(); persist(); }
 export function wipeLocal() {
-  state.items = []; state.history = []; state.cloud = { owner: null, rev: 0, dirty: false, lastSyncAt: null };
+  state.items = []; state.history = []; state.cloud = { owner: null, rev: 0, dirty: false, lastSyncAt: null, pending: [] };
+  state.extra = EXTRA_DEFAULT();
   undoStack.length = 0;
   commit('wipe', { sync: false });
 }

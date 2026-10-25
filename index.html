@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#070c18">
+<meta name="theme-color" content="#0e0f11">
 <meta name="description" content="StockVoz: control de stock por voz, escáner de códigos de barras y QR, etiquetas imprimibles y respaldo en la nube.">
 <meta name="author" content="Ingeniero Emprendedor">
 <meta name="copyright" content="© Ingeniero Emprendedor. Todos los derechos reservados.">
@@ -33,7 +33,11 @@
    <a class="nav-item" href="#/escanear" data-nav="escanear"><i data-i="scan"></i><span>Escanear</span><kbd>F2</kbd></a>
    <a class="nav-item" href="#/inventario" data-nav="inventario"><i data-i="box"></i><span>Inventario</span><span class="nav-count" id="navCount">0</span></a>
    <a class="nav-item" href="#/etiquetas" data-nav="etiquetas"><i data-i="tag"></i><span>Etiquetas</span></a>
-   <a class="nav-item" href="#/historial" data-nav="historial"><i data-i="history"></i><span>Historial</span></a>
+   <a class="nav-item" href="#/clientes" data-nav="clientes"><i data-i="users"></i><span>Clientes y proveedores</span></a>
+   <a class="nav-item" href="#/kiosco" data-nav="kiosco"><i data-i="zap"></i><span>Modo mostrador</span></a>
+   <p class="nav-label owner-only">Dueña</p>
+   <a class="nav-item owner-only" href="#/historial" data-nav="historial"><i data-i="history"></i><span>Historial</span></a>
+   <a class="nav-item owner-only" href="#/reportes" data-nav="reportes"><i data-i="layers"></i><span>Reportes</span></a>
    <p class="nav-label">Gestión</p>
    <a class="nav-item" href="#/datos" data-nav="datos"><i data-i="database"></i><span>Datos y respaldos</span></a>
    <a class="nav-item" href="#/cuenta" data-nav="cuenta"><i data-i="user"></i><span>Cuenta y nube</span></a>
@@ -88,7 +92,7 @@
     </div>
 
     <div class="grid-2">
-     <div class="card"><div class="card-head"><h3>Actividad reciente</h3><a class="link" href="#/historial">Ver todo <i data-i="chevron-right" class="sm"></i></a></div><div id="recentList" class="timeline"></div></div>
+     <div class="card owner-only"><div class="card-head"><h3>Actividad reciente</h3><a class="link" href="#/historial">Ver todo <i data-i="chevron-right" class="sm"></i></a></div><div id="recentList" class="timeline"></div></div>
      <div class="card"><div class="card-head"><h3>Alertas de stock</h3><a class="link" href="#/inventario?f=alert">Ver todas <i data-i="chevron-right" class="sm"></i></a></div><div id="alertList"></div></div>
     </div>
 
@@ -145,6 +149,9 @@
          </div>
         </div>
         <div class="span-2" id="formProduct" hidden></div>
+        <div class="field span-2" id="fContactField"><label for="fContact" id="fContactLabel">Cliente</label>
+         <div class="input-group"><input id="fContact" class="input" list="contactList" placeholder="Elegí o escribí un nombre (opcional)" autocomplete="off"><button type="button" class="icon-btn bordered" id="fContactNew" title="Nuevo cliente o proveedor"><i data-i="plus"></i></button></div>
+        </div>
         <div class="field new-only"><label for="fBrand">Marca</label><input id="fBrand" class="input" list="brandList" placeholder="Ej. URUS"></div>
         <div class="field new-only"><label for="fType">Prenda / tipo</label><input id="fType" class="input" list="typeList" placeholder="Ej. Short"></div>
         <div class="field"><label for="fQty">Cantidad *</label>
@@ -187,7 +194,7 @@
        <div class="scan-last" id="scanLast"></div>
       </div>
       <div class="card">
-       <div class="card-head"><div><h3>Sesión de escaneo</h3><p>Lecturas desde que abriste esta sesión</p></div><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Nueva sesión</button></div>
+       <div class="card-head"><div><h3>Sesión de escaneo</h3><p>Lecturas desde que abriste esta sesión</p></div><div class="row"><button id="scanRemito" class="btn btn-primary btn-sm" type="button" disabled><i data-i="file" class="sm"></i>Remito</button><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Nueva sesión</button></div></div>
        <div class="mini-stats"><div><strong id="ssReads">0</strong><span>lecturas</span></div><div><strong id="ssUnits">0</strong><span>unidades</span></div><div><strong id="ssProducts">0</strong><span>productos</span></div></div>
        <div id="scanFeed" class="feed"></div>
       </div>
@@ -202,6 +209,9 @@
         <button type="button" data-v="establecer"><i data-i="equal"></i>Conteo</button>
        </div>
        <p class="hint" id="scanOpHint"></p>
+      </div>
+      <div class="field" id="scanContactField"><label for="scanContact" id="scanContactLabel">Cliente de esta sesión</label>
+       <div class="input-group"><input id="scanContact" class="input" list="contactList" placeholder="Opcional · se guarda en cada lectura" autocomplete="off"><button type="button" class="icon-btn bordered" id="scanContactNew" title="Nuevo cliente o proveedor"><i data-i="plus"></i></button></div>
       </div>
       <div class="field"><label for="scanQty">Cantidad por lectura</label>
        <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="scanQty" type="number" inputmode="decimal" min="0.01" step="any" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
@@ -234,7 +244,7 @@
      <strong id="bulkCount">0 seleccionados</strong>
      <button class="btn btn-sm" type="button" id="bulkLabels"><i data-i="tag" class="sm"></i>Etiquetas</button>
      <button class="btn btn-sm" type="button" id="bulkEdit"><i data-i="edit" class="sm"></i>Editar</button>
-     <button class="btn btn-sm" type="button" id="bulkDelete"><i data-i="trash" class="sm"></i>Eliminar</button>
+     <button class="btn btn-sm owner-only" type="button" id="bulkDelete"><i data-i="trash" class="sm"></i>Eliminar</button>
      <button class="icon-btn" type="button" id="bulkClear" title="Quitar selección"><i data-i="x"></i></button>
     </div>
     <div id="invList"></div>
@@ -334,7 +344,7 @@
      <div class="hist-actions">
       <button class="btn btn-ghost" type="button" id="histReset" title="Quitar filtros"><i data-i="x"></i><span>Limpiar</span></button>
       <button class="btn btn-ghost" type="button" id="histExport" title="Exportar lo filtrado"><i data-i="download"></i><span>CSV</span></button>
-      <button class="btn btn-ghost danger-text" type="button" id="histClear" title="Borrar todo el historial"><i data-i="trash"></i></button>
+      <button class="btn btn-ghost danger-text owner-only" type="button" id="histClear" title="Borrar todo el historial"><i data-i="trash"></i></button>
      </div>
     </div>
     <div class="chips" id="histFilters" style="margin-bottom:14px">
@@ -348,6 +358,48 @@
     <div class="card"><div id="histList" class="timeline"></div><div class="list-more"><button class="btn btn-ghost" type="button" id="histMore" hidden>Ver más</button></div></div>
    </section>
 
+   <!-- ===== CLIENTES Y PROVEEDORES ===== -->
+   <section class="view" data-view="clientes">
+    <div class="card toolbar">
+     <div class="search"><i data-i="search"></i><input id="ctSearch" class="input" type="search" placeholder="Buscar por nombre, teléfono o CUIT…" aria-label="Buscar clientes y proveedores"></div>
+     <div class="segmented" id="ctKind"><button type="button" data-v="cliente">Clientes</button><button type="button" data-v="proveedor">Proveedores</button></div>
+     <button class="btn btn-primary" type="button" id="ctNew"><i data-i="plus"></i><span>Nuevo</span></button>
+    </div>
+    <div class="grid-2" style="align-items:start">
+     <div class="card flush"><div id="ctList"></div></div>
+     <div class="card"><div class="card-head"><div><h3>Remitos</h3><p id="ctRemitosSub">Los últimos remitos emitidos</p></div></div><div id="ctRemitos"></div></div>
+    </div>
+   </section>
+
+   <!-- ===== REPORTES (solo dueña) ===== -->
+   <section class="view" data-view="reportes">
+    <div class="card toolbar">
+     <div class="segmented" id="rpPeriod"><button type="button" data-v="7">7 días</button><button type="button" data-v="30">30 días</button><button type="button" data-v="90">90 días</button><button type="button" data-v="0">Todo</button></div>
+     <select id="rpUser" class="input select-sm" aria-label="Filtrar por usuario"><option value="">Todo el equipo</option></select>
+     <button class="btn btn-ghost" type="button" id="rpExport"><i data-i="download"></i><span>Exportar movimientos</span></button>
+    </div>
+    <div id="rpBody"></div>
+   </section>
+
+   <!-- ===== MODO MOSTRADOR (pantalla simple para escanear) ===== -->
+   <section class="view" data-view="kiosco">
+    <div class="kiosk" id="kiosk">
+     <div class="kiosk-top">
+      <div class="segmented lg" id="kOp"><button type="button" data-v="sumar"><i data-i="plus"></i>Entrada</button><button type="button" data-v="restar"><i data-i="minus"></i>Salida</button></div>
+      <input id="kContact" class="input kiosk-contact" list="contactList" placeholder="Cliente o proveedor (opcional)" autocomplete="off" aria-label="Cliente o proveedor">
+      <button class="btn btn-ghost" type="button" id="kExit"><i data-i="x"></i><span>Salir</span></button>
+     </div>
+     <form id="kForm" class="kiosk-input" autocomplete="off"><input id="kInput" class="scan-input" placeholder="Escaneá un código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado"></form>
+     <div class="kiosk-result" id="kResult"><p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p></div>
+     <div class="kiosk-foot">
+      <div class="kiosk-num"><strong id="kCount">0</strong><span>lecturas</span></div>
+      <div class="kiosk-num"><strong id="kUnits">0</strong><span>unidades</span></div>
+      <button class="btn btn-ghost btn-lg" type="button" id="kUndo" disabled><i data-i="undo"></i>Revertir la última</button>
+      <button class="btn btn-primary btn-lg" type="button" id="kRemito" disabled><i data-i="file"></i>Remito</button>
+     </div>
+    </div>
+   </section>
+
    <!-- ===== DATOS ===== -->
    <section class="view" data-view="datos">
     <div class="grid-2">
@@ -359,7 +411,7 @@
        <button class="action-row" type="button" id="expJson"><span class="card-icon"><i data-i="shield"></i></span><span class="grow"><strong>Copia de seguridad (JSON)</strong><small>Restaura todo: productos e historial</small></span><i data-i="chevron-right"></i></button>
       </div>
      </div>
-     <div class="card">
+     <div class="card owner-only">
       <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="upload"></i></span><div><h3>Importar</h3><p>Excel, CSV o copia JSON</p></div></div></div>
       <label class="dropzone" id="dropzone">
        <i data-i="upload" class="lg"></i>
@@ -409,7 +461,10 @@
  <div class="sheet-handle"></div>
  <div class="sheet-grid">
   <a href="#/etiquetas" class="sheet-item"><i data-i="tag"></i>Etiquetas</a>
-  <a href="#/historial" class="sheet-item"><i data-i="history"></i>Historial</a>
+  <a href="#/clientes" class="sheet-item"><i data-i="users"></i>Clientes</a>
+  <a href="#/kiosco" class="sheet-item"><i data-i="zap"></i>Mostrador</a>
+  <a href="#/historial" class="sheet-item owner-only"><i data-i="history"></i>Historial</a>
+  <a href="#/reportes" class="sheet-item owner-only"><i data-i="layers"></i>Reportes</a>
   <a href="#/datos" class="sheet-item"><i data-i="database"></i>Datos</a>
   <a href="#/cuenta" class="sheet-item"><i data-i="cloud"></i>Cuenta</a>
   <button type="button" class="sheet-item" id="sheetUndo"><i data-i="undo"></i>Deshacer</button>
@@ -432,7 +487,7 @@
    <div class="field"><label for="eStockType">Tipo de stock</label><select id="eStockType" class="input" data-options="stockTypes"></select></div>
   </div>
   <div class="modal-actions">
-   <button type="button" class="btn btn-ghost danger-text" id="eDelete"><i data-i="trash"></i>Eliminar</button>
+   <button type="button" class="btn btn-ghost danger-text owner-only" id="eDelete"><i data-i="trash"></i>Eliminar</button>
    <button type="button" class="btn btn-ghost" id="eLabel"><i data-i="tag"></i>Etiqueta</button>
    <span class="grow"></span>
    <button type="submit" class="btn btn-primary" id="eSave"><i data-i="check"></i>Guardar</button>
@@ -503,6 +558,69 @@
  </div>
 </dialog>
 
+<dialog class="modal" id="fixDialog">
+ <form class="modal-inner" id="fixForm" novalidate autocomplete="off">
+  <div class="modal-head"><div><h3>Corregir movimiento</h3><p class="muted">Solo el dueño de la cuenta. El original queda registrado.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack">
+   <div id="fixInfo"></div>
+   <div class="segmented" id="fixMode"><button type="button" data-v="edit"><i data-i="edit"></i>Corregir cantidad</button><button type="button" data-v="remove"><i data-i="x"></i>Anular movimiento</button></div>
+   <div class="form-grid" id="fixQtyFields">
+    <div class="field"><label for="fixQty" id="fixQtyLabel">Cantidad correcta</label><input id="fixQty" class="input" type="number" min="0" step="any" inputmode="decimal"></div>
+    <div class="field"><label for="fixUnit">Unidad</label><select id="fixUnit" class="input" data-options="inputUnits"></select></div>
+   </div>
+   <div class="field"><label for="fixReason">Motivo *</label><input id="fixReason" class="input" maxlength="120" placeholder="¿Por qué se corrige?">
+    <div class="chips" id="fixReasons" style="margin-top:8px"><button type="button" class="chip">Error de carga</button><button type="button" class="chip">Escaneo repetido</button><button type="button" class="chip">Cantidad mal contada</button><button type="button" class="chip">Devolución</button><button type="button" class="chip">Producto equivocado</button></div>
+   </div>
+   <div id="fixPreview"></div>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="fixSave"><i data-i="check"></i>Guardar corrección</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal modal-sm" id="memberDialog">
+ <form class="modal-inner" id="memberForm" novalidate autocomplete="off">
+  <div class="modal-head"><div><h3>Agregar empleado</h3><p class="muted">Va a usar tu mismo inventario con su propio usuario.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack">
+   <div class="field"><label for="mName">Nombre</label><input id="mName" class="input" maxlength="80" placeholder="Ej.: Juan Pérez"></div>
+   <div class="field"><label for="mUser">Usuario *</label><input id="mUser" class="input mono" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="Ej.: tienda.juan"><p class="hint">3 a 30 caracteres: letras minúsculas, números, punto, guion o guion bajo.</p></div>
+   <div class="field"><label for="mPass">Contraseña *</label><div class="pwd"><input id="mPass" class="input" type="text" minlength="6" maxlength="72" autocomplete="new-password"><button type="button" class="icon-btn" id="mPassGen" title="Generar contraseña"><i data-i="sparkles"></i></button></div><p class="hint">Pasásela al empleado. Podés cambiarla cuando quieras.</p></div>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="mSave"><i data-i="plus"></i>Crear empleado</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal modal-sm" id="contactDialog">
+ <form class="modal-inner" id="contactForm" novalidate autocomplete="off">
+  <div class="modal-head"><div><h3 id="ctdTitle">Nuevo cliente</h3><p class="muted">Se comparte con todo el equipo.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack">
+   <div class="segmented" id="ctdKind"><button type="button" data-v="cliente">Cliente</button><button type="button" data-v="proveedor">Proveedor</button></div>
+   <div class="field"><label for="ctdName">Nombre o razón social *</label><input id="ctdName" class="input" maxlength="80"></div>
+   <div class="form-grid">
+    <div class="field"><label for="ctdPhone">WhatsApp</label><input id="ctdPhone" class="input" type="tel" placeholder="11 2345 6789"></div>
+    <div class="field"><label for="ctdDoc">CUIT / DNI</label><input id="ctdDoc" class="input" maxlength="20"></div>
+   </div>
+   <div class="field"><label for="ctdAddress">Dirección</label><input id="ctdAddress" class="input" maxlength="120"></div>
+   <div class="field"><label for="ctdNote">Notas</label><input id="ctdNote" class="input" maxlength="160"></div>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost danger-text owner-only" id="ctdDelete" hidden>Eliminar</button><span class="grow"></span><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="ctdSave">Guardar</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal modal-lg" id="remitoDialog">
+ <form class="modal-inner" id="remitoForm" novalidate autocomplete="off">
+  <div class="modal-head"><div><h3 id="rmTitle">Nuevo remito</h3><p class="muted" id="rmSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack">
+   <div class="form-grid">
+    <div class="field"><label for="rmContact" id="rmContactLabel">Cliente</label><input id="rmContact" class="input" list="contactList" placeholder="Elegí un cliente" autocomplete="off"></div>
+    <div class="field"><label for="rmNote">Observaciones</label><input id="rmNote" class="input" maxlength="160" placeholder="Opcional"></div>
+   </div>
+   <div id="rmLines"></div>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rmDownload"><i data-i="download"></i>Descargar PDF</button><button type="submit" class="btn btn-primary" id="rmSend"><i data-i="whatsapp"></i>Enviar por WhatsApp</button></div>
+ </form>
+</dialog>
+
+<datalist id="contactList"></datalist>
 <datalist id="skuList"></datalist>
 <datalist id="brandList"></datalist>
 <datalist id="typeList"></datalist>

@@ -3,7 +3,7 @@
 // Editá estos valores, guardá y volvé a publicar (git push → Vercel).
 // =========================================================
 export const CONFIG = {
-  VERSION: '6.0.0',
+  VERSION: '6.1.0',
 
   // Supabase → Project Settings → API.
   // URL: "Project URL" (https://xxxx.supabase.co)
@@ -23,4 +23,5 @@ export const CONFIG = {
   SYNC_DELAY_MS: 5000,        // agrupa los cambios: sube 1 vez, 5 s después del último movimiento
   CLOUD_HISTORY_LIMIT: 1000,  // movimientos que se guardan en la nube (los más recientes)
   PULL_INTERVAL_MS: 120000,   // al volver a la app, verifica cambios de otros dispositivos como máximo cada 2 min
+  TEAM_POLL_MS: 60000,        // con la app abierta, busca cambios del equipo cada 1 min (si no hay cambios, la respuesta pesa pocos bytes)
 };

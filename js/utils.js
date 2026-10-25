@@ -53,7 +53,14 @@ export function toast(message, opts = {}) {
   const close = () => { if (closed) return; closed = true; el.classList.add('out'); setTimeout(() => el.remove(), 220); };
   el.querySelector('.toast-close').onclick = close;
   if (action) el.querySelector('.toast-action').onclick = () => { action(); close(); };
-  setTimeout(close, duration);
+  // El tiempo se pausa mientras la pestaña está oculta, para no perderse un aviso.
+  let left = duration, started = Date.now(), timer = setTimeout(close, left);
+  const onVis = () => {
+    if (closed) return document.removeEventListener('visibilitychange', onVis);
+    if (document.hidden) { clearTimeout(timer); left -= Date.now() - started; }
+    else { started = Date.now(); timer = setTimeout(close, Math.max(1200, left)); }
+  };
+  document.addEventListener('visibilitychange', onVis);
   return close;
 }
 
@@ -89,24 +96,26 @@ export function flashDone(btn, ms = 1100) {
 }
 export function shake(el) { if (!el) return; el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 450); }
 
-export function initRipple() {
-  document.addEventListener('pointerdown', e => {
-    const b = e.target.closest('.btn, .icon-btn, .quick-tile, .kpi, .chip, .nav-item, .sheet-item');
-    if (!b || b.disabled) return;
-    const r = b.getBoundingClientRect(), size = Math.max(r.width, r.height) * 2, s = document.createElement('span');
-    s.className = 'ripple';
-    s.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
-    b.append(s);
-    setTimeout(() => s.remove(), 650);
-  }, { passive: true });
+// Interacciones (criterio de Emil Kowalski): las acciones frecuentes no llevan animación decorativa;
+// los diálogos entran rápido y salen más rápido todavía, en vez de desaparecer de golpe.
+export function initInteractions() {
+  const nativeClose = HTMLDialogElement.prototype.close;
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  HTMLDialogElement.prototype.close = function (value) {
+    if (!this.open || this._closing || reduced() || !this.classList.contains('modal')) return nativeClose.call(this, value);
+    this._closing = true;
+    this.classList.add('closing');
+    setTimeout(() => { this.classList.remove('closing'); this._closing = false; if (this.open) nativeClose.call(this, value); }, 140);
+  };
 }
 
 // Contador animado para los indicadores.
 export function animateNumber(el, to, decimals = 0) {
   if (!el) return;
-  const from = Number(el.dataset.v || 0);
+  const first = el.dataset.v === undefined, from = Number(el.dataset.v || 0);
   el.dataset.v = to;
-  if (from === to || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = fmt(to, decimals); return; }
+  // Solo la primera vez: un número que cambia con cada lectura tiene que ser instantáneo.
+  if (!first || from === to || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = fmt(to, decimals); return; }
   const start = performance.now(), dur = 600;
   cancelAnimationFrame(el._raf);
   const step = t => {

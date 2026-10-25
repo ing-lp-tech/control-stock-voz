@@ -115,7 +115,25 @@ Después de publicar:
   - Cada movimiento dice exactamente qué se movió (*−1 docena · 12 unidades*, *+5 unidades*), qué etiqueta se escaneó (*Docena N.º 0002*), a qué hora y cómo se cargó (pistola, cámara, voz o manual).
   - Se filtra por **código, marca, prenda, período** (hoy, ayer, 7 o 30 días) y tipo de movimiento, con los totales de lo filtrado. El CSV exporta lo filtrado.
 - **Ficha de cada código**: tocá cualquier movimiento, o el botón del reloj en Inventario. Muestra todos los ingresos y salidas con fecha y hora, los totales y qué docenas o unidades numeradas ya salieron.
-- **Deshacer**: botón ↶ arriba o **Ctrl+Z**.
+- **Corregir o anular movimientos** (solo el dueño): en el historial o en la ficha de un código, tocá el lápiz de un ingreso, salida o conteo.
+  - Podés **corregir la cantidad** (por ejemplo, eran 96 docenas y no 97) o **anular** el movimiento (por ejemplo, un escaneo repetido). Se pide un motivo y el stock se ajusta solo.
+  - El movimiento original no se borra: queda marcado con quién lo corrigió, cuándo y por qué.
+- **Equipo (empleados)**: en **Cuenta y nube → Equipo**, el dueño crea usuarios para sus empleados (hasta 10 por cuenta; se cambia en `sv_config.max_team`). Comparten el mismo inventario y cada movimiento guarda quién lo hizo.
+  - Los empleados **pueden** cargar, escanear, ver e imprimir etiquetas.
+  - **No pueden** corregir ni anular movimientos, cambiar el stock a mano, eliminar productos, borrar el historial ni importar.
+  - Si el administrador deshabilita al dueño, sus empleados también quedan bloqueados.
+  - Con varias personas trabajando a la vez, los cambios se **combinan solos**: si dos sacan una docena del mismo código, se descuentan las dos. Con la app abierta, cada minuto se buscan cambios del equipo.
+- **Deshacer**: botón ↶ arriba o **Ctrl+Z**. Funciona hasta que el cambio se sincroniza con la nube; después, usá **Corregir**.
+- **Clientes y proveedores**: al registrar una salida elegís el cliente; al registrar un ingreso, el proveedor. Si escribís un nombre nuevo, se crea solo. Se administran en **Clientes y proveedores**.
+- **Remitos en PDF por WhatsApp**: desde Escanear (botón **Remito**), desde el modo mostrador o al guardar una salida con cliente.
+  - En el celular se abre el menú para compartir y elegís WhatsApp.
+  - En la computadora se descarga el PDF y se abre el chat del cliente para adjuntarlo.
+  - Quedan numerados (R-00001…) y se pueden reenviar desde Clientes.
+- **Reportes** (solo la dueña): ventas e ingresos por día, lo más vendido, clientes, marcas, prendas, qué hizo cada empleado, productos sin movimiento y un **control de faltantes**: conteos que dieron menos, correcciones y reversiones, salidas sin cliente y movimientos fuera de horario.
+- **Modo mostrador**: pantalla grande y simple para escanear entradas y salidas, sin menús. Ideal para empleados.
+- **Historial solo para la dueña**: los empleados no lo ven ni lo descargan. Lo garantiza el servidor:
+  - al empleado solo le llegan sus movimientos del día;
+  - el stock que guarda un empleado lo **recalcula el servidor** a partir de sus movimientos, así nadie puede cambiar cantidades sin dejar registro.
 - Atajos: **/** busca en el inventario, **F2** abre el escáner.
 
 ### Pistola lectora

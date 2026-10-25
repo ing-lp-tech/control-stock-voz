@@ -58,6 +58,14 @@ create table if not exists public.sv_config (
   value text not null
 );
 
+-- Subcuentas (empleados): comparten el inventario de su dueño (owner_id). Seguro de re-ejecutar.
+alter table public.sv_users add column if not exists owner_id uuid references public.sv_users(id) on delete cascade;
+alter table public.sv_users add column if not exists role text not null default 'owner';
+do $$ begin
+  alter table public.sv_users add constraint sv_users_role_chk check (role in ('owner', 'employee'));
+exception when duplicate_object then null; end $$;
+create index if not exists sv_users_owner_idx on public.sv_users(owner_id);
+
 -- Nadie puede leer/escribir las tablas directamente desde la API pública.
 alter table public.sv_users    enable row level security;
 alter table public.sv_sessions enable row level security;
@@ -85,11 +93,22 @@ begin
   return json_build_object('token', v_token, 'expires_at', v_exp);
 end $$;
 
--- Devuelve el id del usuario si la sesión es válida y la cuenta está aprobada; si no, null.
+-- Contexto de una sesión: quién es (user_id), de quién es el inventario que usa (data_id) y su rol.
+-- Un empleado usa el inventario de su dueño, y queda bloqueado si el dueño no está aprobado.
+create or replace function public.sv_ctx(p_token text) returns table(user_id uuid, data_id uuid, role text)
+language sql stable security definer set search_path = public, extensions as $$
+  select u.id, coalesce(u.owner_id, u.id), u.role
+  from sv_sessions s
+  join sv_users u on u.id = s.user_id
+  left join sv_users o on o.id = u.owner_id
+  where s.token_hash = sv_hash_token(p_token) and s.expires_at > now() and not s.is_admin
+    and u.status = 'approved' and (u.owner_id is null or o.status = 'approved')
+$$;
+
+-- Id del inventario de la sesión (el del dueño, también para sus empleados); null si no es válida.
 create or replace function public.sv_uid(p_token text) returns uuid
 language sql stable security definer set search_path = public, extensions as $$
-  select u.id from sv_sessions s join sv_users u on u.id = s.user_id
-  where s.token_hash = sv_hash_token(p_token) and s.expires_at > now() and not s.is_admin and u.status = 'approved'
+  select data_id from sv_ctx(p_token)
 $$;
 
 -- Devuelve null si la sesión de admin es válida; si no, el código de error.
@@ -153,7 +172,7 @@ end $$;
 
 create or replace function public.sv_login(p_username text, p_password text)
 returns json language plpgsql security definer set search_path = public, extensions as $$
-declare u sv_users; s json;
+declare u sv_users; o sv_users; s json;
 begin
   select * into u from sv_users where username = lower(trim(coalesce(p_username, '')));
   if u.id is null then
@@ -173,9 +192,16 @@ begin
   where id = u.id;
 
   if u.status <> 'approved' then return json_build_object('ok', true, 'status', u.status); end if;
+  -- Un empleado entra solo si la cuenta de su dueño está aprobada.
+  if u.owner_id is not null then
+    select * into o from sv_users where id = u.owner_id;
+    if o.id is null or o.status <> 'approved' then return json_build_object('ok', true, 'status', 'disabled'); end if;
+  end if;
   s := sv_new_session(u.id, false, 24 * 30);
   return json_build_object('ok', true, 'status', 'approved', 'token', s->>'token', 'expires_at', s->>'expires_at',
-    'user', json_build_object('username', u.username, 'full_name', u.full_name));
+    'user', json_build_object('username', u.username, 'full_name', u.full_name, 'role', u.role,
+      'business', coalesce(nullif(o.business, ''), nullif(u.business, ''), ''),
+      'owner', case when o.id is null then null else json_build_object('username', o.username, 'full_name', o.full_name) end));
 end $$;
 
 create or replace function public.sv_logout(p_token text) returns json
@@ -187,38 +213,218 @@ $$;
 -- ---------------------------------------------------------------------
 -- 4. API pública: datos del inventario (1 fila por usuario)
 -- ---------------------------------------------------------------------
+-- Datos extra del negocio (clientes y proveedores, remitos). Seguro de re-ejecutar.
+alter table public.sv_data add column if not exists extra jsonb not null default '{}'::jsonb;
+
+-- ---- Ayudas internas para empleados: el servidor decide qué ven y calcula el stock ----
+-- Movimientos que llegan y todavía no están guardados (se ignoran los "resumidos").
+create or replace function public.sv_new_entries(p_existing jsonb, p_incoming jsonb) returns jsonb
+language sql immutable set search_path = public as $$
+  select coalesce(jsonb_agg(x order by x->>'at'), '[]'::jsonb)
+  from jsonb_array_elements(coalesce(p_incoming, '[]'::jsonb)) x
+  where not coalesce((x->>'lite')::boolean, false)
+    and coalesce(x->>'id', '') <> ''
+    and (x->>'id') not in (select coalesce(y->>'id', '') from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) y)
+$$;
+
+-- Historial al guardar un empleado: se agregan sus movimientos nuevos (firmados con su usuario); nada existente se toca.
+create or replace function public.sv_emp_history(p_existing jsonb, p_new jsonb, p_user text) returns jsonb
+language sql immutable set search_path = public as $$
+  select coalesce(jsonb_agg(e order by e->>'at' desc), '[]'::jsonb) from (
+    select e from (
+      select (x - 'voided' - 'corrected' - 'lite') || jsonb_build_object('by', p_user) as e from jsonb_array_elements(p_new) x
+      union all
+      select y from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) y
+    ) u order by e->>'at' desc limit 1000
+  ) t
+$$;
+
+-- Stock al guardar un empleado: se parte del stock guardado y se aplican SOLO sus movimientos nuevos.
+-- Así nadie puede cambiar cantidades sin dejar un movimiento registrado con su nombre.
+create or replace function public.sv_emp_items(p_existing jsonb, p_incoming jsonb, p_new jsonb) returns jsonb
+language plpgsql immutable set search_path = public as $$
+declare v_map jsonb := '{}'::jsonb; it jsonb; e jsonb; v_sku text; v_units numeric;
+begin
+  for it in select value from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) loop
+    if coalesce(it->>'sku', '') <> '' then v_map := v_map || jsonb_build_object(it->>'sku', it); end if;
+  end loop;
+  -- Datos del producto (marca, prenda, etiquetas…) pueden venir del empleado; el stock no.
+  for it in select value from jsonb_array_elements(coalesce(p_incoming, '[]'::jsonb)) loop
+    v_sku := it->>'sku';
+    if coalesce(v_sku, '') = '' then continue; end if;
+    if v_map ? v_sku then
+      v_map := jsonb_set(v_map, array[v_sku], it || jsonb_build_object('units', coalesce(v_map->v_sku->'units', '0'::jsonb)));
+    elsif exists (select 1 from jsonb_array_elements(p_new) x where x->>'sku' = v_sku) then
+      v_map := v_map || jsonb_build_object(v_sku, it || jsonb_build_object('units', 0));   -- producto nuevo
+    end if;
+  end loop;
+  for e in select value from jsonb_array_elements(coalesce(p_new, '[]'::jsonb)) loop
+    v_sku := e->>'sku';
+    if not (v_map ? v_sku) or jsonb_typeof(e->'before') is distinct from 'number' or jsonb_typeof(e->'after') is distinct from 'number' then continue; end if;
+    v_units := coalesce((v_map->v_sku->>'units')::numeric, 0);
+    if e->>'kind' = 'count' then v_units := (e->>'after')::numeric;
+    elsif coalesce((e->>'abs')::boolean, false) then continue;            -- un empleado no fija el stock a mano
+    elsif e->>'kind' in ('in', 'out', 'fix') then v_units := v_units + (e->>'after')::numeric - (e->>'before')::numeric;
+    else continue;
+    end if;
+    v_map := jsonb_set(v_map, array[v_sku, 'units'], to_jsonb(round(greatest(v_units, 0), 2)));
+  end loop;
+  return coalesce((select jsonb_agg(value) from jsonb_each(v_map)), '[]'::jsonb);
+end $$;
+
+-- Lista por id: se agregan los elementos nuevos; los existentes no se modifican.
+create or replace function public.sv_union_by_id(p_existing jsonb, p_incoming jsonb, p_user text default null) returns jsonb
+language sql immutable set search_path = public as $$
+  select coalesce(jsonb_agg(e), '[]'::jsonb) from (
+    select y as e from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) y
+    union all
+    select case when p_user is null then x else x || jsonb_build_object('by', p_user) end
+    from jsonb_array_elements(coalesce(p_incoming, '[]'::jsonb)) x
+    where coalesce(x->>'id', '') <> ''
+      and (x->>'id') not in (select coalesce(z->>'id', '') from jsonb_array_elements(coalesce(p_existing, '[]'::jsonb)) z)
+  ) t
+$$;
+
 -- p_known_rev: la versión que ya tiene el dispositivo. Si no cambió, responde casi vacío (ahorra transferencia).
+-- Empleados: reciben el stock, los clientes/proveedores, solo SUS movimientos de las últimas 24 h y SUS remitos.
+-- Del resto del historial solo se envía lo mínimo para avisar si una etiqueta numerada ya se escaneó.
 create or replace function public.sv_pull(p_token text, p_known_rev int default -1)
 returns json language plpgsql stable security definer set search_path = public, extensions as $$
-declare v_uid uuid := sv_uid(p_token); d sv_data;
+declare v_uid uuid; v_data uuid; v_role text; v_user text; d sv_data;
 begin
-  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
-  select * into d from sv_data where user_id = v_uid;
-  if d.user_id is null then return json_build_object('ok', true, 'rev', 0, 'items', '[]'::json, 'history', '[]'::json); end if;
+  select c.user_id, c.data_id, c.role into v_uid, v_data, v_role from sv_ctx(p_token) c;
+  if v_data is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  select * into d from sv_data where user_id = v_data;
+  if d.user_id is null then return json_build_object('ok', true, 'rev', 0, 'items', '[]'::json, 'history', '[]'::json, 'extra', '{}'::json); end if;
   if d.rev = p_known_rev then return json_build_object('ok', true, 'rev', d.rev, 'unchanged', true); end if;
-  return json_build_object('ok', true, 'rev', d.rev, 'items', d.items, 'history', d.history, 'updated_at', d.updated_at);
+  if v_role <> 'employee' then
+    return json_build_object('ok', true, 'rev', d.rev, 'items', d.items, 'history', d.history, 'extra', d.extra, 'updated_at', d.updated_at);
+  end if;
+  select username into v_user from sv_users where id = v_uid;
+  return json_build_object('ok', true, 'rev', d.rev, 'items', d.items, 'updated_at', d.updated_at, 'role', 'employee',
+    'history', (select coalesce(jsonb_agg(
+        case when e->>'by' = v_user and (e->>'at')::timestamptz > now() - interval '1 day' then e
+             else jsonb_build_object('id', e->'id', 'at', e->'at', 'kind', e->'kind', 'sku', e->'sku', 'serial', e->'serial', 'voided', e->'voided', 'lite', true) end
+        order by e->>'at' desc), '[]'::jsonb)
+      from jsonb_array_elements(d.history) e
+      where (e->>'by' = v_user and (e->>'at')::timestamptz > now() - interval '1 day') or (e ? 'serial')),
+    'extra', coalesce(d.extra, '{}'::jsonb) || jsonb_build_object('remitos',
+      (select coalesce(jsonb_agg(r), '[]'::jsonb) from jsonb_array_elements(coalesce(d.extra->'remitos', '[]'::jsonb)) r where r->>'by' = v_user)));
 end $$;
 
 -- Guarda solo si nadie más guardó desde p_base_rev (evita pisar cambios de otro dispositivo).
-create or replace function public.sv_push(p_token text, p_items jsonb, p_history jsonb, p_base_rev int)
+-- Dueño: guarda todo tal cual. Empleado: el servidor agrega sus movimientos y recalcula el stock.
+drop function if exists public.sv_push(text, jsonb, jsonb, int);
+create or replace function public.sv_push(p_token text, p_items jsonb, p_history jsonb, p_base_rev int, p_extra jsonb default null)
 returns json language plpgsql security definer set search_path = public, extensions as $$
-declare v_uid uuid := sv_uid(p_token); v_rev int;
+declare v_uid uuid; v_data uuid; v_role text; v_user text; d sv_data; v_rev int; v_new jsonb;
+  v_items jsonb := p_items; v_history jsonb := p_history; v_extra jsonb := p_extra;
 begin
-  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
-  if jsonb_typeof(p_items) <> 'array' or jsonb_typeof(p_history) <> 'array' then return json_build_object('ok', false, 'error', 'invalid_payload'); end if;
-  if pg_column_size(p_items) + pg_column_size(p_history) > 3000000 then return json_build_object('ok', false, 'error', 'payload_too_large'); end if;
+  select c.user_id, c.data_id, c.role into v_uid, v_data, v_role from sv_ctx(p_token) c;
+  if v_data is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  if jsonb_typeof(p_items) <> 'array' or jsonb_typeof(p_history) <> 'array' or (p_extra is not null and jsonb_typeof(p_extra) <> 'object') then
+    return json_build_object('ok', false, 'error', 'invalid_payload');
+  end if;
+  if pg_column_size(p_items) + pg_column_size(p_history) + coalesce(pg_column_size(p_extra), 0) > 3500000 then
+    return json_build_object('ok', false, 'error', 'payload_too_large');
+  end if;
+  select * into d from sv_data where user_id = v_data;
+  if d.user_id is not null and d.rev <> p_base_rev then
+    return json_build_object('ok', false, 'error', 'conflict', 'rev', d.rev);
+  end if;
 
-  insert into sv_data as d (user_id, items, history, rev, updated_at)
-  values (v_uid, p_items, p_history, 1, now())
+  if v_role = 'employee' then
+    select username into v_user from sv_users where id = v_uid;
+    v_new := sv_new_entries(d.history, p_history);
+    v_history := sv_emp_history(d.history, v_new, v_user);
+    v_items := sv_emp_items(d.items, p_items, v_new);
+    v_extra := coalesce(d.extra, '{}'::jsonb) || jsonb_build_object(
+      'contacts', sv_union_by_id(d.extra->'contacts', p_extra->'contacts'),
+      'remitos', sv_union_by_id(d.extra->'remitos', p_extra->'remitos', v_user),
+      'remitoSeq', greatest(coalesce((d.extra->>'remitoSeq')::int, 0), coalesce((p_extra->>'remitoSeq')::int, 0)));
+  end if;
+
+  insert into sv_data as t (user_id, items, history, extra, rev, updated_at)
+  values (v_data, v_items, v_history, coalesce(v_extra, '{}'::jsonb), 1, now())
   on conflict (user_id) do update
-    set items = excluded.items, history = excluded.history, rev = d.rev + 1, updated_at = now()
-    where d.rev = p_base_rev
+    set items = excluded.items, history = excluded.history, extra = coalesce(v_extra, t.extra), rev = t.rev + 1, updated_at = now()
+    where t.rev = p_base_rev
   returning rev into v_rev;
 
   if v_rev is null then
-    return json_build_object('ok', false, 'error', 'conflict', 'rev', (select rev from sv_data where user_id = v_uid));
+    return json_build_object('ok', false, 'error', 'conflict', 'rev', (select rev from sv_data where user_id = v_data));
   end if;
   return json_build_object('ok', true, 'rev', v_rev);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 4b. API pública: equipo (empleados de una cuenta). Solo el dueño.
+-- ---------------------------------------------------------------------
+create or replace function public.sv_team_list(p_token text)
+returns json language plpgsql stable security definer set search_path = public, extensions as $$
+declare v_uid uuid; v_role text;
+begin
+  select c.user_id, c.role into v_uid, v_role from sv_ctx(p_token) c;
+  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  if v_role <> 'owner' then return json_build_object('ok', false, 'error', 'owner_only'); end if;
+  return json_build_object('ok', true,
+    'max', coalesce((select value::int from sv_config where key = 'max_team'), 10),
+    'members', coalesce((select json_agg(json_build_object('id', id, 'username', username, 'full_name', full_name, 'status', status,
+        'created_at', created_at, 'last_login_at', last_login_at) order by created_at)
+      from sv_users where owner_id = v_uid), '[]'::json));
+end $$;
+
+create or replace function public.sv_team_add(p_token text, p_username text, p_password text, p_full_name text default '')
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare v_uid uuid; v_role text; v_user text := lower(trim(coalesce(p_username, ''))); v_max int; v_biz text;
+begin
+  select c.user_id, c.role into v_uid, v_role from sv_ctx(p_token) c;
+  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  if v_role <> 'owner' then return json_build_object('ok', false, 'error', 'owner_only'); end if;
+  if v_user !~ '^[a-z0-9._-]{3,30}$' then return json_build_object('ok', false, 'error', 'invalid_username'); end if;
+  if length(coalesce(p_password, '')) < 6 or length(p_password) > 72 then return json_build_object('ok', false, 'error', 'invalid_password'); end if;
+  v_max := coalesce((select value::int from sv_config where key = 'max_team'), 10);
+  if (select count(*) from sv_users where owner_id = v_uid) >= v_max then return json_build_object('ok', false, 'error', 'team_full', 'max', v_max); end if;
+  if exists (select 1 from sv_users where username = v_user) then return json_build_object('ok', false, 'error', 'username_taken'); end if;
+  select business into v_biz from sv_users where id = v_uid;
+  insert into sv_users(username, password_hash, full_name, business, status, approved_at, owner_id, role)
+  values (v_user, extensions.crypt(p_password, extensions.gen_salt('bf', 10)), left(trim(coalesce(p_full_name, '')), 80), coalesce(v_biz, ''),
+          'approved', now(), v_uid, 'employee');
+  return json_build_object('ok', true, 'username', v_user);
+end $$;
+
+-- p_status: 'approved' | 'disabled' | null (sin cambio) · p_password: null = sin cambio
+create or replace function public.sv_team_update(p_token text, p_id uuid, p_status text default null, p_password text default null)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare v_uid uuid; v_role text;
+begin
+  select c.user_id, c.role into v_uid, v_role from sv_ctx(p_token) c;
+  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  if v_role <> 'owner' then return json_build_object('ok', false, 'error', 'owner_only'); end if;
+  if not exists (select 1 from sv_users where id = p_id and owner_id = v_uid) then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  if p_status is not null then
+    if p_status not in ('approved', 'disabled') then return json_build_object('ok', false, 'error', 'invalid_status'); end if;
+    update sv_users set status = p_status where id = p_id;
+    if p_status = 'disabled' then delete from sv_sessions where user_id = p_id; end if;
+  end if;
+  if p_password is not null then
+    if length(p_password) < 6 or length(p_password) > 72 then return json_build_object('ok', false, 'error', 'invalid_password'); end if;
+    update sv_users set password_hash = extensions.crypt(p_password, extensions.gen_salt('bf', 10)), failed_attempts = 0, locked_until = null where id = p_id;
+    delete from sv_sessions where user_id = p_id;
+  end if;
+  return json_build_object('ok', true);
+end $$;
+
+create or replace function public.sv_team_remove(p_token text, p_id uuid)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare v_uid uuid; v_role text; v_count int;
+begin
+  select c.user_id, c.role into v_uid, v_role from sv_ctx(p_token) c;
+  if v_uid is null then return json_build_object('ok', false, 'error', 'session_invalid'); end if;
+  if v_role <> 'owner' then return json_build_object('ok', false, 'error', 'owner_only'); end if;
+  delete from sv_users where id = p_id and owner_id = v_uid;
+  get diagnostics v_count = row_count;
+  return json_build_object('ok', true, 'count', v_count);
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -262,12 +468,13 @@ begin
     'users', coalesce((
       select json_agg(row_to_json(t) order by t.status = 'pending' desc, t.created_at desc) from (
         select u.id, u.username, u.full_name, u.phone, u.business, u.status, u.created_at, u.approved_at, u.last_login_at,
+               u.role, o.username as owner_username, (select count(*) from sv_users e where e.owner_id = u.id) as team,
                coalesce(jsonb_array_length(d.items), 0) as items, d.updated_at as data_updated_at,
                coalesce(pg_column_size(d.items) + pg_column_size(d.history), 0) as bytes
-        from sv_users u left join sv_data d on d.user_id = u.id
+        from sv_users u left join sv_data d on d.user_id = u.id left join sv_users o on o.id = u.owner_id
       ) t), '[]'::json),
     'db_bytes', pg_database_size(current_database()),
-    'data_bytes', coalesce((select sum(pg_column_size(items) + pg_column_size(history)) from sv_data), 0),
+    'data_bytes', coalesce((select sum(pg_column_size(items) + pg_column_size(history) + pg_column_size(extra)) from sv_data), 0),
     'notify_phone', coalesce((select value from sv_config where key = 'notify_phone'), ''),
     'notify_ready', coalesce((select value from sv_config where key = 'notify_apikey'), '') <> ''
   );
@@ -358,6 +565,8 @@ on conflict (key) do nothing;
 insert into public.sv_config(key, value) values ('admin_must_change', 'true') on conflict (key) do nothing;
 -- Tu número para recibir avisos (también se puede cambiar desde admin.html).
 insert into public.sv_config(key, value) values ('notify_phone', '5491162021005') on conflict (key) do nothing;
+-- Máximo de empleados por cuenta (se puede cambiar: update public.sv_config set value = '20' where key = 'max_team';)
+insert into public.sv_config(key, value) values ('max_team', '10') on conflict (key) do nothing;
 
 -- ---------------------------------------------------------------------
 -- 7. Permisos: solo las funciones públicas quedan accesibles
@@ -365,6 +574,11 @@ insert into public.sv_config(key, value) values ('notify_phone', '5491162021005'
 revoke all on function public.sv_hash_token(text) from public, anon, authenticated;
 revoke all on function public.sv_new_session(uuid, boolean, int) from public, anon, authenticated;
 revoke all on function public.sv_uid(text) from public, anon, authenticated;
+revoke all on function public.sv_ctx(text) from public, anon, authenticated;
+revoke all on function public.sv_new_entries(jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.sv_emp_history(jsonb, jsonb, text) from public, anon, authenticated;
+revoke all on function public.sv_emp_items(jsonb, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.sv_union_by_id(jsonb, jsonb, text) from public, anon, authenticated;
 revoke all on function public.sv_admin_guard(text, boolean) from public, anon, authenticated;
 revoke all on function public.sv_notify_admin(text) from public, anon, authenticated;
 
@@ -372,7 +586,11 @@ grant execute on function public.sv_register(text, text, text, text, text) to an
 grant execute on function public.sv_login(text, text) to anon, authenticated;
 grant execute on function public.sv_logout(text) to anon, authenticated;
 grant execute on function public.sv_pull(text, int) to anon, authenticated;
-grant execute on function public.sv_push(text, jsonb, jsonb, int) to anon, authenticated;
+grant execute on function public.sv_push(text, jsonb, jsonb, int, jsonb) to anon, authenticated;
+grant execute on function public.sv_team_list(text) to anon, authenticated;
+grant execute on function public.sv_team_add(text, text, text, text) to anon, authenticated;
+grant execute on function public.sv_team_update(text, uuid, text, text) to anon, authenticated;
+grant execute on function public.sv_team_remove(text, uuid) to anon, authenticated;
 grant execute on function public.sv_admin_login(text) to anon, authenticated;
 grant execute on function public.sv_admin_overview(text) to anon, authenticated;
 grant execute on function public.sv_admin_set_status(text, jsonb, text) to anon, authenticated;

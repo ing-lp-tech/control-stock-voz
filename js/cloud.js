@@ -3,7 +3,7 @@
 // · Los cambios se agrupan y se suben unos segundos después del último movimiento.
 // · Al volver a la app solo se pregunta "¿cambió algo?" (respuesta mínima si no hubo cambios).
 import { CONFIG } from './config.js';
-import { state, persist, replaceAll, mergeData } from './store.js';
+import { state, persist, replaceAll, mergeData, rebase, markSynced, clearUndo, setActor } from './store.js';
 import { readJSON, writeJSON } from './utils.js';
 
 const SESSION_KEY = 'stockvoz_session';
@@ -25,6 +25,9 @@ const MESSAGES = {
   admin_password_short: 'La nueva clave debe tener al menos 8 caracteres y no puede ser la de ejemplo.',
   notify_not_ready: 'Completá el número y la API key de CallMeBot primero.',
   invalid_status: 'Estado inválido.',
+  owner_only: 'Solo el dueño de la cuenta puede hacer esto.',
+  team_full: 'Llegaste al máximo de empleados de tu cuenta.',
+  not_found: 'No se encontró ese empleado.',
   schema_missing: 'Supabase todavía no tiene las funciones de StockVoz. Ejecutá supabase/schema.sql en el SQL Editor.',
   network: 'No hay conexión con la nube. Tus datos siguen guardados en este dispositivo.',
   not_configured: 'La nube no está configurada (completá js/config.js).',
@@ -63,6 +66,10 @@ const listeners = new Set();
 export const onStatus = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 export const setHooks = h => { hooks = { ...hooks, ...h }; };
 export const getSession = () => session;
+// Las cuentas sin sesión (modo local) y los dueños tienen todos los permisos; los empleados, no.
+export const isOwner = () => !session || session.role !== 'employee';
+// De quién es el inventario que se usa: el del dueño, también cuando entra un empleado.
+const dataKey = () => session?.owner?.username || session?.username;
 export const getStatus = () => ({ configured: isConfigured(), session, syncState, lastError, dirty: state.cloud.dirty, lastSyncAt: state.cloud.lastSyncAt });
 const emit = () => listeners.forEach(fn => fn(getStatus()));
 function setSync(s, err = '') { syncState = s; lastError = err; emit(); }
@@ -78,15 +85,29 @@ export const register = f => rpc('sv_register', { p_username: f.username, p_pass
 export async function login(username, password) {
   const r = await rpc('sv_login', { p_username: username, p_password: password });
   if (r.status !== 'approved') return r;
-  saveSession({ token: r.token, username: r.user.username, fullName: r.user.full_name, expiresAt: r.expires_at });
+  saveSession({ token: r.token, username: r.user.username, fullName: r.user.full_name, role: r.user.role || 'owner', business: r.user.business || '', owner: r.user.owner || null, expiresAt: r.expires_at });
+  setActor(r.user.username);
   try { await initialSync(); } catch (e) { setSync(e.code === 'network' ? 'offline' : 'error', e.message); }
+  restrictForEmployee();
   return r;
+}
+
+// Un empleado no guarda en su dispositivo el historial del negocio: solo sus movimientos y lo mínimo de etiquetas.
+// (Si antes usó ese dispositivo la dueña, el historial completo se borra de este navegador.)
+function restrictForEmployee() {
+  if (session?.role !== 'employee') return;
+  const me = session.username;
+  const before = state.history.length;
+  state.history = state.history.filter(h => h.lite || h.by === me);
+  state.extra.remitos = state.extra.remitos.filter(x => x.by === me);
+  if (state.history.length !== before) persist();
 }
 
 export async function logout({ wipe = false } = {}) {
   if (session && state.cloud.dirty) { try { await pushNow(); } catch { /* se intentó */ } }
   const token = session?.token;
   saveSession(null);
+  setActor('');
   setSync('idle');
   if (token) rpc('sv_logout', { p_token: token }).catch(() => {});
   return wipe;
@@ -94,24 +115,26 @@ export async function logout({ wipe = false } = {}) {
 
 function sessionLost() {
   saveSession(null);
+  setActor('');
   setSync('idle');
   hooks.sessionLost();
 }
 
 // ---------- Sincronización ----------
 function applyRemote(remote) {
-  state.cloud.owner = session.username;
+  state.cloud.owner = dataKey();
   state.cloud.rev = remote.rev || 0;
   state.cloud.dirty = false;
+  state.cloud.pending = [];
   state.cloud.lastSyncAt = new Date().toISOString();
-  replaceAll(remote.items || [], remote.history || []);
+  replaceAll(remote.items || [], remote.history || [], remote.extra || {});
 }
 
 // Primer encuentro entre los datos de este dispositivo y los de la nube.
 async function initialSync() {
   setSync('syncing');
   const remote = await rpc('sv_pull', { p_token: session.token, p_known_rev: -1 });
-  const c = state.cloud, user = session.username, prevOwner = c.owner;
+  const c = state.cloud, user = dataKey(), prevOwner = c.owner;
   const localHas = state.items.length > 0 || state.history.length > 0;
 
   if (prevOwner && prevOwner !== user && localHas) {
@@ -127,8 +150,11 @@ async function initialSync() {
     if (remote.rev !== c.rev) applyRemote(remote);
   } else if (prevOwner === user && c.rev === remote.rev) {
     await pushNow();
+  } else if (prevOwner === user) {
+    rebase(remote); // hubo cambios de otro dispositivo o de otro usuario: se combinan solos
+    await pushNow();
   } else {
-    await resolveConflict(remote);
+    await resolveConflict(remote); // datos de este dispositivo que nunca se subieron a esta cuenta: se pregunta
   }
   if (syncState === 'syncing') setSync('idle');
 }
@@ -136,9 +162,9 @@ async function initialSync() {
 async function resolveConflict(remote) {
   const choice = await hooks.conflict(remote);
   if (choice === 'cloud') { applyRemote(remote); setSync('idle'); return; }
-  state.cloud.owner = session.username;
+  state.cloud.owner = dataKey();
   state.cloud.rev = remote.rev;
-  if (choice === 'merge') mergeData(remote.items, remote.history); // marca cambios pendientes
+  if (choice === 'merge') mergeData(remote.items, remote.history, remote.extra); // marca cambios pendientes
   state.cloud.dirty = true;
   persist();
   await pushNow();
@@ -148,13 +174,16 @@ let inflight = null, again = false, pushTimer = null;
 async function pushOnce({ keepalive }) {
   setSync('syncing');
   state.cloud.dirty = false; // si hay cambios durante la subida se vuelven a marcar
-  const body = { p_token: session.token, p_items: state.items, p_history: state.history.slice(0, CONFIG.CLOUD_HISTORY_LIMIT), p_base_rev: state.cloud.rev };
+  const sent = [...state.cloud.pending];
+  const body = { p_token: session.token, p_items: state.items, p_history: state.history.slice(0, CONFIG.CLOUD_HISTORY_LIMIT), p_base_rev: state.cloud.rev, p_extra: state.extra };
   try {
     const json = JSON.stringify(body);
     const r = await rpc('sv_push', body, { keepalive: keepalive && json.length < 60000 });
     state.cloud.rev = r.rev;
-    state.cloud.owner = session.username;
+    state.cloud.owner = dataKey();
     state.cloud.lastSyncAt = new Date().toISOString();
+    markSynced(sent);
+    clearUndo(); // ya está en la nube: para arreglar errores se usa "Corregir"
     persist();
     setSync('idle');
   } catch (e) {
@@ -167,7 +196,7 @@ async function pushOnce({ keepalive }) {
 }
 async function conflictFlow() {
   if (!session) return;
-  try { await resolveConflict(await rpc('sv_pull', { p_token: session.token, p_known_rev: -1 })); }
+  try { rebase(await rpc('sv_pull', { p_token: session.token, p_known_rev: -1 })); await pushNow(); }
   catch (e) { if (e.code === 'session_invalid') sessionLost(); else setSync('error', e.message); }
 }
 
@@ -208,12 +237,25 @@ export async function syncNow({ force = false } = {}) {
   }
 }
 
+// ---------- Equipo (empleados de la cuenta) ----------
+export const team = {
+  list: () => rpc('sv_team_list', { p_token: session?.token }),
+  add: f => rpc('sv_team_add', { p_token: session?.token, p_username: f.username, p_password: f.password, p_full_name: f.fullName }),
+  setStatus: (id, status) => rpc('sv_team_update', { p_token: session?.token, p_id: id, p_status: status, p_password: null }),
+  setPassword: (id, password) => rpc('sv_team_update', { p_token: session?.token, p_id: id, p_status: null, p_password: password }),
+  remove: id => rpc('sv_team_remove', { p_token: session?.token, p_id: id }),
+};
+
 export function start() {
+  setActor(session?.username || '');
+  restrictForEmployee();
   window.addEventListener('online', () => syncNow({ force: true }));
   window.addEventListener('offline', () => session && setSync('offline', MESSAGES.network));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') { if (state.cloud.dirty) pushNow({ keepalive: true }); }
     else syncNow();
   });
+  // Con la app abierta, cada minuto se pregunta si alguien del equipo hizo cambios (respuesta mínima si no hubo).
+  setInterval(() => { if (session && document.visibilityState === 'visible') syncNow({ force: true }); }, CONFIG.TEAM_POLL_MS || 60000);
   if (session) syncNow({ force: true });
 }

@@ -1,7 +1,7 @@
 // Panel de administración: aprobar cuentas, avisos por WhatsApp y clave de administrador.
 import { CONFIG } from './config.js';
 import { rpc, isConfigured } from './cloud.js';
-import { byId, $$, esc, icon, hydrateIcons, toast, ask, fmt, txt, busy, flashDone, shake, initRipple, relTime, initials, waLink, animateNumber } from './utils.js';
+import { byId, $$, esc, icon, hydrateIcons, toast, ask, fmt, txt, busy, flashDone, shake, initInteractions, relTime, initials, waLink, animateNumber } from './utils.js';
 
 const TOKEN_KEY = 'stockvoz_admin';
 let token = sessionStorage.getItem(TOKEN_KEY);
@@ -85,7 +85,7 @@ function userRow(u) {
   ].join('');
   return `<div class="user-row ${sel ? 'selected' : ''}" data-id="${esc(u.id)}" style="${sel ? 'background:var(--primary-soft)' : ''}">
     <label class="check"><input type="checkbox" data-act="select" ${sel ? 'checked' : ''} aria-label="Seleccionar ${esc(u.username)}"><span></span></label>
-    <div class="who"><span class="avatar">${esc(initials(u.full_name || u.username))}</span><div><strong>${esc(u.full_name || u.username)}</strong><span class="mono">@${esc(u.username)}${u.business ? ` · ${esc(u.business)}` : ''}</span></div></div>
+    <div class="who"><span class="avatar">${esc(initials(u.full_name || u.username))}</span><div><strong>${esc(u.full_name || u.username)}</strong><span class="mono">@${esc(u.username)}${u.business ? ` · ${esc(u.business)}` : ''}</span>${u.role === 'employee' ? `<div style="margin-top:4px"><span class="badge badge-info">${icon('users', 'sm')}Empleado de @${esc(u.owner_username || '')}</span></div>` : u.team ? `<div style="margin-top:4px"><span class="badge badge-primary">${icon('users', 'sm')}Equipo: ${u.team} empleado${u.team == 1 ? '' : 's'}</span></div>` : ''}</div></div>
     <div class="u-meta small">${phone ? `<a href="${waLink(phone, `Hola ${u.full_name || ''}, te escribo por tu cuenta de StockVoz.`)}" target="_blank" rel="noopener noreferrer">${esc(u.phone)}</a>` : '<span class="muted">Sin teléfono</span>'}<div class="muted">Alta ${fmtDate(u.created_at)}</div></div>
     <div class="u-data small"><strong>${fmt(u.items)} productos</strong><div class="muted">${u.last_login_at ? `Ingresó ${relTime(u.last_login_at)}` : 'Nunca ingresó'} · ${fmt((u.bytes || 0) / 1024, 0)} KB</div></div>
     <div class="u-status"><span class="badge ${cls}">${label}</span></div>
@@ -213,7 +213,7 @@ function bind() {
 }
 
 hydrateIcons();
-initRipple();
+initInteractions();
 $$('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });
 bind();
 if (!isConfigured()) show('notConfiguredView');

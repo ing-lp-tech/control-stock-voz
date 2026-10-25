@@ -2,7 +2,7 @@
 import { CONFIG } from './config.js';
 import {
   byId, $, $$, esc, icon, hydrateIcons, toast, ask, fmt, txt, upper, num, debounce, relTime, busy, flashDone, shake,
-  beep, vibrate, initRipple, animateNumber, readJSON, writeJSON, initials, waLink,
+  beep, vibrate, initInteractions, animateNumber, readJSON, writeJSON, initials, waLink,
 } from './utils.js';
 import * as S from './store.js';
 import * as cloud from './cloud.js';
@@ -10,6 +10,8 @@ import { parseSpeech, createRecognizer } from './voice.js';
 import { initHardwareScanner, startCamera } from './scanner.js';
 import * as L from './labels.js';
 import * as IO from './io.js';
+import * as R from './reports.js';
+import { shareRemito, downloadRemito, waNumber } from './remito.js';
 
 const { state } = S;
 
@@ -38,8 +40,13 @@ const VIEWS = {
   historial: ['Historial', 'Todos los movimientos registrados'],
   datos: ['Datos y respaldos', 'Exportar, importar y copias de seguridad'],
   cuenta: ['Cuenta y nube', 'Respaldo, sincronización y apariencia'],
+  clientes: ['Clientes y proveedores', 'Contactos y remitos'],
+  reportes: ['Reportes', 'Ventas, ingresos, equipo y control de faltantes'],
+  kiosco: ['Modo mostrador', 'Pantalla simple para escanear'],
 };
-const MORE_VIEWS = ['etiquetas', 'historial', 'datos', 'cuenta'];
+const MORE_VIEWS = ['etiquetas', 'historial', 'datos', 'cuenta', 'clientes', 'reportes', 'kiosco'];
+// Solo la dueña: el historial y los reportes (los empleados ni siquiera los descargan).
+const OWNER_VIEWS = ['historial', 'reportes'];
 let currentView = 'panel';
 
 const sound = kind => { if (prefs.sound) { beep(kind); vibrate(kind === 'ok' ? 35 : [80, 60, 80]); } };
@@ -50,13 +57,15 @@ const productName = i => [i.brand, i.type].filter(Boolean).join(' · ');
 // =========================================================
 function route() {
   const [name, query] = location.hash.replace(/^#\/?/, '').split('?');
-  const view = VIEWS[name] ? name : 'panel';
+  let view = VIEWS[name] ? name : 'panel';
+  if (OWNER_VIEWS.includes(view) && !canManage()) { toast('El historial y los reportes son solo para la dueña de la cuenta.', 'warn'); view = 'panel'; history.replaceState(null, '', '#/panel'); }
   showView(view, new URLSearchParams(query || ''));
 }
 
 function showView(view, params = new URLSearchParams()) {
   const changed = view !== currentView;
   currentView = view;
+  document.body.classList.toggle('kiosk-mode', view === 'kiosco');
   $$('.view').forEach(v => v.classList.toggle('active', v.dataset.view === view));
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === view));
   byId('moreBtn').classList.toggle('active', MORE_VIEWS.includes(view));
@@ -77,6 +86,9 @@ const onEnter = {
   historial: renderHistory,
   datos: renderStorageInfo,
   cuenta: renderAccount,
+  clientes: renderContacts,
+  reportes: renderReports,
+  kiosco: enterKiosk,
 };
 
 function openSheet() { byId('moreSheet').classList.add('open'); byId('sheetBackdrop').hidden = false; }
@@ -123,7 +135,7 @@ document.addEventListener('click', e => {
 // =========================================================
 // Plantillas compartidas
 // =========================================================
-const KIND_ICON = { in: 'arrow-in', out: 'arrow-out', count: 'equal', edit: 'edit', delete: 'trash', import: 'upload' };
+const KIND_ICON = { in: 'arrow-in', out: 'arrow-out', count: 'equal', edit: 'edit', delete: 'trash', import: 'upload', fix: 'undo' };
 // Cantidad legible de un movimiento: "−1 docena" (12 unidades), "+5 unidades", "= 240 unidades".
 const plural = (n, one, many) => `${fmt(n)} ${Number(n) === 1 ? one : many}`;
 const UNIT_WORDS = { unidades: ['unidad', 'unidades'], docenas: ['docena', 'docenas'], cajas: ['caja', 'cajas'], paquetes: ['paquete', 'paquetes'], pares: ['par', 'pares'], rollos: ['rollo', 'rollos'] };
@@ -139,15 +151,34 @@ function movementQty(h) {
 const timeOf = iso => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 const dateTimeOf = iso => new Date(iso).toLocaleString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+// Permisos: en modo local o como dueño se puede todo; los empleados no pueden corregir ni borrar.
+const canManage = () => cloud.isOwner();
+function ownerOnly(what) {
+  if (canManage()) return true;
+  toast(`Solo el dueño de la cuenta puede ${what}.`, 'warn');
+  return false;
+}
+const canFix = h => canManage() && !h.voided && ['in', 'out', 'count'].includes(S.historyKind(h)) && h.before != null && h.after != null && !!S.findByCode(h.sku);
+
 // opts.time: mostrar la hora (en listas agrupadas por día) en lugar de "hace 5 min".
 function historyRow(h, opts = {}) {
-  const k = S.historyKind(h), q = movementQty(h), si = S.serialInfo(h.serial), src = S.sourceOf(h);
+  const k = S.historyKind(h), si = S.serialInfo(h.serial), src = S.sourceOf(h);
+  let q = movementQty(h);
+  if (h.corrected && q) {
+    const to = h.corrected.to, sign = k === 'out' ? '−' : k === 'in' ? '+' : '= ';
+    q = { main: `${sign}${unitWords(k === 'count' ? to.after : to.qty, k === 'count' ? (h.unit || 'unidades') : to.unit)}`, sub: `antes: ${q.main}` };
+  }
   const change = h.before != null && h.after != null ? `stock ${fmt(h.before)} → ${fmt(h.after)}${h.unit ? ' ' + esc(h.unit) : ''}` : '';
-  const sub = [esc([h.brand, h.type].filter(Boolean).join(' · ')), change, src && `por ${esc(src)}`].filter(Boolean).join(' · ');
-  return `<div class="tl-item tl-${k}" ${h.sku ? `data-sku="${esc(h.sku)}" tabindex="0" title="Ver todos los movimientos de ${esc(h.sku)}"` : ''}><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
-    <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}</div>
-    <div class="tl-sub">${sub || esc(h.note || '')}</div></div>
-    <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></div></div>`;
+  const who = [src && `por ${esc(src)}`, h.by && `@${esc(h.by)}`].filter(Boolean).join(' ');
+  const party = h.contact ? `${h.contact.kind === 'proveedor' ? 'de' : 'para'} <b>${esc(h.contact.name)}</b>` : '';
+  const sub = [esc([h.brand, h.type].filter(Boolean).join(' · ')), change, party, who].filter(Boolean).join(' · ');
+  const fixNote = h.voided ? `Anulado${h.voided.by ? ` por @${esc(h.voided.by)}` : ''} el ${esc(dateTimeOf(h.voided.at))} · ${esc(h.voided.reason)}`
+    : h.corrected ? `Corregido${h.corrected.by ? ` por @${esc(h.corrected.by)}` : ''} el ${esc(dateTimeOf(h.corrected.at))} · ${esc(h.corrected.reason)}` : '';
+  const fixBtn = canFix(h) ? `<button type="button" class="icon-btn tl-fix-btn" data-fix="${esc(h.id)}" title="Corregir o anular este movimiento" aria-label="Corregir movimiento">${icon('edit')}</button>` : '';
+  return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''}" ${h.sku ? `data-sku="${esc(h.sku)}" tabindex="0" title="Ver todos los movimientos de ${esc(h.sku)}"` : ''}><span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
+    <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}${h.voided ? ' <span class="badge badge-danger">Anulado</span>' : h.corrected ? ' <span class="badge badge-warn">Corregido</span>' : ''}</div>
+    <div class="tl-sub">${sub || esc(h.note || '')}</div>${fixNote ? `<div class="tl-note">${icon('info', 'sm')} ${fixNote}</div>` : ''}${k === 'fix' && h.note ? `<div class="tl-note">${esc(h.note)}</div>` : ''}</div>
+    <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-side-row">${fixBtn}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></span></div></div>`;
 }
 // Agrupa movimientos por día, con la hora de cada uno.
 function historyByDay(rows) {
@@ -166,7 +197,7 @@ function creatorCard() {
     <div class="creator-top">
       <div class="creator-photo"><img src="${CREATOR.photo}" alt="Foto de ${CREATOR.name}" width="96" height="96" loading="lazy"></div>
       <div style="flex:1;min-width:220px">
-        <div class="creator-eyebrow">TECNOLOGÍA · TEXTIL · INNOVACIÓN</div>
+        <div class="creator-eyebrow">Tecnología, textil e innovación</div>
         <h2>Hecho por <span>${CREATOR.name}</span></h2>
         <p class="creator-lead">Soluciones tecnológicas pensadas para negocios reales: del taller textil a la gestión digital.</p>
       </div>
@@ -248,6 +279,7 @@ function setFormOp(op) {
   savePrefs();
   segmented(byId('opSeg'), prefs.formOp);
   byId('saveLabel').textContent = { sumar: 'Sumar al stock', restar: 'Restar del stock', establecer: 'Establecer stock' }[prefs.formOp];
+  updateContactLabels();
   updateFormNotice();
 }
 
@@ -360,7 +392,7 @@ function saveProduct(e) {
   const btn = byId('saveProduct');
   const r = S.applyMovement({
     sku: F.sku.value, brand: F.brand.value, type: F.type.value, qty: F.qty.value, unit: F.unit.value, stockType: prefs.task,
-    operation: prefs.formOp, minStock: F.min.value, barcode: F.barcode.value, source: formSource,
+    operation: prefs.formOp, minStock: F.min.value, barcode: F.barcode.value, source: formSource, contact: prefs.formOp === 'establecer' ? null : resolveContact(byId('fContact').value, prefs.formOp),
   });
   if (!r.ok) {
     toast(r.error, 'error'); shake(btn); sound('error');
@@ -369,7 +401,9 @@ function saveProduct(e) {
   }
   flashDone(btn);
   sound('ok');
-  toast(`${r.item.sku}: ${fmt(r.before)} → ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}`, { action: () => { if (S.undo()) toast('Movimiento deshecho', 'info'); } });
+  const savedContact = prefs.formOp === 'establecer' ? '' : txt(byId('fContact').value);
+  if (savedContact) toast(`${r.item.sku}: ${fmt(r.before)} → ${fmt(r.after)} ${S.unitLabel(r.item.unitName)} · ${savedContact}`, { actionLabel: 'Hacer remito', duration: 8000, action: () => openRemito({ kind: r.op === 'sumar' ? 'entrada' : 'salida', moves: [{ sku: r.item.sku, units: r.amount, entryId: r.entryId }], contactName: savedContact }) });
+  else toast(`${r.item.sku}: ${fmt(r.before)} → ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}`, { action: () => { if (S.undo()) toast('Movimiento deshecho', 'info'); } });
   if (formSource === 'voz' && prefs.voiceSpeak) {
     const u = S.inputUnit(F.unit.value), qty = fmt(num(F.qty.value));
     const what = r.op === 'establecer' ? `queda en ${qty} ${u.short}` : `${r.op === 'restar' ? 'menos' : 'más'} ${qty} ${u.short}`;
@@ -453,13 +487,16 @@ function speakForm() {
 // =========================================================
 // Escáner
 // =========================================================
-const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] };
+const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [], contactName: '' };
 let lastScan = { code: '', at: 0 };
 
 function setScanOp(op) {
   prefs.scanOp = S.OPERATIONS[op] ? op : 'sumar';
   savePrefs();
   segmented(byId('scanOpSeg'), prefs.scanOp);
+  segmented(byId('kOp'), prefs.scanOp);
+  updateContactLabels();
+  renderKiosk();
   byId('scanOpHint').textContent = {
     sumar: 'Suma la cantidad al stock del producto (ingreso de mercadería).',
     restar: 'Descuenta la cantidad del stock (venta o salida).',
@@ -479,6 +516,11 @@ function scanFeedback(ok, html) {
   const hero = byId('scanHero');
   hero.classList.remove('ok', 'bad'); void hero.offsetWidth; hero.classList.add(ok ? 'ok' : 'bad');
   byId('scanLast').innerHTML = html;
+  if (currentView === 'kiosco') {
+    const k = byId('kResult');
+    k.className = `kiosk-result ${ok ? 'ok' : 'bad'}`;
+    k.innerHTML = html;
+  }
   sound(ok ? 'ok' : 'error');
 }
 function scanFail(code, msg) {
@@ -510,7 +552,7 @@ async function handleScan(raw, source = 'escáner') {
   const t = Date.now();
   if (source === 'cámara' && code === lastScan.code && t - lastScan.at < 1800) return; // la cámara repite lecturas
   lastScan = { code, at: t };
-  if (currentView !== 'escanear') location.hash = '#/escanear';
+  if (currentView !== 'escanear' && currentView !== 'kiosco') location.hash = '#/escanear';
 
   const op = prefs.scanOp, qty = num(prefs.scanQty) || 1;
   const resolved = S.resolveCode(code);
@@ -527,7 +569,7 @@ async function handleScan(raw, source = 'escáner') {
       focusScan();
       if (!data) return scanFail(code, 'Lectura cancelada.');
     }
-    r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta` });
+    r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta`, contact: sessionContact() });
   } else {
     // Cada lectura cuenta en la unidad base (1 = una prenda aunque el producto se muestre en docenas).
     let unit = item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(item), amount = qty, note = source;
@@ -552,7 +594,7 @@ async function handleScan(raw, source = 'escáner') {
       }
     }
     const operation = op === 'establecer' && session.counted.has(item.id) ? 'sumar' : op;
-    r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined });
+    r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact() });
   }
   if (!r.ok) return scanFail(code, r.error);
 
@@ -561,7 +603,7 @@ async function handleScan(raw, source = 'escáner') {
   session.units += r.amount;
   session.products.add(r.item.id);
   const serialTag = pack ? `${pack.label} N.º ${String(resolved.number).padStart(4, '0')}` : '';
-  session.feed.unshift({ id: Date.now() + Math.random(), itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
+  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
   // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
@@ -574,6 +616,7 @@ async function handleScan(raw, source = 'escáner') {
 }
 
 function renderScanSession() {
+  renderKiosk();
   byId('ssReads').textContent = fmt(session.reads);
   byId('ssUnits').textContent = fmt(session.units);
   byId('ssProducts').textContent = fmt(session.products.size);
@@ -588,11 +631,10 @@ function renderScanSession() {
 function revertScan(id) {
   const f = session.feed.find(x => String(x.id) === String(id));
   if (!f || f.undone) return;
-  const it = S.findById(f.itemId);
-  if (!it) return toast('El producto ya no existe.', 'warn');
-  const target = it.units - (f.after - f.before);
-  if (target < 0) return toast('No se puede revertir: el stock quedaría negativo.', 'error');
-  const r = S.setStock(it.id, target, 'Reversión de lectura', `Revierte ${S.OPERATIONS[f.op].toLowerCase()} de ${fmt(f.amount)}`, f.serial);
+  // Revertir una lectura de esta sesión es anularla (queda registrado quién y por qué). Lo puede hacer quien la hizo.
+  const r = f.entryId
+    ? S.fixMovement(f.entryId, { remove: true, reason: 'Lectura revertida desde la sesión de escaneo' })
+    : { ok: false, error: 'No se encontró la lectura en el historial.' };
   if (!r.ok) return toast(r.error, 'error');
   f.undone = true;
   if (f.serial) session.serials.delete(f.serial);
@@ -662,7 +704,7 @@ function itemRow(i) {
     <div class="inv-tags">${zero ? '<span class="badge badge-danger">Sin stock</span>' : low ? '<span class="badge badge-warn">Bajo mínimo</span>' : ''}<span class="badge">${esc(S.stockTypeLabel(i.stockType))}</span></div>
     <div class="inv-actions">
       <div class="stepper sm"><button type="button" data-act="minus" title="Restar 1" aria-label="Restar 1">${icon('minus')}</button><button type="button" data-act="plus" title="Sumar 1" aria-label="Sumar 1">${icon('plus')}</button></div>
-      <button class="icon-btn" type="button" data-act="history" title="Ver todos sus movimientos">${icon('history')}</button>
+      <button class="icon-btn owner-only" type="button" data-act="history" title="Ver todos sus movimientos">${icon('history')}</button>
       <button class="icon-btn" type="button" data-act="label" title="Imprimir etiqueta">${icon('tag')}</button>
       <button class="icon-btn" type="button" data-act="edit" title="Editar">${icon('edit')}</button>
     </div></div>`;
@@ -730,13 +772,18 @@ function openEdit(i) {
   byId('editSub').textContent = `Última modificación ${relTime(i.updatedAt)}`;
   byId('eSku').value = i.sku; byId('eBarcode').value = i.barcode || ''; byId('eBrand').value = i.brand; byId('eType').value = i.type;
   byId('eUnits').value = i.units; byId('eUnitName').value = i.unitName; byId('eMin').value = i.minStock || ''; byId('eStockType').value = i.stockType;
+  // Los empleados pueden editar datos del producto, pero no cambiar el stock a mano.
+  byId('eUnits').disabled = !canManage(); byId('eUnitName').disabled = !canManage();
+  byId('eUnits').title = canManage() ? '' : 'Solo el dueño puede cambiar el stock a mano';
   byId('editDialog').showModal();
 }
 function saveEdit(e) {
   e.preventDefault();
+  const item = S.findById(editingId);
   const r = S.saveItem(editingId, {
     sku: byId('eSku').value, barcode: byId('eBarcode').value, brand: byId('eBrand').value, type: byId('eType').value,
-    units: byId('eUnits').value, unitName: byId('eUnitName').value, minStock: byId('eMin').value, stockType: byId('eStockType').value,
+    units: canManage() ? byId('eUnits').value : item?.units, unitName: canManage() ? byId('eUnitName').value : item?.unitName,
+    minStock: byId('eMin').value, stockType: byId('eStockType').value,
   });
   if (!r.ok) { toast(r.error, 'error'); shake(byId('eSave')); return; }
   byId('editDialog').close();
@@ -744,6 +791,7 @@ function saveEdit(e) {
   flashRow(r.item.id);
 }
 async function deleteEditing() {
+  if (!ownerOnly('eliminar productos')) return;
   const i = S.findById(editingId);
   if (!i) return;
   if (!(await ask({ title: `¿Eliminar ${i.sku}?`, message: 'Se quita del inventario. Podés deshacerlo enseguida.', confirm: 'Eliminar', danger: true }))) return;
@@ -773,6 +821,7 @@ function applyBulk(e) {
   toast(`${n} productos actualizados`, { action: () => S.undo() });
 }
 async function bulkDelete() {
+  if (!ownerOnly('eliminar productos')) return;
   const n = inv.selected.size;
   if (!(await ask({ title: `¿Eliminar ${n} productos?`, message: 'Podés deshacerlo enseguida con el botón Deshacer.', confirm: 'Eliminar', danger: true }))) return;
   S.deleteItems([...inv.selected]);
@@ -981,7 +1030,7 @@ async function printLabelsNow() {
 // Historial
 // =========================================================
 const hist = { q: '', kind: 'all', code: '', brand: '', type: '', period: 'all', limit: 100 };
-const kindMatches = (h, kind) => kind === 'all' || S.historyKind(h) === kind || (kind === 'edit' && ['delete', 'import'].includes(S.historyKind(h)));
+const kindMatches = (h, kind) => kind === 'all' || S.historyKind(h) === kind || (kind === 'edit' && ['delete', 'import', 'fix'].includes(S.historyKind(h)));
 function periodStart(p) {
   const d = new Date(); d.setHours(0, 0, 0, 0);
   if (p === 'today') return [d, null];
@@ -1002,7 +1051,7 @@ function filteredHistory() {
 // Totales de una lista de movimientos (ingresos, salidas, neto), en unidades y docenas.
 function movementTotals(rows) {
   let ins = 0, outs = 0;
-  for (const h of rows) { const k = S.historyKind(h); if (k === 'in') ins += num(h.quantity); else if (k === 'out') outs += num(h.quantity); }
+  for (const h of rows) { const k = S.historyKind(h); if (k === 'in') ins += S.effectiveQty(h); else if (k === 'out') outs += S.effectiveQty(h); }
   const dz = n => `${fmt(n / 12)} docenas`;
   return { ins, outs, net: ins - outs, dz };
 }
@@ -1036,6 +1085,263 @@ function renderHistory() {
 }
 
 // =========================================================
+// Corregir o anular un movimiento (solo el dueño)
+// =========================================================
+const fix = { id: null, mode: 'edit' };
+function openFix(id) {
+  if (!ownerOnly('corregir o anular movimientos')) return;
+  const h = state.history.find(x => x.id === id);
+  if (!h || !canFix(h)) return toast('Este movimiento no se puede corregir.', 'warn');
+  fix.id = id;
+  const k = S.historyKind(h), item = S.findByCode(h.sku), e = S.enteredOf(h), q = movementQty(h);
+  const current = h.corrected ? h.corrected.to : null;
+  byId('fixInfo').innerHTML = `<div class="notice info">${icon(KIND_ICON[k])}<span><b>${esc(h.action)} de <span class="mono">${esc(h.sku)}</span></b>${h.serial ? ` · ${esc(S.serialInfo(h.serial)?.label || h.serial)}` : ''}<br>
+    ${q ? `<b>${q.main}</b>${q.sub ? ` (${q.sub})` : ''} · ` : ''}${esc(dateTimeOf(h.at))}${S.sourceOf(h) ? ` · por ${esc(S.sourceOf(h))}` : ''}${h.by ? ` @${esc(h.by)}` : ''}</span></div>`;
+  byId('fixQtyLabel').textContent = k === 'count' ? 'Cantidad contada correcta' : k === 'out' ? 'Cantidad que realmente salió' : 'Cantidad que realmente ingresó';
+  const unitKey = Object.keys(S.INPUT_UNITS).find(u => S.INPUT_UNITS[u].short === (current?.unit || e?.unit)) || S.inputUnitFor(item);
+  byId('fixUnit').value = S.inputUnit(unitKey).stock === item.unitName ? unitKey : S.inputUnitFor(item);
+  byId('fixQty').value = k === 'count' ? (current?.after ?? h.after) : (current?.qty ?? e?.qty ?? h.quantity);
+  byId('fixReason').value = '';
+  // Las etiquetas numeradas mueven siempre lo mismo: solo se pueden anular.
+  setFixMode(h.serial ? 'remove' : 'edit');
+  byId('fixMode').querySelector('[data-v="edit"]').disabled = !!h.serial;
+  byId('fixDialog').showModal();
+  setTimeout(() => (h.serial ? byId('fixReason') : byId('fixQty')).focus(), 60);
+}
+function setFixMode(mode) {
+  fix.mode = mode;
+  segmented(byId('fixMode'), mode);
+  byId('fixQtyFields').hidden = mode === 'remove';
+  byId('fixSave').innerHTML = `${icon(mode === 'remove' ? 'x' : 'check')}${mode === 'remove' ? 'Anular movimiento' : 'Guardar corrección'}`;
+  byId('fixSave').className = `btn ${mode === 'remove' ? 'btn-danger' : 'btn-primary'}`;
+  renderFixPreview();
+}
+// Muestra cómo va a quedar el stock antes de confirmar.
+function renderFixPreview() {
+  const h = state.history.find(x => x.id === fix.id), item = h && S.findByCode(h.sku);
+  if (!h || !item) return;
+  const k = S.historyKind(h), current = h.corrected ? h.corrected.to : { quantity: h.quantity, after: h.after };
+  const oldDelta = k === 'count' ? num(current.after ?? h.after) - h.before : (k === 'out' ? -1 : 1) * num(current.quantity);
+  let newDelta = 0;
+  if (fix.mode === 'edit') {
+    const amount = num(byId('fixQty').value) * S.inputUnit(byId('fixUnit').value).factor;
+    newDelta = k === 'count' ? amount - h.before : (k === 'out' ? -amount : amount);
+  }
+  const after = item.units + newDelta - oldDelta, unit = S.unitLabel(item.unitName);
+  byId('fixPreview').innerHTML = after < 0
+    ? `<div class="notice danger">${icon('alert')}<span>No se puede: el stock de ${esc(item.sku)} quedaría negativo.</span></div>`
+    : `<div class="notice ${fix.mode === 'remove' ? 'warn' : 'success'}">${icon('info')}<span>El stock actual de <b class="mono">${esc(item.sku)}</b> pasa de <b>${fmt(item.units)}</b> a <b>${fmt(after)}</b> ${esc(unit)}.${fix.mode === 'remove' ? ' El movimiento queda tachado en el historial.' : ''}</span></div>`;
+}
+function saveFix(e) {
+  e.preventDefault();
+  const r = S.fixMovement(fix.id, fix.mode === 'remove'
+    ? { remove: true, reason: byId('fixReason').value }
+    : { qty: byId('fixQty').value, unit: byId('fixUnit').value, reason: byId('fixReason').value });
+  if (!r.ok) { toast(r.error, 'error'); shake(byId('fixSave')); return; }
+  byId('fixDialog').close();
+  toast(`${fix.mode === 'remove' ? 'Movimiento anulado' : 'Movimiento corregido'}: stock de ${r.item.sku} ${fmt(r.before)} → ${fmt(r.after)}`);
+}
+
+// =========================================================
+// Clientes y proveedores
+// =========================================================
+const kindForOp = op => (op === 'sumar' ? 'proveedor' : 'cliente');
+// Busca el contacto por nombre; si no existe, lo crea (así se carga rápido desde la pistola o la voz).
+function resolveContact(name, op) {
+  const n = txt(name);
+  if (!n) return null;
+  const kind = kindForOp(op);
+  const found = S.findContactByName(n, kind) || S.findContactByName(n);
+  if (found) return found;
+  const r = S.saveContact({ name: n, kind });
+  if (r.ok) toast(`${S.CONTACT_KINDS[kind]} nuevo: ${r.contact.name}. Podés completar sus datos en Clientes.`, 'info');
+  return r.ok ? r.contact : null;
+}
+const sessionContact = () => (prefs.scanOp === 'establecer' ? null : resolveContact(session.contactName, prefs.scanOp));
+function updateContactLabels() {
+  const f = prefs.formOp, s = prefs.scanOp;
+  byId('fContactField').hidden = f === 'establecer';
+  byId('fContactLabel').textContent = f === 'sumar' ? 'Proveedor (de quién entra)' : 'Cliente (a quién sale)';
+  byId('fContact').placeholder = f === 'sumar' ? 'Elegí o escribí un proveedor (opcional)' : 'Elegí o escribí un cliente (opcional)';
+  byId('scanContactField').hidden = s === 'establecer';
+  byId('scanContactLabel').textContent = s === 'sumar' ? 'Proveedor de esta sesión' : 'Cliente de esta sesión';
+  byId('kContact').placeholder = s === 'sumar' ? 'Proveedor (opcional)' : 'Cliente (opcional)';
+}
+function setSessionContact(name, from) {
+  session.contactName = name;
+  if (from !== 'scan') byId('scanContact').value = name;
+  if (from !== 'kiosk') byId('kContact').value = name;
+}
+
+// Diálogo de contacto: devuelve el contacto guardado (o null si se cancela).
+let contactResolve = null, editingContact = null;
+function openContact(contact = null, kind = 'cliente', preset = '') {
+  editingContact = contact;
+  const k = contact?.kind || kind;
+  segmented(byId('ctdKind'), k);
+  byId('ctdKind').dataset.value = k;
+  byId('ctdTitle').textContent = contact ? `Editar ${S.CONTACT_KINDS[k].toLowerCase()}` : `Nuevo ${S.CONTACT_KINDS[k].toLowerCase()}`;
+  byId('ctdName').value = contact?.name || preset;
+  byId('ctdPhone').value = contact?.phone || '';
+  byId('ctdDoc').value = contact?.doc || '';
+  byId('ctdAddress').value = contact?.address || '';
+  byId('ctdNote').value = contact?.note || '';
+  byId('ctdDelete').hidden = !contact;
+  byId('contactDialog').showModal();
+  setTimeout(() => byId('ctdName').focus(), 60);
+  return new Promise(res => { contactResolve = res; });
+}
+function saveContactForm(e) {
+  e.preventDefault();
+  const r = S.saveContact({ id: editingContact?.id, kind: byId('ctdKind').dataset.value, name: byId('ctdName').value, phone: byId('ctdPhone').value, doc: byId('ctdDoc').value, address: byId('ctdAddress').value, note: byId('ctdNote').value });
+  if (!r.ok) { toast(r.error, 'error'); shake(byId('ctdSave')); return; }
+  const res = contactResolve; contactResolve = null;
+  byId('contactDialog').close();
+  toast(`${S.CONTACT_KINDS[r.contact.kind]} guardado: ${r.contact.name}`);
+  res?.(r.contact);
+}
+
+const ct = { kind: 'cliente', q: '', filter: null };
+function contactStats(c) {
+  let units = 0, moves = 0, last = null;
+  for (const h of state.history) {
+    if (h.contact?.id !== c.id || h.voided) continue;
+    moves++; units += S.effectiveQty(h); if (!last || h.at > last) last = h.at;
+  }
+  return { units, moves, last, remitos: state.extra.remitos.filter(r => r.contact?.id === c.id).length };
+}
+function renderContacts() {
+  if (currentView !== 'clientes') return;
+  segmented(byId('ctKind'), ct.kind);
+  const q = ct.q.toLocaleLowerCase('es-AR');
+  const list = S.contacts(ct.kind).filter(c => !q || [c.name, c.phone, c.doc, c.address].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q)));
+  byId('ctList').innerHTML = list.length ? list.map(c => {
+    const st = canManage() ? contactStats(c) : null, phone = waNumber(c.phone);
+    return `<div class="contact-row ${ct.filter === c.id ? 'on' : ''}" data-contact="${esc(c.id)}">
+      <span class="avatar">${esc(initials(c.name))}</span>
+      <div class="grow"><strong>${esc(c.name)}</strong><span>${esc([c.phone, c.doc && `CUIT/DNI ${c.doc}`].filter(Boolean).join(' · ') || 'Sin datos de contacto')}</span>
+        ${st ? `<span class="contact-stat">${st.moves ? `${fmt(st.units)} u. ${c.kind === 'proveedor' ? 'recibidas' : 'vendidas'} · ${st.remitos} remito${st.remitos === 1 ? '' : 's'} · último ${relTime(st.last)}` : 'Sin movimientos todavía'}</span>` : ''}</div>
+      ${phone ? `<a class="icon-btn" href="${waLink(phone, `Hola ${c.name}`)}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">${icon('whatsapp')}</a>` : ''}
+      <button class="icon-btn" type="button" data-ct="remitos" title="Ver sus remitos">${icon('file')}</button>
+      <button class="icon-btn" type="button" data-ct="edit" title="Editar">${icon('edit')}</button></div>`;
+  }).join('') : emptyState('users', ct.q ? 'Sin resultados' : `Todavía no hay ${ct.kind === 'cliente' ? 'clientes' : 'proveedores'}`, ct.q ? 'Probá otra búsqueda.' : 'Creálos acá o escribí un nombre al registrar una salida o un ingreso.');
+  renderRemitosList();
+}
+function renderRemitosList() {
+  const c = ct.filter && S.findContact(ct.filter);
+  const list = state.extra.remitos.filter(r => !c || r.contact?.id === c.id).slice(0, 60);
+  byId('ctRemitosSub').innerHTML = c ? `De <b>${esc(c.name)}</b> · <a href="#" class="link" data-ct-all>ver todos</a>` : 'Los últimos remitos emitidos';
+  byId('ctRemitos').innerHTML = list.length ? list.map(r => {
+    const units = r.lines.reduce((s, l) => s + num(l.units), 0);
+    return `<div class="remito-row" data-remito="${esc(r.id)}"><div class="grow"><strong>${esc(S.remitoCode(r))} · ${esc(r.contact?.name || 'Sin cliente')}</strong>
+      <span>${r.kind === 'entrada' ? 'Entrada' : 'Salida'} · ${fmt(units)} u. en ${r.lines.length} artículo${r.lines.length === 1 ? '' : 's'} · ${esc(dateTimeOf(r.at))}${r.by ? ` · @${esc(r.by)}` : ''}</span></div>
+      <button class="icon-btn" type="button" data-rm="pdf" title="Descargar PDF">${icon('download')}</button>
+      <button class="icon-btn" type="button" data-rm="wa" title="Enviar por WhatsApp">${icon('whatsapp')}</button></div>`;
+  }).join('') : emptyState('file', 'Sin remitos', 'Se generan desde Escanear, el modo mostrador o al registrar una salida con cliente.');
+}
+
+// =========================================================
+// Remitos
+// =========================================================
+const remitoOpts = () => { const s = cloud.getSession(); return { business: s?.business || '', owner: s?.owner?.full_name || s?.fullName || '' }; };
+// Agrupa lecturas por código: una línea por producto, con las etiquetas numeradas que se escanearon.
+function linesFromMoves(moves) {
+  const map = new Map();
+  for (const m of moves) {
+    const it = S.findByCode(m.sku);
+    const l = map.get(m.sku) || { sku: m.sku, name: it ? productName(it) : '', units: 0, serials: [], stock: it?.unitName || 'unidades' };
+    l.units += num(m.units);
+    if (m.serial) l.serials.push(m.serial);
+    map.set(m.sku, l);
+  }
+  return [...map.values()].map(l => {
+    const dozens = l.stock === 'unidades' && l.units >= 12 && l.units % 12 === 0;
+    const qty = dozens ? l.units / 12 : l.units;
+    const unit = dozens ? (qty === 1 ? 'docena' : 'docenas') : l.stock === 'unidades' ? (qty === 1 ? 'unidad' : 'unidades') : S.unitLabel(l.stock);
+    return { sku: l.sku, name: l.name, serials: l.serials, units: l.units, qty, unit };
+  });
+}
+const feedMoves = op => session.feed.filter(f => !f.undone && f.op === op && f.entryId).map(f => ({ sku: f.sku, units: f.amount, serial: f.serial, entryId: f.entryId }));
+let pendingRemito = null;
+function openRemito({ kind, moves, contactName = '' }) {
+  if (!moves.length) return toast('No hay productos para el remito.', 'warn');
+  pendingRemito = { kind, lines: linesFromMoves(moves), entryIds: moves.map(m => m.entryId).filter(Boolean), created: null };
+  byId('rmTitle').textContent = kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
+  byId('rmSub').textContent = `Número ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
+  byId('rmContactLabel').textContent = kind === 'entrada' ? 'Proveedor' : 'Cliente';
+  byId('rmContact').value = contactName;
+  byId('rmNote').value = '';
+  const total = pendingRemito.lines.reduce((s, l) => s + l.units, 0);
+  byId('rmLines').innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Unidades</th></tr></thead><tbody>
+    ${pendingRemito.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td>${esc(l.name || '—')}${l.serials.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}</td><td class="num">${fmt(l.units)}</td></tr>`).join('')}
+    </tbody></table></div><p class="hint" style="text-align:right">Total: <b>${fmt(total)} unidades</b> (${fmt(total / 12)} docenas)</p>`;
+  byId('remitoDialog').showModal();
+}
+function ensureRemito() {
+  if (pendingRemito.created) return pendingRemito.created;
+  const op = pendingRemito.kind === 'entrada' ? 'sumar' : 'restar';
+  const r = S.createRemito({ kind: pendingRemito.kind, contact: resolveContact(byId('rmContact').value, op), lines: pendingRemito.lines, note: byId('rmNote').value, entryIds: pendingRemito.entryIds });
+  if (!r.ok) { toast(r.error, 'error'); return null; }
+  pendingRemito.created = r.remito;
+  return r.remito;
+}
+async function sendRemito(e, mode) {
+  e?.preventDefault();
+  const btn = byId(mode === 'download' ? 'rmDownload' : 'rmSend'), remito = ensureRemito();
+  if (!remito) return;
+  busy(btn, true);
+  try {
+    if (mode === 'download') { await downloadRemito(remito, remitoOpts()); toast(`${S.remitoCode(remito)} descargado`); }
+    else {
+      const how = await shareRemito(remito, remitoOpts());
+      toast(how === 'downloaded' ? `${S.remitoCode(remito)} descargado. Adjuntalo en el chat de WhatsApp que se abrió.` : how === 'shared' ? `${S.remitoCode(remito)} compartido` : 'Envío cancelado', how === 'cancelled' ? 'info' : 'success');
+    }
+    byId('remitoDialog').close();
+  } catch (er) { toast(er.message || 'No se pudo generar el PDF.', 'error'); }
+  finally { busy(btn, false); }
+}
+async function remitoAction(id, action) {
+  const r = state.extra.remitos.find(x => x.id === id);
+  if (!r) return;
+  try {
+    if (action === 'pdf') await downloadRemito(r, remitoOpts());
+    else { const how = await shareRemito(r, remitoOpts()); if (how === 'downloaded') toast('PDF descargado. Adjuntalo en el chat de WhatsApp que se abrió.', 'info'); }
+  } catch (er) { toast(er.message || 'No se pudo generar el PDF.', 'error'); }
+}
+
+// =========================================================
+// Reportes (solo la dueña)
+// =========================================================
+const rp = { days: 30, user: '' };
+function renderReports() {
+  if (currentView !== 'reportes' || !canManage()) return;
+  segmented(byId('rpPeriod'), String(rp.days));
+  const users = [...new Set(state.history.map(h => h.by).filter(Boolean))].sort();
+  byId('rpUser').innerHTML = `<option value="">Todo el equipo</option>${users.map(u => `<option value="${esc(u)}" ${u === rp.user ? 'selected' : ''}>@${esc(u)}</option>`).join('')}`;
+  const r = R.computeReport(state, rp);
+  byId('rpBody').innerHTML = state.history.length ? R.renderReport(r) : `<div class="card">${emptyState('layers', 'Todavía no hay datos', 'Los reportes se arman con los movimientos que registres.')}</div>`;
+}
+
+// =========================================================
+// Modo mostrador: pantalla grande y simple para escanear
+// =========================================================
+function enterKiosk() {
+  if (prefs.scanOp === 'establecer') setScanOp('restar');
+  segmented(byId('kOp'), prefs.scanOp);
+  byId('kContact').value = session.contactName || '';
+  renderKiosk();
+  setTimeout(() => byId('kInput').focus({ preventScroll: true }), 80);
+}
+function renderKiosk() {
+  const live = session.feed.filter(f => !f.undone);
+  byId('kCount').textContent = fmt(live.length);
+  byId('kUnits').textContent = fmt(live.reduce((s, f) => s + f.amount, 0));
+  byId('kUndo').disabled = !live.length;
+  byId('kRemito').disabled = !feedMoves(prefs.scanOp).length;
+  byId('scanRemito').disabled = !feedMoves(prefs.scanOp).length;
+}
+
+// =========================================================
 // Ficha de movimientos de un producto
 // =========================================================
 const pd = { sku: '', kind: 'all' };
@@ -1047,6 +1353,14 @@ function openProductHistory(sku) {
 }
 function renderProductHistory() {
   const item = S.findByCode(pd.sku), sku = item?.sku || pd.sku;
+  if (!canManage()) {
+    const d = item ? S.displayQty(item) : null;
+    byId('pdTitle').textContent = sku; byId('pdSub').textContent = item ? productName(item) : '';
+    byId('pdEdit').hidden = !item; byId('pdLabels').hidden = !item; byId('pdExport').hidden = true;
+    byId('pdBody').innerHTML = `<div class="pd-stats mini-stats"><div><strong>${d ? fmt(d.value) : '—'}</strong><span>${d ? esc(d.unit) : ''} en stock</span></div></div><div class="notice info">${icon('lock')}<span>El historial de movimientos es solo para la dueña de la cuenta.</span></div>`;
+    return;
+  }
+  byId('pdExport').hidden = false;
   const all = state.history.filter(h => h.sku === sku);
   const rows = all.filter(h => kindMatches(h, pd.kind));
   const t = movementTotals(all);
@@ -1097,6 +1411,7 @@ function renderProductHistory() {
 // =========================================================
 let pendingImport = null;
 async function handleImportFile(file) {
+  if (!ownerOnly('importar datos')) return;
   if (!file) return;
   try {
     pendingImport = await IO.readImportFile(file);
@@ -1107,6 +1422,7 @@ async function handleImportFile(file) {
   } catch (e) { toast(e.message || 'No se pudo leer el archivo.', 'error'); }
 }
 async function commitImport(replace) {
+  if (!ownerOnly('importar datos')) return;
   if (!pendingImport) return;
   if (replace && !(await ask({ title: '¿Reemplazar todo el inventario?', message: 'Los productos actuales se reemplazan por los del archivo. Podés deshacerlo enseguida.', confirm: 'Reemplazar', danger: true }))) return;
   S.importItems(pendingImport.rows, replace, replace ? pendingImport.history : null);
@@ -1145,6 +1461,10 @@ function syncLabel(st) {
 }
 function renderSync(st = cloud.getStatus()) {
   const s = syncLabel(st), chip = byId('syncChip');
+  // Los empleados no ven los botones exclusivos del dueño.
+  const wasEmployee = document.body.classList.contains('is-employee');
+  document.body.classList.toggle('is-employee', !cloud.isOwner());
+  if (wasEmployee !== !cloud.isOwner()) renderAll();
   chip.className = `sync-chip ${s.tone}`;
   chip.innerHTML = `${icon(s.ic)}<span>${s.text}</span>`;
   chip.title = st.lastError || (st.session ? `Última sincronización: ${relTime(st.lastSyncAt)}` : 'Los datos se guardan en este dispositivo');
@@ -1163,7 +1483,11 @@ function renderAccount() {
     return;
   }
   if (st.session) {
-    el.innerHTML = `<div class="card auth-card"><div class="profile-head"><span class="avatar lg">${esc(initials(st.session.fullName || st.session.username))}</span><div><h3>${esc(st.session.fullName || st.session.username)}</h3><p class="muted">@${esc(st.session.username)} · <span class="badge badge-success">${icon('check')}Cuenta aprobada</span></p></div></div>
+    const emp = st.session.role === 'employee';
+    const roleBadge = emp
+      ? `<span class="badge badge-info">${icon('users')}Empleado de ${esc(st.session.business || '@' + (st.session.owner?.username || ''))}</span>`
+      : `<span class="badge badge-success">${icon('check')}Dueño de la cuenta</span>`;
+    el.innerHTML = `<div class="card auth-card"><div class="profile-head"><span class="avatar lg">${esc(initials(st.session.fullName || st.session.username))}</span><div><h3>${esc(st.session.fullName || st.session.username)}</h3><p class="muted">@${esc(st.session.username)} · ${roleBadge}</p></div></div>
       <div class="sync-box" id="accSync"></div>
       <div class="row"><button class="btn btn-primary" type="button" id="accSyncBtn">${icon('refresh')}<span>Sincronizar ahora</span></button><button class="btn btn-ghost" type="button" id="accLogout">${icon('logout')}<span>Cerrar sesión</span></button></div>
       <p class="hint" style="margin-top:14px">Para cuidar los recursos gratuitos, los cambios se agrupan y se suben ${Math.round(CONFIG.SYNC_DELAY_MS / 1000)} segundos después del último movimiento. Si no hay internet, se suben solos al reconectar.</p></div>`;
@@ -1176,10 +1500,93 @@ function renderAccount() {
       if (s.syncState === 'idle') { flashDone(b); toast('Datos sincronizados'); } else toast(s.lastError || 'No se pudo sincronizar.', 'error');
     };
     byId('accLogout').onclick = doLogout;
+    const teamCard = document.createElement('div');
+    teamCard.className = 'card';
+    teamCard.style.marginTop = '18px';
+    teamCard.id = 'teamCard';
+    el.append(teamCard);
+    if (emp) renderEmployeeInfo(teamCard, st.session); else renderTeam();
     return;
   }
   el.innerHTML = '';
   el.append(buildAuth());
+}
+
+// ---------- Equipo: empleados que comparten el inventario ----------
+const PERMS = `<div class="perm-list">
+  <span class="yes">${icon('check', 'sm')}Cargar por voz y a mano</span><span class="yes">${icon('check', 'sm')}Escanear entradas y salidas</span>
+  <span class="yes">${icon('check', 'sm')}Ver inventario e historial</span><span class="yes">${icon('check', 'sm')}Imprimir etiquetas</span>
+  <span class="no">${icon('x', 'sm')}Corregir o anular movimientos</span><span class="no">${icon('x', 'sm')}Cambiar el stock a mano</span>
+  <span class="no">${icon('x', 'sm')}Eliminar productos o el historial</span><span class="no">${icon('x', 'sm')}Importar datos</span></div>`;
+function renderEmployeeInfo(card, s) {
+  card.innerHTML = `<div class="card-head"><div class="card-title"><span class="card-icon">${icon('users')}</span><div><h3>Trabajás en ${esc(s.business || 'la cuenta de @' + (s.owner?.username || ''))}</h3><p>Dueño: ${esc(s.owner?.full_name || '')} (@${esc(s.owner?.username || '')})</p></div></div></div>
+    <p class="small muted">Usás el mismo inventario que el resto del equipo. Cada movimiento queda registrado con tu usuario.</p>${PERMS}
+    <p class="hint" style="margin-top:12px">Si cargaste algo mal, avisale al dueño: él puede corregirlo o anularlo. Una lectura recién escaneada podés revertirla desde la sesión de escaneo.</p>`;
+}
+let teamCache = null;
+async function renderTeam() {
+  const card = byId('teamCard');
+  if (!card) return;
+  card.innerHTML = `<div class="card-head"><div class="card-title"><span class="card-icon">${icon('users')}</span><div><h3>Equipo</h3><p>Empleados que usan tu mismo inventario</p></div></div>
+    <button class="btn btn-primary btn-sm" type="button" id="teamAdd">${icon('plus', 'sm')}Agregar empleado</button></div>
+    <div id="teamList">${teamCache ? '' : '<div class="skeleton" style="height:54px"></div>'}</div>
+    <details class="tips"><summary>${icon('chevron-down')}Qué pueden hacer los empleados</summary>${PERMS}</details>`;
+  byId('teamAdd').onclick = () => { ['mName', 'mUser', 'mPass'].forEach(id => { byId(id).value = ''; }); byId('memberDialog').showModal(); setTimeout(() => byId('mName').focus(), 60); };
+  if (teamCache) drawTeam();
+  try { teamCache = await cloud.team.list(); drawTeam(); }
+  catch (e) { const l = byId('teamList'); if (l) l.innerHTML = `<div class="notice warn">${icon('alert')}<span>${esc(e.message)}</span></div>`; }
+}
+function drawTeam() {
+  const list = byId('teamList');
+  if (!list || !teamCache) return;
+  const m = teamCache.members || [];
+  byId('teamAdd').disabled = m.length >= teamCache.max;
+  list.innerHTML = (m.length ? m.map(u => `<div class="team-row" data-member="${esc(u.id)}">
+      <span class="avatar">${esc(initials(u.full_name || u.username))}</span>
+      <div class="grow"><strong>${esc(u.full_name || u.username)}</strong><span class="mono">@${esc(u.username)} · ${u.last_login_at ? `entró ${relTime(u.last_login_at)}` : 'nunca entró'}</span></div>
+      <span class="badge ${u.status === 'approved' ? 'badge-success' : 'badge-danger'}">${u.status === 'approved' ? 'Activo' : 'Deshabilitado'}</span>
+      <button class="icon-btn" type="button" data-team="toggle" title="${u.status === 'approved' ? 'Deshabilitar' : 'Habilitar'}">${icon(u.status === 'approved' ? 'lock' : 'check')}</button>
+      <button class="icon-btn" type="button" data-team="password" title="Cambiar contraseña">${icon('key')}</button>
+      <button class="icon-btn danger" type="button" data-team="remove" title="Quitar del equipo">${icon('trash')}</button></div>`).join('')
+    : emptyState('users', 'Todavía no agregaste empleados', 'Creales un usuario para que carguen y escaneen en tu mismo inventario.'))
+    + `<p class="hint" style="margin-top:8px">${m.length} de ${teamCache.max} empleados.</p>`;
+}
+async function saveMember(e) {
+  e.preventDefault();
+  const btn = byId('mSave'), f = { fullName: txt(byId('mName').value), username: txt(byId('mUser').value).toLowerCase(), password: byId('mPass').value };
+  if (!/^[a-z0-9._-]{3,30}$/.test(f.username)) { shake(btn); return toast('El usuario debe tener de 3 a 30 caracteres: letras minúsculas, números, punto, guion o guion bajo.', 'warn'); }
+  if (f.password.length < 6) { shake(btn); return toast('La contraseña debe tener al menos 6 caracteres.', 'warn'); }
+  busy(btn, true);
+  try {
+    await cloud.team.add(f);
+    byId('memberDialog').close();
+    toast(`Empleado @${f.username} creado. Pasale su usuario y contraseña.`);
+    teamCache = await cloud.team.list(); drawTeam();
+  } catch (er) { shake(btn); toast(er.message, 'error'); }
+  finally { busy(btn, false); }
+}
+async function onTeamClick(e) {
+  const b = e.target.closest('[data-team]');
+  if (!b) return;
+  const id = b.closest('[data-member]').dataset.member, u = teamCache?.members.find(x => x.id === id);
+  if (!u) return;
+  try {
+    if (b.dataset.team === 'toggle') {
+      await cloud.team.setStatus(id, u.status === 'approved' ? 'disabled' : 'approved');
+      toast(u.status === 'approved' ? `@${u.username} deshabilitado: ya no puede entrar.` : `@${u.username} habilitado.`);
+    } else if (b.dataset.team === 'password') {
+      const p = prompt(`Nueva contraseña para @${u.username} (mínimo 6 caracteres):`);
+      if (p === null) return;
+      if (p.length < 6) return toast('La contraseña debe tener al menos 6 caracteres.', 'warn');
+      await cloud.team.setPassword(id, p);
+      toast(`Contraseña de @${u.username} cambiada. Su sesión se cerró en todos los dispositivos.`);
+    } else if (b.dataset.team === 'remove') {
+      if (!(await ask({ title: `¿Quitar a @${u.username} del equipo?`, message: 'Se borra su usuario. Sus movimientos quedan en el historial.', confirm: 'Quitar', danger: true }))) return;
+      await cloud.team.remove(id);
+      toast(`@${u.username} quitado del equipo.`);
+    }
+    teamCache = await cloud.team.list(); drawTeam();
+  } catch (er) { toast(er.message, 'error'); }
 }
 function renderAccountStatusOnly(st) {
   const box = byId('accSync');
@@ -1283,6 +1690,7 @@ async function doLogout() {
   });
   if (!choice) return;
   await cloud.logout();
+  teamCache = null;
   if (choice === 'wipe') S.wipeLocal();
   toast('Sesión cerrada', 'info');
   renderAccount(); renderPanel();
@@ -1309,7 +1717,7 @@ function setTheme(t) {
   const theme = t === 'light' ? 'light' : 'dark';
   document.documentElement.dataset.theme = theme;
   try { localStorage.setItem('stockvoz_theme', theme); } catch { /* sin almacenamiento */ }
-  $('meta[name="theme-color"]').content = theme === 'light' ? '#f3f5fb' : '#070c18';
+  $('meta[name="theme-color"]').content = theme === 'light' ? '#f3f3f0' : '#0e0f11';
   byId('themeBtn').innerHTML = icon(theme === 'light' ? 'moon' : 'sun');
   segmented(byId('themeSeg'), theme);
 }
@@ -1334,6 +1742,7 @@ function renderDatalists() {
   const uniq = k => [...new Set(state.items.map(i => i[k]).filter(Boolean))].sort().slice(0, 300);
   byId('brandList').innerHTML = uniq('brand').map(v => `<option value="${esc(v)}">`).join('');
   byId('typeList').innerHTML = uniq('type').map(v => `<option value="${esc(v)}">`).join('');
+  byId('contactList').innerHTML = S.contacts().map(c => `<option value="${esc(c.name)}">${esc(S.CONTACT_KINDS[c.kind])}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join('');
   byId('skuList').innerHTML = state.items.slice().sort((a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true })).slice(0, 1000)
     .map(i => `<option value="${esc(i.sku)}">${esc(productName(i))}</option>`).join('');
 }
@@ -1346,6 +1755,8 @@ function renderAll() {
   renderStorageInfo();
   if (currentView === 'etiquetas') { renderLabelList(); renderLabelPreview(); }
   if (currentView === 'cargar') updateFormNotice();
+  if (currentView === 'clientes') renderContacts();
+  if (currentView === 'reportes') renderReports();
   renderDatalists();
   if (byId('productDialog').open) renderProductHistory();
 }
@@ -1395,7 +1806,7 @@ function bindEvents() {
   byId('scanUnknown').onchange = e => { prefs.scanUnknown = e.target.value; savePrefs(); };
   byId('scanSound').onchange = e => { prefs.sound = e.target.checked; savePrefs(); };
   byId('scanCamera').onclick = () => openCamera({ continuous: true, onCode: c => handleScan(c, 'cámara') });
-  byId('scanNewSession').onclick = () => { Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] }); byId('scanLast').innerHTML = ''; renderScanSession(); toast('Nueva sesión de escaneo', 'info'); focusScan(); };
+  byId('scanNewSession').onclick = () => { Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] }); renderKiosk(); byId('scanLast').innerHTML = ''; renderScanSession(); toast('Nueva sesión de escaneo', 'info'); focusScan(); };
   byId('scanFeed').addEventListener('click', e => { const b = e.target.closest('[data-revert]'); if (b) revertScan(b.dataset.revert); });
   byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
 
@@ -1473,6 +1884,8 @@ function bindEvents() {
   };
   // Tocar cualquier movimiento abre la ficha completa de ese código.
   const openFromRow = e => {
+    const fixBtn = e.target.closest('[data-fix]');
+    if (fixBtn) { if (e.type === 'click') { e.stopPropagation(); openFix(fixBtn.dataset.fix); } return; }
     const link = e.target.closest('[data-open-product]');
     if (link) { e.preventDefault(); openProductHistory(link.dataset.openProduct); return; }
     const row = e.target.closest('.tl-item[data-sku]');
@@ -1482,6 +1895,14 @@ function bindEvents() {
   };
   document.addEventListener('click', openFromRow);
   document.addEventListener('keydown', openFromRow);
+  onSegment(byId('fixMode'), setFixMode);
+  byId('fixQty').addEventListener('input', renderFixPreview);
+  byId('fixUnit').addEventListener('change', renderFixPreview);
+  byId('fixReasons').addEventListener('click', e => { const c = e.target.closest('.chip'); if (c) { byId('fixReason').value = c.textContent; $$('#fixReasons .chip').forEach(x => x.classList.toggle('active', x === c)); } });
+  byId('fixForm').addEventListener('submit', saveFix);
+  byId('memberForm').addEventListener('submit', saveMember);
+  byId('accountArea').addEventListener('click', onTeamClick);
+  byId('mPassGen').onclick = () => { byId('mPass').value = Math.random().toString(36).slice(2, 6) + Math.floor(1000 + Math.random() * 9000); };
   byId('pdBody').addEventListener('click', e => { const c = e.target.closest('[data-pk]'); if (c) { pd.kind = c.dataset.pk; renderProductHistory(); } });
   byId('pdExport').onclick = () => {
     const rows = state.history.filter(h => h.sku === (S.findByCode(pd.sku)?.sku || pd.sku));
@@ -1492,7 +1913,7 @@ function bindEvents() {
   byId('histFilters').addEventListener('click', e => { const c = e.target.closest('[data-k]'); if (c) { hist.kind = c.dataset.k; hist.limit = 100; renderHistory(); } });
   byId('histMore').onclick = () => { hist.limit += 100; renderHistory(); };
   byId('histExport').onclick = () => { if (!IO.exportHistoryCSV(filteredHistory())) toast('No hay movimientos para exportar.', 'warn'); };
-  byId('histClear').onclick = async () => { if (await ask({ title: '¿Borrar todo el historial?', message: 'El stock no cambia. Podés deshacerlo enseguida.', confirm: 'Borrar historial', danger: true })) { S.clearHistory(); toast('Historial borrado', { action: () => S.undo() }); } };
+  byId('histClear').onclick = async () => { if (!ownerOnly('borrar el historial')) return; if (await ask({ title: '¿Borrar todo el historial?', message: 'El stock no cambia. Podés deshacerlo enseguida.', confirm: 'Borrar historial', danger: true })) { S.clearHistory(); toast('Historial borrado', { action: () => S.undo() }); } };
 
   // Datos
   byId('expXlsx').onclick = async e => {
@@ -1510,6 +1931,51 @@ function bindEvents() {
   dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); handleImportFile(e.dataTransfer.files[0]); });
   byId('importReplace').onclick = () => commitImport(true);
   byId('importMerge').onclick = () => commitImport(false);
+}
+
+function bindExtras() {
+  // Cliente / proveedor
+  byId('fContactNew').onclick = async () => { const c = await openContact(null, kindForOp(prefs.formOp), byId('fContact').value); if (c) byId('fContact').value = c.name; };
+  byId('scanContactNew').onclick = async () => { const c = await openContact(null, kindForOp(prefs.scanOp), byId('scanContact').value); if (c) setSessionContact(c.name); focusScan(); };
+  byId('scanContact').addEventListener('change', e => setSessionContact(txt(e.target.value), 'scan'));
+  byId('kContact').addEventListener('change', e => { setSessionContact(txt(e.target.value), 'kiosk'); byId('kInput').focus(); });
+  byId('contactForm').addEventListener('submit', saveContactForm);
+  onSegment(byId('ctdKind'), v => { segmented(byId('ctdKind'), v); byId('ctdKind').dataset.value = v; });
+  byId('contactDialog').addEventListener('close', () => { if (contactResolve) { contactResolve(null); contactResolve = null; } });
+  byId('ctdDelete').onclick = async () => {
+    if (!editingContact || !ownerOnly('eliminar clientes o proveedores')) return;
+    if (!(await ask({ title: `¿Eliminar a ${editingContact.name}?`, message: 'Sus movimientos y remitos anteriores no se borran.', confirm: 'Eliminar', danger: true }))) return;
+    S.deleteContact(editingContact.id); byId('contactDialog').close(); toast('Contacto eliminado');
+  };
+  // Vista Clientes
+  onSegment(byId('ctKind'), v => { ct.kind = v; ct.filter = null; renderContacts(); });
+  byId('ctSearch').addEventListener('input', debounce(e => { ct.q = e.target.value; renderContacts(); }, 150));
+  byId('ctNew').onclick = () => openContact(null, ct.kind);
+  byId('ctList').addEventListener('click', e => {
+    const row = e.target.closest('[data-contact]'), b = e.target.closest('[data-ct]');
+    if (!row || !b) return;
+    const c = S.findContact(row.dataset.contact);
+    if (b.dataset.ct === 'edit') openContact(c);
+    else { ct.filter = ct.filter === c.id ? null : c.id; renderContacts(); }
+  });
+  byId('ctRemitos').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) remitoAction(b.closest('[data-remito]').dataset.remito, b.dataset.rm); });
+  byId('ctRemitosSub').addEventListener('click', e => { if (e.target.closest('[data-ct-all]')) { e.preventDefault(); ct.filter = null; renderContacts(); } });
+  // Remitos
+  byId('scanRemito').onclick = () => openRemito({ kind: prefs.scanOp === 'sumar' ? 'entrada' : 'salida', moves: feedMoves(prefs.scanOp), contactName: session.contactName });
+  byId('kRemito').onclick = byId('scanRemito').onclick;
+  byId('remitoForm').addEventListener('submit', e => sendRemito(e, 'wa'));
+  byId('rmDownload').onclick = e => sendRemito(e, 'download');
+  // Reportes
+  onSegment(byId('rpPeriod'), v => { rp.days = Number(v); renderReports(); });
+  byId('rpUser').onchange = e => { rp.user = e.target.value; renderReports(); };
+  byId('rpExport').onclick = () => { const rows = R.periodRows(state.history, rp); if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${rp.days || 'todo'}dias.csv`)) toast('No hay movimientos en el período.', 'warn'); };
+  R.bindChart(byId('rpBody'));
+  // Modo mostrador
+  onSegment(byId('kOp'), v => { setScanOp(v); byId('kInput').focus(); });
+  byId('kForm').addEventListener('submit', e => { e.preventDefault(); const v = byId('kInput').value; byId('kInput').value = ''; handleScan(v, 'mostrador'); });
+  byId('kExit').onclick = () => { location.hash = '#/escanear'; };
+  byId('kUndo').onclick = () => { const last = session.feed.find(f => !f.undone); if (last) revertScan(last.id); byId('kInput').focus(); };
+  byId('kiosk').addEventListener('click', e => { if (!e.target.closest('button, input, a, .segmented')) byId('kInput').focus(); });
 }
 
 function registerServiceWorker() {
@@ -1538,7 +2004,7 @@ function init() {
   hydrateIcons();
   $$('[data-year]').forEach(el => { el.textContent = new Date().getFullYear(); });
   byId('appVersion').textContent = `v${CONFIG.VERSION}`;
-  initRipple();
+  initInteractions();
   renderCreator();
   setTheme(document.documentElement.dataset.theme);
   setTask(prefs.task);
@@ -1566,6 +2032,7 @@ function init() {
   if (!recog) { byId('micBtn').disabled = true; byId('micStatus').textContent = 'Este navegador no admite dictado. Escribí el producto o usá Chrome.'; }
 
   bindEvents();
+  bindExtras();
   initHardwareScanner(code => handleScan(code, 'pistola'));
 
   S.subscribe(() => { renderAll(); cloud.schedulePush(); });
