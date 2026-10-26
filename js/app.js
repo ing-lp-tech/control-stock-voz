@@ -813,7 +813,9 @@ function askNewProduct(code, qty) {
   });
 }
 
-async function handleScan(raw, source = 'escáner') {
+// opts (carga a mano): { qty, unit: 'dozen' | 'unit' }. Sin opts, cada lectura mueve la "Cantidad por lectura".
+// Devuelve true si se registró.
+async function handleScan(raw, source = 'escáner', opts = {}) {
   const code = upper(raw).replace(/\s+/g, '');
   if (!code) return;
   const t = Date.now();
@@ -821,7 +823,7 @@ async function handleScan(raw, source = 'escáner') {
   lastScan = { code, at: t };
   if (currentView !== 'escanear' && currentView !== 'kiosco') location.hash = '#/escanear';
 
-  const op = prefs.scanOp, qty = num(prefs.scanQty) || 1;
+  const op = prefs.scanOp, qty = num(opts.qty) || num(prefs.scanQty) || 1;
   let resolved = S.resolveCode(code);
   // Código desconocido parecido a uno cargado (8008 / GT8008): se pregunta una vez y se recuerda en esta sesión.
   if (!resolved) {
@@ -840,7 +842,7 @@ async function handleScan(raw, source = 'escáner') {
   if (!item) {
     if (op === 'restar') return scanFail(code, `${code} no existe en el inventario; no se descontó nada.`);
     if (prefs.scanUnknown === 'reject') return scanFail(code, `${code} no está en el inventario.`);
-    let data = { qty, unit: 'unit' };
+    let data = { qty, unit: opts.unit || 'unit' };
     if (prefs.scanUnknown === 'ask') {
       sound('warn');
       data = await askNewProduct(code, qty);
@@ -850,7 +852,7 @@ async function handleScan(raw, source = 'escáner') {
     r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta`, contact: sessionContact() });
   } else {
     // Cada lectura cuenta en la unidad base (1 = una prenda aunque el producto se muestre en docenas).
-    let unit = item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(item), amount = qty, note = source;
+    let unit = item.unitName === 'unidades' ? (opts.unit === 'dozen' ? 'dozen' : 'unit') : S.inputUnitFor(item), amount = qty, note = source;
     if (pack) {
       // Etiqueta numerada: mueve exactamente una docena o una unidad, y no se puede registrar dos veces por error.
       amount = 1;
@@ -885,14 +887,75 @@ async function handleScan(raw, source = 'escáner') {
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
   // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
+  // Cargado a mano en docenas: "−2 docenas (24 unidades)".
+  const dz = !pack && opts.unit === 'dozen' && r.item.unitName === 'unidades' && op !== 'establecer';
   const moved = op === 'establecer' ? `= ${unitWords(r.after, S.unitLabel(r.item.unitName))}`
-    : resolved?.pack === 'D' ? `${sign}1 docena` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
-  const movedSub = resolved?.pack === 'D' && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
+    : resolved?.pack === 'D' ? `${sign}1 docena` : dz ? `${sign}${unitWords(r.amount / 12, 'docenas')}` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
+  const movedSub = (resolved?.pack === 'D' || dz) && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
   const sk = saleKind(), pr = sk && salePrice(r.item, sk);
   const priceInfo = !sk ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
   scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}${priceInfo}</div></div></div>`);
   renderScanSession();
   focusScan();
+  return true;
+}
+
+// =========================================================
+// Carga a mano en Escanear (sin pistola): buscar el producto, cantidad y docenas o unidades
+// =========================================================
+let maPick = null;
+const maCode = v => upper(v).replace(/\s+/g, '');
+function maMatches(q) {
+  const code = maCode(q), words = txt(q).toLocaleLowerCase('es-AR').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const hay = i => [i.sku, i.barcode, i.brand, i.type, ...(i.aliases || [])].join(' ').toLocaleLowerCase('es-AR');
+  return state.items.filter(i => words.every(w => hay(i).includes(w)))
+    .map(i => ({ i, rank: i.sku === code ? 0 : i.sku.startsWith(code) ? 1 : 2 }))
+    .sort((a, b) => a.rank - b.rank || a.i.sku.localeCompare(b.i.sku, 'es', { numeric: true }))
+    .slice(0, 8).map(x => x.i);
+}
+function renderMaResults() {
+  const q = byId('maSearch').value, box = byId('maResults');
+  if (maPick && maPick.sku !== maCode(q)) maPick = null;
+  const list = maPick ? [] : maMatches(q);
+  box.hidden = !list.length;
+  byId('maSearch').setAttribute('aria-expanded', String(!box.hidden));
+  box.innerHTML = list.map(i => { const p = S.pricesOn() ? priceText(i) : ''; return `<button type="button" class="ma-opt" role="option" data-ma="${esc(i.id)}"><b class="mono">${esc(i.sku)}</b><span>${esc(productName(i) || 'Sin marca ni prenda')}</span><small>stock ${esc(qtyText(i))}${p ? ` · ${esc(p)}` : ''}</small></button>`; }).join('');
+  renderMaHint();
+}
+// Lo que se va a registrar: producto, stock y, en una venta, el importe.
+function renderMaHint() {
+  const it = maPick, qty = num(byId('maQty').value), unit = byId('maUnit').value;
+  if (!it) { byId('maHint').textContent = ''; return; }
+  const units = qty * (unit === 'dozen' && it.unitName === 'unidades' ? 12 : 1), sk = saleKind(), pr = sk && salePrice(it, sk);
+  byId('maHint').innerHTML = `<b class="mono">${esc(it.sku)}</b> · ${esc(productName(it) || 'Sin marca ni prenda')} · stock ${esc(qtyText(it))}${qty > 0 && pr ? ` · importe <b>${moneyIn(S.lineAmount(units, pr.price, pr.per), saleCur(sk))}</b>` : ''}`;
+}
+function maSelect(item) {
+  maPick = item;
+  byId('maSearch').value = item.sku;
+  byId('maResults').hidden = true;
+  byId('maSearch').setAttribute('aria-expanded', 'false');
+  byId('maUnit').disabled = item.unitName !== 'unidades';
+  byId('maUnit').value = item.unitName === 'unidades' && item.displayUnit === 'dozen' ? 'dozen' : 'unit';
+  renderMaHint();
+  byId('maQty').focus();
+  byId('maQty').select();
+}
+async function maAdd() {
+  const raw = txt(byId('maSearch').value), qty = num(byId('maQty').value);
+  if (!raw) { toast('Escribí o elegí un producto.', 'warn'); byId('maSearch').focus(); return; }
+  if (!(qty > 0)) { toast('La cantidad tiene que ser mayor que cero.', 'warn'); byId('maQty').focus(); return; }
+  const list = maMatches(raw), item = maPick || S.findByCode(raw) || (list.length === 1 ? list[0] : null);
+  if (!item && list.length > 1) { toast('Hay varios productos que coinciden: elegí uno de la lista.', 'warn'); renderMaResults(); byId('maSearch').focus(); return; }
+  const ok = await handleScan(item ? item.sku : raw, 'manual', { qty, unit: item?.unitName === 'unidades' || !item ? byId('maUnit').value : 'unit' });
+  if (ok) {
+    maPick = null;
+    byId('maSearch').value = '';
+    byId('maQty').value = 1;
+    byId('maUnit').disabled = false;
+    renderMaResults();
+  }
+  byId('maSearch').focus();
 }
 
 function renderScanSession() {
@@ -2707,6 +2770,30 @@ function bindEvents() {
 
   // Escanear
   byId('scanForm').addEventListener('submit', e => { e.preventDefault(); const v = byId('scanInput').value; byId('scanInput').value = ''; handleScan(v, 'escáner'); });
+  // Carga a mano
+  byId('maSearch').addEventListener('input', renderMaResults);
+  byId('maSearch').addEventListener('focus', renderMaResults);
+  byId('maSearch').addEventListener('keydown', e => {
+    const opts = $$('#maResults .ma-opt');
+    if (e.key === 'ArrowDown' && opts.length) { e.preventDefault(); opts[0].focus(); }
+    else if (e.key === 'Escape') byId('maResults').hidden = true;
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const list = maMatches(byId('maSearch').value), exact = S.findByCode(byId('maSearch').value);
+      if (maPick) byId('maQty').focus(); else if (exact || list.length === 1) maSelect(exact || list[0]); else if (list.length) opts[0]?.focus();
+    }
+  });
+  byId('maResults').addEventListener('keydown', e => {
+    const opts = $$('#maResults .ma-opt'), i = opts.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); opts[Math.min(i + 1, opts.length - 1)]?.focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? byId('maSearch') : opts[i - 1]).focus(); }
+    if (e.key === 'Escape') { byId('maResults').hidden = true; byId('maSearch').focus(); }
+  });
+  byId('maResults').addEventListener('click', e => { const b = e.target.closest('[data-ma]'); if (b) maSelect(S.findById(b.dataset.ma)); });
+  byId('manualAdd').addEventListener('focusout', () => setTimeout(() => { if (!byId('manualAdd').contains(document.activeElement)) byId('maResults').hidden = true; }, 120));
+  ['maQty', 'maUnit'].forEach(id => byId(id).addEventListener('input', renderMaHint));
+  byId('maQty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
+  byId('maAdd').onclick = maAdd;
   byId('scanInput').addEventListener('focus', setScanReady);
   byId('scanInput').addEventListener('blur', setScanReady);
   onSegment(byId('scanOpSeg'), chooseScanOp);

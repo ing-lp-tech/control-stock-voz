@@ -212,6 +212,16 @@
         <button type="submit" class="btn btn-primary">Registrar</button>
        </form>
        <div class="row" style="margin-top:12px"><button id="scanCamera" class="btn btn-soft btn-sm" type="button"><i data-i="camera" class="sm"></i>Usar la cámara</button><a class="btn btn-ghost btn-sm" href="#/kiosco"><i data-i="zap" class="sm"></i>Pantalla grande (mostrador)</a><a class="btn btn-ghost btn-sm" href="#/ayuda?s=salida"><i data-i="info" class="sm"></i>¿Cómo se usa?</a></div>
+       <div class="manual-add" id="manualAdd">
+        <div class="manual-add-head"><i data-i="keyboard"></i><b>¿Sin pistola? Cargá a mano</b><span class="muted small">Buscá por código, marca o prenda</span></div>
+        <div class="manual-add-row">
+         <div class="field ma-search"><label for="maSearch">Producto</label><input id="maSearch" class="input" placeholder="Ej.: GT8008, URUS, chomba" autocomplete="off" spellcheck="false" autocapitalize="characters" role="combobox" aria-controls="maResults" aria-expanded="false"><div id="maResults" class="ma-results" role="listbox" hidden></div></div>
+         <div class="field ma-qty"><label for="maQty">Cantidad</label><input id="maQty" class="input" type="number" inputmode="decimal" min="0.01" step="any" value="1"></div>
+         <div class="field ma-unit"><label for="maUnit">En</label><select id="maUnit" class="input"><option value="dozen">Docenas</option><option value="unit">Unidades</option></select></div>
+         <button type="button" class="btn btn-primary ma-add" id="maAdd"><i data-i="plus"></i>Agregar</button>
+        </div>
+        <p class="hint" id="maHint"></p>
+       </div>
        <div class="scan-last" id="scanLast"></div>
 
        <div class="scan-step"><span class="step-num" id="scanStepFinish">4</span><h3 id="scanFinishTitle">Terminá la salida</h3></div>
@@ -451,6 +461,7 @@
          <li>Etiqueta de <b>unidad</b> (ej. 1015U0012): resta 1.</li>
          <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1).</li>
         </ul></li>
+       <li><b>¿Sin pistola?</b> En <b>Cargá a mano</b> (debajo del campo de la pistola) buscá el producto por código, marca o prenda, elegilo de la lista, poné la cantidad en <b>docenas</b> o <b>unidades</b> y tocá <b>Agregar</b>. Se suma a la misma salida o venta, con su precio.</li>
        <li><b>Paso 4 · Tocá «Terminar salida».</b> Ves el resumen y elegís: <b>Enviar remito por WhatsApp</b>, <b>Descargar PDF</b> o <b>Terminar sin remito</b>. La lista queda vacía para la próxima salida.</li>
       </ol>
       <div class="notice warn"><i data-i="alert"></i><span><b>¿Te equivocaste?</b> En la lista tocá <b>Revertir</b> en esa lectura (o «Revertir la última» en el modo mostrador). Si ya terminaste la salida, pedile a la dueña que la anule desde el Historial.</span></div>
