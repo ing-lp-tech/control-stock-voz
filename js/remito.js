@@ -1,12 +1,13 @@
 // Remito en PDF: se genera en el dispositivo (sin servidor) y se comparte por WhatsApp.
-import { loadScript, download, waLink } from './utils.js';
-import { remitoCode, PACKS, PAYMENTS, PRICE_PER } from './store.js';
+import { loadScript, download, waLink, moneyIn } from './utils.js';
+import { remitoCode, remitoCurrency, PACKS, PAYMENTS, PRICE_PER } from './store.js';
 
 const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
 // Las fuentes estándar del PDF usan Latin-1: se reemplazan los pocos caracteres que no entran.
 const clean = s => String(s ?? '').replace(/[−–—]/g, '-').replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/…/g, '...').replace(/[^\x00-\xFF]/g, '');
 const fmtN = n => Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
-const fmtM = n => `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: Number.isInteger(Math.round((n || 0) * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 })}`;
+// Importes en la moneda en que se cobró el comprobante (una venta en pesos, una compra en dólares).
+const fmtMoney = (r, n) => moneyIn(n, remitoCurrency(r)).replace(/\s/g, ' ');
 
 // Número de WhatsApp: solo dígitos; un celular argentino de 10 dígitos se completa con 549.
 export function waNumber(phone) {
@@ -29,6 +30,7 @@ function serialText(serials = []) {
 }
 
 export async function buildRemitoPDF(remito, { business = '', owner = '' } = {}) {
+  const fmtM = n => fmtMoney(remito, n);
   if (!window.jspdf) await loadScript(JSPDF_URL);
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -131,7 +133,7 @@ export const remitoFileName = r => `${r.priced ? (r.kind === 'entrada' ? 'Compra
 // Compartir: en el celular abre el menú para compartir con WhatsApp (adjunta el PDF).
 // En la computadora descarga el PDF y abre WhatsApp con el mensaje, para adjuntarlo.
 export async function shareRemito(remito, opts) {
-  const blob = await buildRemitoPDF(remito, opts);
+  const blob = await buildRemitoPDF(remito, opts), fmtM = n => fmtMoney(remito, n);
   const file = new File([blob], remitoFileName(remito), { type: 'application/pdf' });
   const text = `Hola${remito.contact?.name ? ' ' + remito.contact.name : ''}, te envío ${remito.priced ? 'el comprobante' : 'el remito'} ${remitoCode(remito)} (${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}${remito.priced ? `, total ${fmtM(remito.total)}` : ''}).`;
   if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {

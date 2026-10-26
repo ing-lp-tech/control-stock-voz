@@ -255,11 +255,11 @@ begin
     if coalesce(v_sku, '') = '' then continue; end if;
     if v_map ? v_sku then
       v_map := jsonb_set(v_map, array[v_sku],
-        (it - 'units' - 'price' - 'cost' - 'pricePer')
-        || (select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) from jsonb_each(v_map->v_sku) where key in ('price', 'cost', 'pricePer'))
+        (it - 'units' - 'price' - 'cost' - 'pricePer' - 'priceManual' - 'priceArs')
+        || (select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) from jsonb_each(v_map->v_sku) where key in ('price', 'cost', 'pricePer', 'priceManual', 'priceArs'))
         || jsonb_build_object('units', coalesce(v_map->v_sku->'units', '0'::jsonb)));
     elsif exists (select 1 from jsonb_array_elements(p_new) x where x->>'sku' = v_sku) then
-      v_map := v_map || jsonb_build_object(v_sku, (it - 'price' - 'cost' - 'pricePer') || jsonb_build_object('units', 0));   -- producto nuevo
+      v_map := v_map || jsonb_build_object(v_sku, (it - 'price' - 'cost' - 'pricePer' - 'priceManual' - 'priceArs') || jsonb_build_object('units', 0));   -- producto nuevo
     end if;
   end loop;
   for e in select value from jsonb_array_elements(coalesce(p_new, '[]'::jsonb)) loop

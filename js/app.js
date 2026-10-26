@@ -2,8 +2,9 @@
 import { CONFIG } from './config.js';
 import {
   byId, $, $$, esc, icon, hydrateIcons, toast, ask, fmt, txt, upper, num, debounce, relTime, busy, flashDone, shake,
-  beep, vibrate, initInteractions, animateNumber, readJSON, writeJSON, initials, waLink, money, parseMoney, round2,
+  beep, vibrate, initInteractions, animateNumber, readJSON, writeJSON, initials, waLink, money, moneyIn, parseMoney, round2, setMoneyCurrency,
 } from './utils.js';
+import { fetchBlue } from './fx.js';
 import * as S from './store.js';
 import * as cloud from './cloud.js';
 import { parseSpeech, createRecognizer } from './voice.js';
@@ -175,7 +176,19 @@ const canFix = h => canManage() && !h.voided && ['in', 'out', 'count'].includes(
 // =========================================================
 // Precios (opcional): con el ajuste apagado la app es solo control de stock y no muestra nada de esto.
 // =========================================================
-const priceText = (item, kind = 'venta') => { const p = S.priceFor(item, kind); return p ? `${money(p.price)} ${S.PRICE_PER[p.per]}` : ''; };
+// Cobrar en pesos: en una venta el precio es el de pesos (fijo o dólares × blue); en una compra, el costo guardado.
+const salePrice = (item, kind = 'venta') => (kind === 'venta' && S.chargeArs() ? S.arsPriceFor(item) : S.priceFor(item, kind));
+const saleCur = (kind = 'venta') => (kind === 'venta' && S.chargeArs() ? 'ARS' : S.currency());
+const remMoney = (r, n) => moneyIn(n, S.remitoCurrency(r));
+const repMoney = n => moneyIn(n, S.reportCurrency());
+// Importe de un comprobante en la moneda de los reportes (una venta en pesos y una compra en dólares se pueden sumar).
+const remitoIn = (r, n = r.total) => S.convert(num(n), S.remitoCurrency(r), S.reportCurrency(), r.fx?.rate) ?? 0;
+// "US$ 92,45 · $ 144.700 c/docena": con cobro en pesos se ven las dos monedas.
+const priceText = (item, kind = 'venta') => {
+  const p = S.priceFor(item, kind), a = kind === 'venta' ? S.arsPriceFor(item) : null;
+  if (!p && !a) return '';
+  return `${p ? money(p.price) : ''}${p && a ? ' · ' : ''}${a ? `${moneyIn(a.price, 'ARS')}${a.fixed ? ' fijo' : ''}` : ''} ${S.PRICE_PER[(p || a).per]}`;
+};
 // ¿Lo que se escanea ahora es una venta o una compra? (null = solo stock)
 const saleKind = () => (!S.pricesOn() ? null : prefs.scanOp === 'restar' && prefs.saleOut ? 'venta' : prefs.scanOp === 'sumar' && prefs.buyIn ? 'compra' : null);
 function applyPricesUI() {
@@ -187,19 +200,88 @@ function applyPricesUI() {
     ? 'Activado: podés cargar precios en los productos y registrar ventas y compras. Si lo apagás, los precios se ocultan pero no se borran.'
     : 'Apagado: la app funciona solo como control de stock. Encendelo si además querés registrar precios, ventas y compras.';
   if (!canManage()) byId('pricesHint').textContent += ' Solo el dueño de la cuenta puede cambiarlo.';
+  setMoneyCurrency(S.currency());
+  byId('setCurrency').value = S.currency();
+  renderArsSettings();
+  const m = S.marginPct(), withCost = state.items.filter(i => i.cost > 0).length, manual = S.manualPriceCount();
+  if (document.activeElement !== byId('setMargin')) byId('setMargin').value = m ?? '';
+  byId('marginHint').innerHTML = m == null
+    ? 'Escribí un porcentaje y el precio de venta se calcula solo: <b>costo + ganancia</b>. Cualquier producto se puede corregir a mano desde Editar.'
+    : `Precio de venta = costo + ${fmt(m)} % (ej.: costo ${money(100)} → venta ${money(S.autoPrice({ cost: 100 }))}). ${fmt(withCost)} producto${withCost === 1 ? '' : 's'} con costo${manual ? ` · ${fmt(manual)} con precio a mano (no cambian)` : ''}.`;
+}
+
+// Cobro en pesos: cotización del blue, redondeo y cotización fija.
+function renderArsSettings() {
+  const usd = S.currency() === 'USD', on = S.chargeArs(), fx = S.fxNow(), live = S.fxLiveInfo();
+  byId('arsBox').hidden = !usd;
+  byId('arsOn').checked = on;
+  byId('arsRound').value = String(S.arsRound());
+  if (document.activeElement !== byId('fxFixed')) byId('fxFixed').value = S.fxFixed() ? fmt(S.fxFixed()) : '';
+  byId('arsDetails').hidden = !on;
+  const ex = S.marginPct() != null ? S.autoPrice({ cost: 100 }) : 100;
+  byId('fxStatus').innerHTML = !fx
+    ? `<span class="warn">Todavía no hay cotización. Revisá la conexión y tocá Actualizar, o escribí una cotización fija.</span>`
+    : `${S.fxFixed() ? 'Cotización fija' : 'Dólar blue (venta)'}: <b>${moneyIn(fx.rate, 'ARS')}</b>${!S.fxFixed() && live ? ` · ${esc(live.source)} · ${relTime(live.fetchedAt || live.at)}` : ''}${S.fxFixed() && live ? ` · el blue está a ${moneyIn(live.rate, 'ARS')}` : ''}<br>Ej.: ${moneyIn(ex, 'USD')} → <b>${moneyIn(S.roundArs(ex * fx.rate), 'ARS')}</b>`;
+}
+// Consulta el blue (al abrir, cada 30 minutos y con el botón). quiet: sin avisos si falla.
+let fxBusy = false;
+async function refreshFx(quiet = true) {
+  if (fxBusy || S.currency() !== 'USD' || !S.pricesOn()) return;
+  fxBusy = true;
+  busy(byId('fxRefresh'), true);
+  const fx = await fetchBlue();
+  fxBusy = false;
+  busy(byId('fxRefresh'), false);
+  if (fx) { S.setLiveFx(fx); if (!quiet) toast(`Dólar blue: ${moneyIn(fx.rate, 'ARS')} (${fx.source})`, 'success'); }
+  else if (!quiet) toast('No se pudo consultar el dólar blue. Se sigue usando la última cotización guardada.', 'warn');
+}
+const fxStale = () => { const l = S.fxLiveInfo(); return !l || Date.now() - new Date(l.fetchedAt || l.at).getTime() > 30 * 60000; };
+
+// Ganancia general sobre el costo: se aplica a todos los productos con costo, menos a los de precio a mano.
+async function applyMargin() {
+  if (!ownerOnly('cambiar la ganancia general')) return;
+  const raw = txt(byId('setMargin').value).replace(',', '.'), m = raw === '' ? null : Number(raw);
+  if (m !== null && !(m >= 0 && m <= 1000)) { toast('Escribí un porcentaje entre 0 y 1000, por ejemplo 40.', 'error'); shake(byId('setMarginBtn')); return; }
+  let overrideManual = false;
+  const manual = S.manualPriceCount();
+  if (m !== null && manual) {
+    const v = await ask({
+      title: `¿Aplicar ${fmt(m)} % de ganancia?`,
+      message: `${manual} producto${manual === 1 ? ' tiene' : 's tienen'} un precio de venta escrito a mano. ¿Quedan como están o también les aplicás la ganancia general?`,
+      choices: [{ label: 'Dejar los precios a mano (recomendado)', value: 'keep', primary: true }, { label: `Aplicar a todos (se reemplazan ${manual} precio${manual === 1 ? '' : 's'} a mano)`, value: 'all' }],
+      cancel: 'Cancelar',
+    });
+    if (!v) return;
+    overrideManual = v === 'all';
+  }
+  const r = S.setMargin(m, { overrideManual });
+  if (!r.ok) { toast(r.error, 'error'); return; }
+  toast(m === null ? 'Ganancia general quitada: los precios quedan como están.' : `Ganancia ${fmt(m)} % aplicada: ${fmt(r.changed)} precio${r.changed === 1 ? '' : 's'} de venta actualizado${r.changed === 1 ? '' : 's'}.`, { action: () => { if (S.undo()) toast('Cambio deshecho', 'info'); } });
+}
+async function changeCurrency(c) {
+  if (!ownerOnly('cambiar la moneda')) { byId('setCurrency').value = S.currency(); return; }
+  if (c === S.currency()) return;
+  const priced = state.items.some(i => i.price || i.cost);
+  if (priced && !(await ask({ title: `¿Mostrar los precios en ${c === 'USD' ? 'dólares' : 'pesos'}?`, message: 'Los importes ya cargados no se convierten: solo cambia el signo. Usalo si tus costos y precios ya están en esa moneda.', confirm: 'Cambiar moneda' }))) { byId('setCurrency').value = S.currency(); return; }
+  S.setCurrency(c);
+  toast(`Precios en ${c === 'USD' ? 'dólares (US$)' : 'pesos ($)'}.`, 'success');
 }
 // Total en pesos de lo escaneado (con los precios actuales de cada producto).
 function sessionMoney() {
   const k = saleKind();
   if (!k) return null;
   let total = 0;
-  const missing = new Set();
+  const missing = new Set(), cur = saleCur(k);
   for (const f of liveFeed()) {
-    const p = S.priceFor(S.findById(f.itemId), k);
+    const p = salePrice(S.findById(f.itemId), k);
     if (p) total += S.lineAmount(f.amount, p.price, p.per); else missing.add(f.sku);
   }
-  return { total: round2(total), missing: missing.size, kind: k };
+  // Con cobro en pesos se muestra también cuánto es en dólares (igual que al cerrar la venta).
+  const rate = cur !== S.currency() ? S.fxRate() : null;
+  return { total: round2(total), cur, usd: rate ? round2(total / rate) : null, missing: missing.size, kind: k };
 }
+
+const sessionMoneyText = sm => `${moneyIn(sm.total, sm.cur)}${sm.usd ? ` · ${moneyIn(sm.usd, 'USD')}` : ''}`;
 
 // opts.time: mostrar la hora (en listas agrupadas por día) en lugar de "hace 5 min".
 function historyRow(h, opts = {}) {
@@ -310,8 +392,8 @@ function renderPanelSales() {
   const d0 = new Date(); d0.setHours(0, 0, 0, 0);
   const w0 = new Date(d0); w0.setDate(w0.getDate() - 6);
   const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1);
-  const sum = from => { const l = sales.filter(r => new Date(r.at) >= from); return { total: l.reduce((s, r) => s + num(r.total), 0), n: l.length }; };
-  const tile = (label, s) => `<div><span>${label}</span><strong>${money(s.total)}</strong><small>${s.n ? `${fmt(s.n)} venta${s.n === 1 ? '' : 's'}` : 'Sin ventas'}</small></div>`;
+  const sum = from => { const l = sales.filter(r => new Date(r.at) >= from); return { total: l.reduce((s, r) => s + remitoIn(r), 0), n: l.length }; };
+  const tile = (label, s) => `<div><span>${label}</span><strong>${repMoney(s.total)}</strong><small>${s.n ? `${fmt(s.n)} venta${s.n === 1 ? '' : 's'}` : 'Sin ventas'}</small></div>`;
   box.innerHTML = `<div class="card sales-strip">${tile('Ventas de hoy', sum(d0))}${tile('Últimos 7 días', sum(w0))}${tile('Este mes', sum(m0))}<a class="link" href="#/reportes">Reportes ${icon('chevron-right', 'sm')}</a></div>`;
 }
 
@@ -790,8 +872,8 @@ async function handleScan(raw, source = 'escáner') {
   const moved = op === 'establecer' ? `= ${unitWords(r.after, S.unitLabel(r.item.unitName))}`
     : resolved?.pack === 'D' ? `${sign}1 docena` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
   const movedSub = resolved?.pack === 'D' && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
-  const sk = saleKind(), pr = sk && S.priceFor(r.item, sk);
-  const priceInfo = !sk ? '' : pr ? ` · <b>${money(S.lineAmount(r.amount, pr.price, pr.per))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
+  const sk = saleKind(), pr = sk && salePrice(r.item, sk);
+  const priceInfo = !sk ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
   scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}${priceInfo}</div></div></div>`);
   renderScanSession();
   focusScan();
@@ -804,8 +886,8 @@ function renderScanSession() {
   byId('ssProducts').textContent = fmt(session.products.size);
   const sm = sessionMoney(), sk = saleKind();
   byId('ssMoneyBox').hidden = !sm;
-  if (sm) byId('ssMoney').textContent = money(sm.total);
-  const lineMoney = f => { if (!sk || f.undone) return ''; const pr = S.priceFor(S.findById(f.itemId), sk); return pr ? ` · ${money(S.lineAmount(f.amount, pr.price, pr.per))}` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`; };
+  if (sm) byId('ssMoney').textContent = sessionMoneyText(sm);
+  const lineMoney = f => { if (!sk || f.undone) return ''; const pr = salePrice(S.findById(f.itemId), sk); return pr ? ` · ${moneyIn(S.lineAmount(f.amount, pr.price, pr.per), saleCur(sk))}` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`; };
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
@@ -887,7 +969,7 @@ function itemRow(i) {
   return `<div class="inv-row ${sel ? 'selected' : ''}" data-id="${esc(i.id)}">
     <label class="check" title="Seleccionar"><input type="checkbox" data-act="select" ${sel ? 'checked' : ''} aria-label="Seleccionar ${esc(i.sku)}"><span></span></label>
     <div class="inv-product" data-act="edit"><div class="inv-sku mono">${esc(i.sku)}</div><div class="inv-meta">${esc(productName(i) || 'Sin marca ni prenda')}${i.barcode ? ` · ${esc(i.barcode)}` : ''}</div></div>
-    <div class="inv-stock"><div class="qty ${zero ? 'is-zero' : low ? 'is-low' : ''}">${fmt(d.value)} <small>${esc(d.unit)}</small></div>${sub ? `<div class="qty-sub">${sub}</div>` : ''}${S.pricesOn() && i.price ? `<div class="qty-sub price-tag">${esc(priceText(i))}</div>` : ''}</div>
+    <div class="inv-stock"><div class="qty ${zero ? 'is-zero' : low ? 'is-low' : ''}">${fmt(d.value)} <small>${esc(d.unit)}</small></div>${sub ? `<div class="qty-sub">${sub}</div>` : ''}${S.pricesOn() && i.price ? `<div class="qty-sub price-tag">${esc(priceText(i))}${i.priceManual && S.marginPct() != null ? ' · a mano' : ''}</div>` : ''}</div>
     <div class="inv-tags">${zero ? '<span class="badge badge-danger">Sin stock</span>' : low ? '<span class="badge badge-warn">Bajo mínimo</span>' : ''}<span class="badge">${esc(S.stockTypeLabel(i.stockType))}</span></div>
     <div class="inv-actions">
       <div class="stepper sm"><button type="button" data-act="minus" title="Restar 1" aria-label="Restar 1">${icon('minus')}</button><button type="button" data-act="plus" title="Sumar 1" aria-label="Sumar 1">${icon('plus')}</button></div>
@@ -925,14 +1007,18 @@ function renderInventory() {
 function renderInvValue() {
   const box = byId('invValue');
   if (!S.pricesOn() || !canManage() || !state.items.length) { box.innerHTML = ''; return; }
-  let sale = 0, cost = 0, noPrice = 0;
+  let sale = 0, cost = 0, noPrice = 0, saleArs = 0;
   for (const i of state.items) {
     if (i.units <= 0) continue;
-    const per = S.pricePerOf(i);
+    const per = S.pricePerOf(i), a = S.arsPriceFor(i);
+    if (a) saleArs += S.lineAmount(i.units, a.price, per);
     if (i.price) sale += S.lineAmount(i.units, i.price, per); else noPrice++;
     if (i.cost) cost += S.lineAmount(i.units, i.cost, per);
   }
-  box.innerHTML = `<div class="inv-value">${icon('cash')}<span>Valor del stock: <b>${money(sale)}</b> a precio de venta${cost ? ` · <b>${money(cost)}</b> al costo` : ''}${noPrice ? ` · <span class="muted">${fmt(noPrice)} producto${noPrice === 1 ? '' : 's'} con stock sin precio</span>` : ''}</span></div>`;
+  const m = S.marginPct(), noCost = state.items.filter(i => !(i.cost > 0)).length;
+  box.innerHTML = `<div class="inv-value">${icon('cash')}<span class="grow">Valor del stock: <b>${money(sale)}</b>${S.chargeArs() && saleArs ? ` (<b>${moneyIn(saleArs, 'ARS')}</b>)` : ''} a precio de venta${cost ? ` · <b>${money(cost)}</b> al costo` : ''}${noPrice ? ` · <span class="muted">${fmt(noPrice)} producto${noPrice === 1 ? '' : 's'} con stock sin precio</span>` : ''}
+    <br><span class="muted small">${m != null ? `Ganancia general: ${fmt(m)} % sobre el costo` : 'Sin ganancia general'}${noCost ? ` · ${fmt(noCost)} sin costo` : ''}</span></span>
+    <span class="inv-value-actions"><button class="btn btn-ghost btn-sm" type="button" data-cost-import>${icon('upload', 'sm')}Importar costos</button><a class="btn btn-ghost btn-sm" href="#/cuenta">${icon('settings', 'sm')}Ganancia y moneda</a></span></div>`;
 }
 
 function renderBulkBar() {
@@ -969,8 +1055,11 @@ function onInventoryClick(e) {
 
 // Edición individual
 let editingId = null;
+// touched: se escribió el precio de venta; auto: se pidió volver al precio automático (costo + ganancia general).
+let editPrice = { touched: false, auto: false };
 function openEdit(i) {
   editingId = i.id;
+  editPrice = { touched: false, auto: false };
   byId('editSub').textContent = `Última modificación ${relTime(i.updatedAt)}${i.aliases?.length ? ` · códigos anteriores: ${i.aliases.join(', ')}` : ''}`;
   byId('eSku').value = i.sku; byId('eBarcode').value = i.barcode || ''; byId('eBrand').value = i.brand; byId('eType').value = i.type;
   byId('eUnits').value = i.units; byId('eUnitName').value = i.unitName; byId('eMin').value = i.minStock || ''; byId('eStockType').value = i.stockType;
@@ -982,17 +1071,33 @@ function openEdit(i) {
   byId('eCost').value = i.cost ? fmt(i.cost) : '';
   byId('ePer').value = S.pricePerOf(i);
   byId('ePerField').hidden = i.unitName !== 'unidades';
-  byId('ePrice').disabled = byId('ePer').disabled = !canManage();
+  byId('ePrice').disabled = byId('ePer').disabled = byId('ePriceArs').disabled = !canManage();
+  byId('ePriceArsField').hidden = !S.chargeArs();
+  byId('ePriceArs').value = i.priceArs ? fmt(i.priceArs) : '';
   renderMargin();
   byId('editDialog').showModal();
 }
 // Ganancia por unidad o docena según precio de venta y costo.
-function renderMargin() {
-  const price = parseMoney(byId('ePrice').value), cost = parseMoney(byId('eCost').value), per = byId('ePer').value === 'dozen' && !byId('ePerField').hidden ? 'dozen' : 'unit';
+function renderMargin(e) {
+  if (e?.target?.id === 'ePrice') editPrice = { touched: true, auto: false };
+  const item = S.findById(editingId), cost = parseMoney(byId('eCost').value), m = S.marginPct();
+  const auto = canManage() && m != null && cost ? S.autoPrice(item, cost) : null;
+  // Si el precio sigue la ganancia general y no se tocó, acompaña al costo mientras se escribe.
+  if (auto && !editPrice.touched && (!item?.priceManual || editPrice.auto)) byId('ePrice').value = fmt(auto);
+  const price = parseMoney(byId('ePrice').value), per = byId('ePer').value === 'dozen' && !byId('ePerField').hidden ? 'dozen' : 'unit';
   const el = byId('eMargin');
-  if (!canManage() || !price || !cost) { el.textContent = price && !canManage() ? 'Solo el dueño puede cambiar los precios.' : ''; return; }
-  const gain = price - cost;
-  el.innerHTML = `Ganancia ${per === 'dozen' ? 'por docena' : 'por unidad'}: <b class="${gain < 0 ? 'danger-text' : ''}">${money(gain)}</b> (${fmt((gain / cost) * 100, 1)} % sobre el costo)`;
+  if (!canManage()) { el.textContent = price ? 'Solo el dueño puede cambiar los precios.' : ''; return; }
+  const parts = [];
+  if (price && cost) { const gain = price - cost; parts.push(`Ganancia ${per === 'dozen' ? 'por docena' : 'por unidad'}: <b class="${gain < 0 ? 'danger-text' : ''}">${money(gain)}</b> (${fmt((gain / cost) * 100, 1)} % sobre el costo)`); }
+  if (auto) parts.push(price && price !== auto ? `Precio a mano: no sigue la ganancia general (con ${fmt(m)} % sería ${money(auto)}). <a href="#" class="link" data-price-auto>Usar el automático</a>` : `Precio automático: costo + ${fmt(m)} %.`);
+  // En pesos: el precio fijo escrito, o el de dólares por la cotización (se muestra como sugerencia).
+  if (S.chargeArs()) {
+    const fixed = parseMoney(byId('ePriceArs').value), rate = S.fxRate(), calc = price && rate ? S.roundArs(price * rate) : null;
+    byId('ePriceArs').placeholder = calc ? `${fmt(calc)} (según el dólar)` : 'Según el dólar';
+    parts.push(fixed ? `En pesos: <b>${moneyIn(fixed, 'ARS')}</b> fijo, no cambia con el dólar${calc ? ` (según el dólar sería ${moneyIn(calc, 'ARS')})` : ''}. Borralo para volver al cálculo.`
+      : calc ? `En pesos: <b>${moneyIn(calc, 'ARS')}</b> (dólar a ${moneyIn(rate, 'ARS')}, redondeado). Si no te gusta, escribí un precio fijo en pesos.` : '');
+  }
+  el.innerHTML = parts.filter(Boolean).join('<br>');
 }
 function saveEdit(e) {
   e.preventDefault();
@@ -1001,7 +1106,9 @@ function saveEdit(e) {
   if (S.pricesOn() && canManage()) {
     const bad = ['ePrice', 'eCost'].find(id => txt(byId(id).value) && parseMoney(byId(id).value) == null);
     if (bad) { toast('Revisá el precio: escribí solo el número, por ejemplo 12500 o 12.500.', 'error'); byId(bad).focus(); shake(byId('eSave')); return; }
-    prices = { price: parseMoney(byId('ePrice').value), cost: parseMoney(byId('eCost').value), pricePer: byId('ePer').value };
+    // Con ganancia general, el precio solo se manda si se escribió (así queda "a mano"); si no, sigue al costo.
+    const price = editPrice.auto ? { priceAuto: true } : editPrice.touched || S.marginPct() == null ? { price: parseMoney(byId('ePrice').value) } : {};
+    prices = { ...price, cost: parseMoney(byId('eCost').value), pricePer: byId('ePer').value, ...(S.chargeArs() ? { priceArs: parseMoney(byId('ePriceArs').value) } : {}) };
   }
   const r = S.saveItem(editingId, {
     sku: byId('eSku').value, barcode: byId('eBarcode').value, brand: byId('eBrand').value, type: byId('eType').value,
@@ -1068,6 +1175,129 @@ async function bulkDelete() {
   S.deleteItems([...inv.selected]);
   inv.selected.clear();
   toast(`${n} productos eliminados`, { action: () => S.undo() });
+}
+
+// =========================================================
+// Importar costos (archivo de tandas o Excel) y relacionarlos con el inventario
+// =========================================================
+let costImp = null;
+const COST_MODES = { last: 'El de la tanda más nueva', avg: 'El promedio de las tandas (según docenas)' };
+
+function openCostImport() {
+  if (!ownerOnly('cargar costos')) return;
+  if (!S.pricesOn()) { toast('Primero activá Precios y ventas en Cuenta y nube.', 'warn'); return; }
+  costImp = null;
+  renderCostImport();
+  byId('costDialog').showModal();
+}
+async function loadCostFile(file) {
+  try {
+    const r = await IO.readCostFile(file);
+    if (!r.entries.some(e => e.cost > 0)) { toast('No encontré costos en ese archivo. Tiene que tener una columna CÓDIGO y otra COSTO.', 'error'); return; }
+    costImp = { name: file.name, ...r, per: r.per || 'dozen', mode: 'last', choice: new Map() };
+    renderCostImport();
+  } catch (err) { toast(`No se pudo leer el archivo: ${err.message}`, 'error'); }
+}
+// Agrupa el archivo por código, elige el costo y busca el producto: primero el código exacto, después uno casi igual.
+function costPlan() {
+  const groups = new Map();
+  for (const e of costImp.entries) { if (!groups.has(e.code)) groups.set(e.code, []); groups.get(e.code).push(e); }
+  const list = [...groups].map(([code, es]) => {
+    const priced = es.filter(e => e.cost > 0).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const doz = priced.reduce((t, e) => t + e.dozens, 0);
+    const cost = !priced.length ? null : costImp.mode === 'avg'
+      ? round2(doz > 0 ? priced.reduce((t, e) => t + e.cost * e.dozens, 0) / doz : priced.reduce((t, e) => t + e.cost, 0) / priced.length)
+      : round2(priced[0].cost);
+    return { code, es, priced, cost, info: priced[0] || es[0] };
+  });
+  const taken = new Set(), rows = [], missing = [], noCost = list.filter(g => !g.cost), repeated = [];
+  for (const g of list) {
+    if (!g.cost) continue;
+    const it = S.findByCode(g.code);
+    if (!it) continue;
+    if (taken.has(it.id)) { repeated.push(g); continue; }
+    taken.add(it.id); g.item = it; g.exact = true;
+  }
+  // Parecidos: si dos códigos del archivo apuntan al mismo producto, gana el más parecido (YT-4012 antes que 4012).
+  const cands = list.filter(g => g.cost && !g.item && !repeated.includes(g))
+    .flatMap(g => S.similarCodes(g.code, 5).filter(x => x.strong).map(x => ({ g, ...x })))
+    .sort((a, b) => a.score - b.score);
+  for (const c of cands) {
+    if (c.g.item || taken.has(c.item.id)) continue;
+    taken.add(c.item.id); Object.assign(c.g, { item: c.item, reason: c.reason, score: c.score });
+  }
+  missing.push(...list.filter(g => g.cost && !g.item && !repeated.includes(g)));
+  for (const g of list) {
+    if (!g.item) continue;
+    const t = S.costFor(g.item, g.cost, costImp.per);
+    g.target = t;
+    g.unchanged = g.item.cost === t.cost && S.pricePerOf(g.item) === t.per;
+    // Los parecidos solo se marcan solos si es el mismo código con otro formato (GT-8008 / GT8008).
+    g.on = costImp.choice.has(g.code) ? costImp.choice.get(g.code) : g.exact || g.score === 0;
+    if (!g.unchanged) rows.push(g);
+  }
+  rows.sort((a, b) => Number(!!a.exact) - Number(!!b.exact) || a.code.localeCompare(b.code, 'es', { numeric: true }));
+  return { rows, missing, noCost, repeated, unchanged: list.filter(g => g.unchanged) };
+}
+function renderCostImport() {
+  const body = byId('costBody'), save = byId('costSave');
+  if (!costImp) {
+    body.innerHTML = `${noticeHtml('info', 'info', 'Elegí el <b>archivo de tandas</b> (.json) o un <b>Excel / CSV</b> con una columna <b>CÓDIGO</b> y otra <b>COSTO</b> (también sirve COSTO USD o PRECIO DE COSTO). Antes de cargar nada vas a ver qué producto de tu inventario recibe cada costo.')}
+      <div><label class="btn btn-primary">${icon('upload')}Elegir archivo<input type="file" id="costFile" accept=".json,.xlsx,.xls,.csv" hidden></label></div>`;
+    save.disabled = true; save.lastElementChild.textContent = 'Cargar costos';
+    return;
+  }
+  const p = costPlan(), cur = S.currency(), m = S.marginPct(), fc = costImp.currency;
+  const curName = c => (c === 'USD' ? 'dólares' : 'pesos');
+  const tile = (n, label, tone = '') => `<div class="cost-tile ${tone}"><strong>${fmt(n)}</strong><span>${label}</span></div>`;
+  const suggest = p.rows.filter(r => !r.exact).length;
+  const row = g => {
+    const it = g.item, t = g.target, sale = m != null ? (it.priceManual && it.price ? `${money(it.price)} <small>a mano</small>` : money(S.autoPrice(it, t.cost))) : '';
+    return `<tr class="${g.exact ? '' : 'is-suggest'}"><td><input type="checkbox" data-cost-pick="${esc(g.code)}" ${g.on ? 'checked' : ''} aria-label="Cargar el costo de ${esc(g.code)}"></td>
+      <td><b class="mono">${esc(g.code)}</b><small>${esc([g.info.name, g.info.brand].filter(Boolean).join(' · '))}</small></td>
+      <td><b class="mono">${esc(it.sku)}</b>${g.exact ? '' : ` <span class="badge badge-warn">${esc(g.reason)}</span>`}<small>${esc(productName(it) || 'Sin marca ni prenda')}</small></td>
+      <td class="num">${it.cost ? `${money(it.cost)} <small>${S.PRICE_PER[S.pricePerOf(it)]}</small>` : '—'}</td>
+      <td class="num"><b>${money(t.cost)}</b> <small>${S.PRICE_PER[t.per]}${g.priced.length > 1 ? ` · ${g.priced.length} tandas` : ''}</small></td>
+      ${m != null ? `<td class="num">${sale}</td>` : ''}</tr>`;
+  };
+  const codes = gs => gs.map(g => `<span class="chip-code mono" title="${esc([g.info.name, g.info.brand, g.info.reason].filter(Boolean).join(' · '))}">${esc(g.code)}</span>`).join(' ');
+  body.innerHTML = `
+    ${fc && fc !== cur ? noticeHtml('warn', 'alert', `El archivo está en <b>${curName(fc)}</b> y la app muestra los precios en <b>${curName(cur)}</b>. <a href="#" class="link" data-cost-currency="${fc}">Mostrar los precios en ${curName(fc)}</a>`) : ''}
+    <div class="form-grid">
+      <div class="field"><label for="costPer">Los costos del archivo son</label><select id="costPer" class="input"><option value="dozen">Por docena</option><option value="unit">Por unidad</option></select></div>
+      <div class="field"><label for="costMode">Si un código está en varias tandas, usar</label><select id="costMode" class="input">${Object.entries(COST_MODES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+    </div>
+    <div class="cost-tiles">${tile(p.rows.length - suggest, 'con el mismo código', 'ok')}${tile(suggest, 'parecidos: revisalos', suggest ? 'warn' : '')}${tile(p.unchanged.length, 'ya tenían ese costo')}${tile(p.missing.length, 'no están en tu inventario')}${tile(p.noCost.length, 'sin costo en el archivo')}</div>
+    ${noticeHtml('info', 'info', m != null ? `El precio de venta se calcula con la ganancia general (<b>${fmt(m)} %</b> sobre el costo), salvo en los productos con precio a mano.` : 'Todavía no hay ganancia general: solo se carga el costo. Después podés ponerla en <b>Cuenta y nube → Precios y ventas</b> y los precios de venta se calculan solos.')}
+    ${p.rows.length ? `<div class="table-wrap cost-table"><table class="table"><thead><tr><th></th><th>En el archivo</th><th>Producto en la app</th><th class="num">Costo actual</th><th class="num">Costo nuevo</th>${m != null ? '<th class="num">Venta</th>' : ''}</tr></thead><tbody>${p.rows.map(row).join('')}</tbody></table></div>` : noticeHtml('success', 'check', 'Todos los productos que coinciden ya tienen estos costos. No hay nada para cargar.')}
+    ${p.missing.length ? `<details class="cost-more"><summary>${fmt(p.missing.length)} código${p.missing.length === 1 ? '' : 's'} del archivo no están en tu inventario</summary><p class="small muted">No se cargan. Si alguno sí está con otro código, editá el código del producto o uní los duplicados, y volvé a importar.</p><div class="chip-codes">${codes(p.missing)}</div></details>` : ''}
+    ${p.noCost.length ? `<details class="cost-more"><summary>${fmt(p.noCost.length)} código${p.noCost.length === 1 ? '' : 's'} sin costo en el archivo</summary><div class="chip-codes">${codes(p.noCost)}</div></details>` : ''}
+    ${p.repeated.length ? `<details class="cost-more"><summary>${fmt(p.repeated.length)} código${p.repeated.length === 1 ? '' : 's'} apuntan a un producto que ya recibe otro costo</summary><div class="chip-codes">${codes(p.repeated)}</div></details>` : ''}`;
+  byId('costPer').value = costImp.per;
+  byId('costMode').value = costImp.mode;
+  byId('costSub').textContent = `${costImp.name} · ${fmt(costImp.entries.length)} renglones`;
+  updateCostSave(p);
+}
+function updateCostSave(p = costPlan()) {
+  const n = p.rows.filter(r => r.on).length, save = byId('costSave');
+  save.disabled = !n;
+  save.lastElementChild.textContent = n ? `Cargar ${fmt(n)} costo${n === 1 ? '' : 's'}` : 'Cargar costos';
+}
+function onCostBody(e) {
+  const t = e.target;
+  if (t.id === 'costFile' && t.files?.[0]) { loadCostFile(t.files[0]); return; }
+  if (!costImp) return;
+  if (t.id === 'costPer' || t.id === 'costMode') { costImp[t.id === 'costPer' ? 'per' : 'mode'] = t.value; renderCostImport(); return; }
+  if (t.dataset.costPick) { costImp.choice.set(t.dataset.costPick, t.checked); updateCostSave(); }
+}
+function saveCostImport(e) {
+  e.preventDefault();
+  const sel = costPlan().rows.filter(r => r.on);
+  const r = S.importCosts(sel.map(g => ({ id: g.item.id, cost: g.cost, per: costImp.per })), costImp.name);
+  if (!r.ok) { toast(r.error, 'error'); return; }
+  byId('costDialog').close();
+  sound('ok');
+  toast(`Costos cargados en ${fmt(r.count)} producto${r.count === 1 ? '' : 's'}${r.priced ? ` · ${fmt(r.priced)} precio${r.priced === 1 ? '' : 's'} de venta calculado${r.priced === 1 ? '' : 's'} con la ganancia general` : ''}`, { duration: 9000, action: () => { if (S.undo()) toast('Importación deshecha', 'info'); } });
 }
 
 // =========================================================
@@ -1242,11 +1472,12 @@ function labelEntries() {
 
 // Precio impreso en la etiqueta: el de lo que identifica (una docena, una unidad o el producto como está cargado).
 function labelPrice(i, pack) {
-  const p = S.pricesOn() && prefs.lblShowPrice ? S.priceFor(i) : null;
+  const p = S.pricesOn() && prefs.lblShowPrice ? salePrice(i) : null;
   if (!p) return '';
-  if (pack === 'D') return `${money(p.per === 'dozen' ? p.price : p.price * 12)} la docena`;
-  if (pack === 'U') return money(p.per === 'dozen' ? p.price / 12 : p.price);
-  return `${money(p.price)}${p.per === 'dozen' ? ' la docena' : ''}`;
+  const m = n => moneyIn(n, saleCur());
+  if (pack === 'D') return `${m(p.per === 'dozen' ? p.price : p.price * 12)} la docena`;
+  if (pack === 'U') return m(p.per === 'dozen' ? p.price / 12 : p.price);
+  return `${m(p.price)}${p.per === 'dozen' ? ' la docena' : ''}`;
 }
 
 function renderLabelPlan({ plan, skipped, bad }) {
@@ -1292,7 +1523,7 @@ const renderLabelPreview = debounce(async () => {
   byId('lblTotal').textContent = `${fmt(out.length)} etiqueta${out.length === 1 ? '' : 's'} · ${fmt(pages)} página${pages === 1 ? '' : 's'}${truncated ? ` (máx. ${fmt(L.MAX_LABELS)})` : ''}`;
   byId('lblPrint').disabled = !out.length;
   const opts = { kind: prefs.lblKind, size: prefs.lblSize, showName: prefs.lblShowName, header: txt(prefs.lblHeader) };
-  const examplePrice = S.pricesOn() && prefs.lblShowPrice ? money(prefs.lblMode === 'D' ? 30000 : 2500) : '';
+  const examplePrice = S.pricesOn() && prefs.lblShowPrice ? moneyIn(prefs.lblMode === 'D' ? 30000 : 2500, saleCur()) : '';
   const example = prefs.lblMode === 'product' ? { code: 'EJEMPLO123', name: 'MARCA · PRENDA', price: examplePrice }
     : { code: `1015${prefs.lblMode}0001`, name: 'MARCA · PRENDA', tag: `${S.PACKS[prefs.lblMode].label} N.º 0001${prefs.lblMode === 'D' ? ' · 12 u.' : ''}`, price: examplePrice };
   const sample = out.length ? [...new Map(out.map(e => [e.code, e])).values()].slice(0, 6) : [example];
@@ -1596,7 +1827,7 @@ function openMove(id) {
       ${row('Unidades movidas', h.quantity != null ? `${fmt(h.quantity)}` : '')}
       ${row('Stock', h.before != null && h.after != null ? `${fmt(h.before)} → ${fmt(h.after)} ${esc(h.unit || '')}` : '')}
       ${row(h.contact?.kind === 'proveedor' ? 'Proveedor' : 'Cliente', h.contact ? esc(h.contact.name) : '')}
-      ${(rem => row('Comprobante', rem ? `<a href="#" class="link" data-open-remito="${esc(rem.id)}">${esc(S.remitoCode(rem))}${rem.priced ? ` · ${rem.kind === 'entrada' ? 'compra' : 'venta'} ${money(rem.total)}` : ''}</a>${rem.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}` : ''))(S.remitoOfEntry(h.id))}
+      ${(rem => row('Comprobante', rem ? `<a href="#" class="link" data-open-remito="${esc(rem.id)}">${esc(S.remitoCode(rem))}${rem.priced ? ` · ${rem.kind === 'entrada' ? 'compra' : 'venta'} ${remMoney(rem, rem.total)}` : ''}</a>${rem.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}` : ''))(S.remitoOfEntry(h.id))}
       ${row('Registrado por', h.by ? `@${esc(h.by)}` : 'Sin usuario (modo local)')}
       ${row('Cómo', esc(S.sourceOf(h)))}
       ${row('Tarea', h.stockType ? esc(S.stockTypeLabel(h.stockType)) : '')}
@@ -1628,13 +1859,13 @@ function openRemitoView(id) {
       ${r.contact?.phone ? `<dt>WhatsApp</dt><dd>${esc(r.contact.phone)}</dd>` : ''}
       ${r.contact?.address ? `<dt>Dirección</dt><dd>${esc(r.contact.address)}</dd>` : ''}
       <dt>${priced ? 'Mercadería' : 'Total'}</dt><dd>${fmt(units)} unidades (${fmt(units / 12)} docenas)</dd>
-      ${priced ? `<dt>Subtotal</dt><dd>${money(r.subtotal)}</dd>${r.discount ? `<dt>Descuento</dt><dd>${fmt(r.discount)} % (−${money(r.subtotal - r.total)})</dd>` : ''}<dt>Total</dt><dd><b>${money(r.total)}</b></dd>${r.payment ? `<dt>Forma de pago</dt><dd>${esc(S.PAYMENTS[r.payment] || r.payment)}</dd>` : ''}` : ''}
+      ${priced ? `<dt>Subtotal</dt><dd>${remMoney(r, r.subtotal)}</dd>${r.discount ? `<dt>Descuento</dt><dd>${fmt(r.discount)} % (−${remMoney(r, r.subtotal - r.total)})</dd>` : ''}<dt>Total</dt><dd><b>${remMoney(r, r.total)}</b>${r.fx?.rate ? ` <span class="muted">(${moneyIn(r.total / r.fx.rate, 'USD')})</span>` : ''}</dd>${r.fx?.rate ? `<dt>Cotización</dt><dd>${moneyIn(r.fx.rate, 'ARS')} por dólar${r.fx.source ? ` · ${esc(r.fx.source)}` : ''}</dd>` : ''}${r.payment ? `<dt>Forma de pago</dt><dd>${esc(S.PAYMENTS[r.payment] || r.payment)}</dd>` : ''}` : ''}
       ${r.by ? `<dt>Preparado por</dt><dd>@${esc(r.by)}</dd>` : ''}
       ${r.note ? `<dt>Observaciones</dt><dd>${esc(r.note)}</dd>` : ''}
     </dl>
     ${r.voided ? `<div class="notice danger" style="margin-bottom:14px">${icon('x')}<span><b>Anulado</b>${r.voided.by ? ` por @${esc(r.voided.by)}` : ''} el ${esc(dateTimeOf(r.voided.at))}<br>Motivo: ${esc(r.voided.reason)}</span></div>` : ''}
     <div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th>${priced ? '<th class="num">Precio</th><th class="num">Importe</th>' : ''}</tr></thead><tbody>
-      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td>${priced ? `<td class="num">${l.price ? `${money(l.price)}<div class="small muted">${S.PRICE_PER[l.per] || ''}</div>` : '—'}</td><td class="num">${money(l.amount)}</td>` : ''}</tr>`).join('')}
+      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td>${priced ? `<td class="num">${l.price ? `${remMoney(r, l.price)}<div class="small muted">${S.PRICE_PER[l.per] || ''}</div>` : '—'}</td><td class="num">${remMoney(r, l.amount)}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>`;
   byId('remitoView').showModal();
 }
@@ -1707,7 +1938,7 @@ function contactStats(c) {
     moves++; units += S.effectiveQty(h); if (!last || h.at > last) last = h.at;
   }
   const mine = state.extra.remitos.filter(r => r.contact?.id === c.id);
-  return { units, moves, last, remitos: mine.length, amount: mine.filter(r => r.priced && !r.voided).reduce((s, r) => s + num(r.total), 0) };
+  return { units, moves, last, remitos: mine.length, amount: mine.filter(r => r.priced && !r.voided).reduce((s, r) => s + remitoIn(r), 0) };
 }
 function renderContacts() {
   if (currentView !== 'clientes') return;
@@ -1719,7 +1950,7 @@ function renderContacts() {
     return `<div class="contact-row ${ct.filter === c.id ? 'on' : ''}" data-contact="${esc(c.id)}">
       <span class="avatar">${esc(initials(c.name))}</span>
       <div class="grow"><strong>${esc(c.name)}</strong><span>${esc([c.phone, c.doc && `CUIT/DNI ${c.doc}`].filter(Boolean).join(' · ') || 'Sin datos de contacto')}</span>
-        ${st ? `<span class="contact-stat">${st.moves ? `${fmt(st.units)} u. ${c.kind === 'proveedor' ? 'recibidas' : 'vendidas'}${S.pricesOn() && st.amount ? ` · ${money(st.amount)} en ${c.kind === 'proveedor' ? 'compras' : 'ventas'}` : ''} · ${st.remitos} remito${st.remitos === 1 ? '' : 's'} · último ${relTime(st.last)}` : 'Sin movimientos todavía'}</span>` : ''}</div>
+        ${st ? `<span class="contact-stat">${st.moves ? `${fmt(st.units)} u. ${c.kind === 'proveedor' ? 'recibidas' : 'vendidas'}${S.pricesOn() && st.amount ? ` · ${repMoney(st.amount)} en ${c.kind === 'proveedor' ? 'compras' : 'ventas'}` : ''} · ${st.remitos} remito${st.remitos === 1 ? '' : 's'} · último ${relTime(st.last)}` : 'Sin movimientos todavía'}</span>` : ''}</div>
       ${phone ? `<a class="icon-btn" href="${waLink(phone, `Hola ${c.name}`)}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">${icon('whatsapp')}</a>` : ''}
       <button class="icon-btn" type="button" data-ct="remitos" title="Ver sus remitos">${icon('file')}</button>
       <button class="icon-btn" type="button" data-ct="edit" title="Editar">${icon('edit')}</button></div>`;
@@ -1733,7 +1964,7 @@ function renderRemitosList() {
   byId('ctRemitos').innerHTML = list.length ? list.map(r => {
     const units = r.lines.reduce((s, l) => s + num(l.units), 0);
     const kind = r.priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : r.kind === 'entrada' ? 'Entrada' : 'Salida';
-    return `<div class="remito-row ${r.voided ? 'is-voided' : ''}" data-remito="${esc(r.id)}"><div class="grow"><strong>${esc(S.remitoCode(r))} · ${esc(r.contact?.name || 'Sin cliente')}${r.priced ? ` · ${money(r.total)}` : ''}${r.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}</strong>
+    return `<div class="remito-row ${r.voided ? 'is-voided' : ''}" data-remito="${esc(r.id)}"><div class="grow"><strong>${esc(S.remitoCode(r))} · ${esc(r.contact?.name || 'Sin cliente')}${r.priced ? ` · ${remMoney(r, r.total)}` : ''}${r.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}</strong>
       <span>${kind} · ${fmt(units)} u. en ${r.lines.length} artículo${r.lines.length === 1 ? '' : 's'}${r.payment ? ` · ${esc(S.PAYMENTS[r.payment] || '')}` : ''} · ${esc(dateTimeOf(r.at))}${r.by ? ` · @${esc(r.by)}` : ''}</span></div>
       <button class="icon-btn" type="button" data-rm="pdf" title="Descargar PDF">${icon('download')}</button>
       <button class="icon-btn" type="button" data-rm="wa" title="Enviar por WhatsApp">${icon('whatsapp')}</button></div>`;
@@ -1793,7 +2024,7 @@ function endScanSession(remito) {
   if (!f) return;
   pendingRemito.finish = null;
   resetSession();
-  toast(`${cap(f.name)} terminada: ${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'} · ${fmt(f.units)} unidades${remito ? ` · ${S.remitoCode(remito)}` : ''}${remito?.priced ? ` · ${money(remito.total)}` : ''}`);
+  toast(`${cap(f.name)} terminada: ${fmt(f.reads)} lectura${f.reads === 1 ? '' : 's'} · ${fmt(f.units)} unidades${remito ? ` · ${S.remitoCode(remito)}` : ''}${remito?.priced ? ` · ${remMoney(remito, remito.total)}` : ''}`);
   setTimeout(focusKioskOrScan, 200);
 }
 
@@ -1803,8 +2034,10 @@ function openRemito({ kind, moves, contactName = '', finish = null, priced = nul
   if (!moves.length) return toast('No hay productos para el remito.', 'warn');
   const pk = kind === 'entrada' ? 'compra' : 'venta';
   // Cada línea arranca con el precio guardado del producto; se puede cambiar solo para este comprobante.
-  const lines = linesFromMoves(moves).map(l => { const it = S.findByCode(l.sku), p = S.priceFor(it, pk); return { ...l, per: p?.per || S.pricePerOf(it), price: p?.price ?? null, stored: p?.price ?? null }; });
-  pendingRemito = { kind, pk, lines, entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish, discount: 0, payment: '',
+  // Venta con cobro en pesos: cada línea arranca con el precio en pesos (fijo o dólares × blue) y se puede corregir.
+  const cur = saleCur(pk), fx = cur !== S.currency() ? S.fxNow() : null;
+  const lines = linesFromMoves(moves).map(l => { const it = S.findByCode(l.sku), p = salePrice(it, pk); return { ...l, per: p?.per || S.pricePerOf(it), price: p?.price ?? null, stored: p?.price ?? null }; });
+  pendingRemito = { kind, pk, cur, fx, lines, entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish, discount: 0, payment: '',
     priced: S.pricesOn() && (priced ?? (kind === 'entrada' ? prefs.buyIn : prefs.saleOut)) };
   byId('rmTitle').textContent = finish ? `Terminar ${finish.name}` : kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
   byId('rmSub').textContent = `Comprobante ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
@@ -1825,7 +2058,7 @@ function renderRemitoLines() {
   byId('rmLines').innerHTML = priced
     ? `<div class="table-wrap"><table class="table rm-priced"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>
       ${r.lines.map((l, i) => `<tr><td><b class="code">${esc(l.sku)}</b></td><td>${esc(l.name || '—')}${serialNote(l)}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}</td>
-        <td class="num"><input class="input money rm-price ${l.price ? '' : 'has-error'}" data-line="${i}" inputmode="decimal" value="${l.price ? fmt(l.price) : ''}" placeholder="$ 0" aria-label="Precio de ${esc(l.sku)} ${S.PRICE_PER[l.per]}"><div class="small muted">${S.PRICE_PER[l.per]}</div></td>
+        <td class="num"><input class="input money rm-price ${l.price ? '' : 'has-error'}" data-line="${i}" inputmode="decimal" value="${l.price ? fmt(l.price) : ''}" placeholder="${r.cur === 'USD' ? 'US$' : '$'} 0" aria-label="Precio de ${esc(l.sku)} ${S.PRICE_PER[l.per]}"><div class="small muted">${S.PRICE_PER[l.per]}</div></td>
         <td class="num" id="rmAmt${i}"></td></tr>`).join('')}
       </tbody></table></div>`
     : `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Unidades</th></tr></thead><tbody>
@@ -1838,7 +2071,7 @@ function renderRemitoLines() {
         <div class="rm-total"><span id="rmSubRow"></span><strong id="rmTotal"></strong></div>
       </div>
       <div id="rmPriceWarn"></div>
-      <label class="switch" id="rmSavePricesWrap" hidden><input type="checkbox" id="rmSavePrices" checked><span class="track"></span><span>Guardar los precios nuevos en los productos (para la próxima)</span></label>`
+      <label class="switch" id="rmSavePricesWrap" hidden><input type="checkbox" id="rmSavePrices" checked><span class="track"></span><span>${r.cur !== S.currency() ? 'Guardar los precios nuevos como precio fijo en pesos de cada producto (para la próxima)' : 'Guardar los precios nuevos en los productos (para la próxima)'}</span></label>`
     : '';
   updateRemitoTotals();
 }
@@ -1857,15 +2090,16 @@ function updateRemitoTotals() {
     if (!l.price) missing++;
     if (l.price && l.price !== l.stored) changed++;
     const c = byId(`rmAmt${i}`);
-    if (c) c.textContent = l.price ? money(a) : '—';
+    if (c) c.textContent = l.price ? moneyIn(a, r.cur) : '—';
   });
   sub = round2(sub);
   const total = round2(sub * (1 - r.discount / 100));
-  byId('rmSubRow').innerHTML = r.discount ? `Subtotal ${money(sub)} · descuento ${fmt(r.discount)} % (−${money(sub - total)})` : 'Total';
-  byId('rmTotal').textContent = money(total);
+  const m = n => moneyIn(n, r.cur), usd = r.fx?.rate ? ` · ${moneyIn(total / r.fx.rate, 'USD')} (dólar a ${moneyIn(r.fx.rate, 'ARS')})` : '';
+  byId('rmSubRow').innerHTML = r.discount ? `Subtotal ${m(sub)} · descuento ${fmt(r.discount)} % (−${m(sub - total)})` : 'Total';
+  byId('rmTotal').textContent = m(total);
   byId('rmPriceWarn').innerHTML = missing ? `<div class="notice warn">${icon('alert')}<span>${missing === 1 ? 'Un producto no tiene' : `${missing} productos no tienen`} ${r.pk === 'compra' ? 'costo' : 'precio'}: escribilo en la tabla o se registra en $ 0.</span></div>` : '';
   byId('rmSavePricesWrap').hidden = !changed || !canManage();
-  byId('rmSummary').innerHTML = `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon('cash')}<span>${r.finish ? `${finishSummary(r.finish)} · ` : ''}<b>${cap(r.pk)} por ${money(total)}</b>. ${r.finish ? `El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}.` : ''}</span></div>`;
+  byId('rmSummary').innerHTML = `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon('cash')}<span>${r.finish ? `${finishSummary(r.finish)} · ` : ''}<b>${cap(r.pk)} por ${m(total)}</b>${usd}. ${r.finish ? `El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}.` : ''}</span></div>`;
 }
 function ensureRemito() {
   if (pendingRemito.created) return pendingRemito.created;
@@ -1873,11 +2107,12 @@ function ensureRemito() {
   // Venta/compra solo si hay precios activados y al menos un precio; si no, es un remito común.
   const sale = pr.priced && S.pricesOn() && pr.lines.some(l => l.price) ? { discount: pr.discount, payment: pr.payment } : null;
   const lines = pr.lines.map(({ stored, price, per, ...l }) => (sale ? { ...l, price, per } : l));
-  const r = S.createRemito({ kind: pr.kind, contact: resolveContact(byId('rmContact').value, op), lines, note: byId('rmNote').value, entryIds: pr.entryIds, sale });
+  const r = S.createRemito({ kind: pr.kind, contact: resolveContact(byId('rmContact').value, op), lines, note: byId('rmNote').value, entryIds: pr.entryIds, sale, currency: pr.cur, fx: pr.fx });
   if (!r.ok) { toast(r.error, 'error'); return null; }
   pr.created = r.remito;
   if (sale && canManage() && byId('rmSavePrices')?.checked && !byId('rmSavePricesWrap').hidden) {
-    const n = S.setItemPrices(pr.lines.filter(l => l.price && l.price !== l.stored).map(l => ({ sku: l.sku, value: l.price, per: l.per })), pr.pk === 'compra' ? 'cost' : 'price');
+    const field = pr.pk === 'compra' ? 'cost' : pr.cur !== S.currency() ? 'priceArs' : 'price';
+    const n = S.setItemPrices(pr.lines.filter(l => l.price && l.price !== l.stored).map(l => ({ sku: l.sku, value: l.price, per: l.per })), field);
     if (n) toast(`${n} precio${n === 1 ? '' : 's'} guardado${n === 1 ? '' : 's'} en los productos`, 'info');
   }
   return r.remito;
@@ -1890,7 +2125,7 @@ function finishWithoutSending() {
   const rem = sale ? ensureRemito() : pr.created;
   if (sale && !rem) return;
   if (pr.finish) endScanSession(rem);
-  else if (rem) toast(`${S.remitoCode(rem)} guardado${rem.priced ? ` · ${money(rem.total)}` : ''}`);
+  else if (rem) toast(`${S.remitoCode(rem)} guardado${rem.priced ? ` · ${remMoney(rem, rem.total)}` : ''}`);
   byId('remitoDialog').close();
 }
 // Anular una venta, compra o remito (solo dueño). Opcionalmente revierte también la mercadería.
@@ -1902,7 +2137,7 @@ async function voidSale(id) {
   const what = r.priced ? (r.kind === 'entrada' ? 'la compra' : 'la venta') : 'el remito';
   const choice = await ask({
     title: `¿Anular ${what} ${S.remitoCode(r)}?`,
-    message: `${r.priced ? `Total ${money(r.total)}. Deja de sumar en los reportes. ` : ''}No se borra: queda tachado con tu usuario y el motivo.`,
+    message: `${r.priced ? `Total ${remMoney(r, r.total)}. Deja de sumar en los reportes. ` : ''}No se borra: queda tachado con tu usuario y el motivo.`,
     choices: [
       ...(live.length ? [{ label: r.kind === 'entrada' ? `Anular y sacar la mercadería del stock (${live.length} lectura${live.length === 1 ? '' : 's'})` : `Anular y devolver la mercadería al stock (${live.length} lectura${live.length === 1 ? '' : 's'})`, value: 'stock', primary: true }] : []),
       { label: live.length ? 'Anular solo el comprobante (el stock no cambia)' : 'Anular', value: 'only', primary: !live.length },
@@ -1981,8 +2216,8 @@ function renderKiosk() {
   byId('kFinishLabel').textContent = verb;
   const sm = sessionMoney();
   byId('kMoneyBox').hidden = !sm;
-  if (sm) byId('kMoney').textContent = money(sm.total);
-  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${sm ? money(sm.total) : `${fmt(units)} u.`})` : verb;
+  if (sm) byId('kMoney').textContent = sessionMoneyText(sm);
+  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${sm ? moneyIn(sm.total, sm.cur) : `${fmt(units)} u.`})` : verb;
   byId('scanRemito').className = `btn btn-lg btn-block finish-btn ${m.tone}`;
   byId('kRemito').className = `btn btn-lg finish-btn ${m.tone}`;
 }
@@ -2486,10 +2721,41 @@ function bindEvents() {
   byId('mergeBody').addEventListener('change', e => { if (e.target.name === 'mergeKeep') { merge.keep = e.target.value; renderMerge(); } });
   byId('mergeBody').addEventListener('click', e => { const b = e.target.closest('[data-merge-drop]'); if (b) { e.preventDefault(); merge.ids = merge.ids.filter(id => id !== b.dataset.mergeDrop); renderMerge(); } });
   byId('mergeForm').addEventListener('submit', saveMerge);
+  document.addEventListener('click', e => { if (e.target.closest('[data-cost-import]')) openCostImport(); });
+  byId('costBody').addEventListener('change', onCostBody);
+  byId('costBody').addEventListener('click', e => { const c = e.target.closest('[data-cost-currency]'); if (c) { e.preventDefault(); changeCurrency(c.dataset.costCurrency).then(() => costImp && renderCostImport()); } });
+  byId('costForm').addEventListener('submit', saveCostImport);
+  byId('setMarginBtn').onclick = applyMargin;
+  byId('setMargin').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyMargin(); } });
+  byId('setCurrency').onchange = e => changeCurrency(e.target.value).then(() => refreshFx());
+  byId('arsOn').onchange = e => {
+    if (!ownerOnly('cambiar cómo se cobra')) { e.target.checked = S.chargeArs(); return; }
+    S.setArsSettings({ ars: e.target.checked });
+    if (e.target.checked) { refreshFx(false); toast('Las ventas se cobran en pesos con el dólar blue. Los precios siguen guardados en dólares.', 'info'); }
+  };
+  byId('arsRound').onchange = e => { if (ownerOnly('cambiar el redondeo')) S.setArsSettings({ arsRound: e.target.value }); else renderArsSettings(); };
+  byId('fxFixed').addEventListener('change', e => {
+    if (!ownerOnly('fijar la cotización')) { renderArsSettings(); return; }
+    const v = txt(e.target.value) ? parseMoney(e.target.value) : null;
+    if (txt(e.target.value) && !v) { toast('Escribí la cotización como número, por ejemplo 1565.', 'error'); return; }
+    S.setArsSettings({ fxFixed: v });
+    toast(v ? `Cotización fija: ${moneyIn(v, 'ARS')} por dólar.` : 'Se vuelve a usar el dólar blue automático.', 'info');
+  });
+  byId('fxRefresh').onclick = () => refreshFx(false);
+  // Cotización: al abrir, cada 30 minutos y al volver a la app.
+  if (fxStale()) refreshFx();
+  setInterval(() => { if (fxStale()) refreshFx(); }, 5 * 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && fxStale()) refreshFx(); });
+  byId('eMargin').addEventListener('click', e => {
+    if (!e.target.closest('[data-price-auto]')) return;
+    e.preventDefault();
+    editPrice = { touched: false, auto: true };
+    renderMargin();
+  });
   byId('bulkField').onchange = renderBulkValue;
   byId('bulkForm').addEventListener('submit', applyBulk);
   byId('editForm').addEventListener('submit', saveEdit);
-  ['ePrice', 'eCost', 'ePer'].forEach(id => byId(id).addEventListener('input', renderMargin));
+  ['ePrice', 'eCost', 'ePer', 'ePriceArs'].forEach(id => byId(id).addEventListener('input', renderMargin));
   byId('eDelete').onclick = deleteEditing;
   byId('eLabel').onclick = () => { byId('editDialog').close(); labelsFor([editingId]); };
   byId('eBarcodeCam').onclick = () => openCamera({ onCode: c => { byId('eBarcode').value = upper(c); } });

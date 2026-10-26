@@ -76,9 +76,133 @@ export function priceFor(item, kind = 'venta') {
 }
 // Ajuste del negocio (lo decide el dueño y se sincroniza con el equipo).
 export const pricesOn = () => !!state.extra.settings?.prices;
+const saveSettings = patch => { state.extra.settings = { ...state.extra.settings, ...patch, updatedAt: nowIso() }; };
 export function setPricesEnabled(on) {
-  state.extra.settings = { ...state.extra.settings, prices: !!on, updatedAt: nowIso() };
+  saveSettings({ prices: !!on });
   commit('settings');
+}
+
+// Moneda en que se muestran los precios. Cambiarla no convierte los importes ya cargados.
+export const CURRENCIES = { ARS: 'Pesos ($)', USD: 'Dólares (US$)' };
+export const currency = () => (state.extra.settings?.currency === 'USD' ? 'USD' : 'ARS');
+const currencySign = () => (currency() === 'USD' ? 'US$' : '$');
+export function setCurrency(c) {
+  saveSettings({ currency: c === 'USD' ? 'USD' : 'ARS' });
+  commit('settings');
+}
+
+// ---------- Cobro en pesos con dólar blue ----------
+// Con los precios en dólares se puede cobrar en pesos: el precio en pesos es el de dólares por la cotización del
+// blue (venta), redondeado, o un precio fijo en pesos escrito a mano. La cotización se consulta en cada dispositivo
+// (no se sincroniza); la dueña puede fijar una a mano, y cada venta guarda la que usó.
+export const ARS_ROUNDING = { 0: 'Sin redondear', 10: 'A $ 10', 100: 'A $ 100', 500: 'A $ 500', 1000: 'A $ 1.000' };
+export const chargeArs = () => currency() === 'USD' && !!state.extra.settings?.ars;
+export const arsRound = () => { const r = state.extra.settings?.arsRound; return ARS_ROUNDING[r] !== undefined ? Number(r) : 100; };
+export const fxFixed = () => { const v = Number(state.extra.settings?.fxFixed); return v > 0 ? v : null; };
+const FX_KEY = 'stockvoz_fx';
+let fxLive = (() => { try { const v = JSON.parse(localStorage.getItem(FX_KEY)); return v?.rate > 0 ? v : null; } catch { return null; } })();
+export const fxLiveInfo = () => fxLive;
+export const fxRate = () => fxFixed() || fxLive?.rate || null;
+// Datos de la cotización que se usa ahora: { rate, source, at, fixed }.
+export const fxNow = () => (fxFixed() ? { rate: fxFixed(), source: 'cotización fija', fixed: true } : fxLive ? { rate: fxLive.rate, source: `dólar blue · ${fxLive.source}`, at: fxLive.fetchedAt || fxLive.at } : null);
+export function setLiveFx(fx) {
+  if (!(fx?.rate > 0)) return;
+  fxLive = fx;
+  try { localStorage.setItem(FX_KEY, JSON.stringify(fx)); } catch { /* sin almacenamiento */ }
+  listeners.forEach(fn => fn('fx'));
+}
+export function setArsSettings(patch) {
+  const p = {};
+  if ('ars' in patch) p.ars = !!patch.ars;
+  if ('arsRound' in patch) p.arsRound = ARS_ROUNDING[patch.arsRound] !== undefined ? Number(patch.arsRound) : 100;
+  if ('fxFixed' in patch) p.fxFixed = Number(patch.fxFixed) > 0 ? round2(Number(patch.fxFixed)) : null;
+  saveSettings(p);
+  commit('settings');
+}
+export const roundArs = n => { const r = arsRound(); return r > 0 ? Math.max(r, Math.round(n / r) * r) : Math.round(n); };
+// Precio de venta en pesos: { price, per, fixed }. Fijo si se escribió en pesos; si no, dólares × cotización.
+export function arsPriceFor(item) {
+  if (!chargeArs() || !item) return null;
+  const per = pricePerOf(item);
+  if (item.priceArs > 0) return { price: item.priceArs, per, fixed: true };
+  const rate = fxRate();
+  return item.price > 0 && rate ? { price: roundArs(item.price * rate), per, fixed: false } : null;
+}
+// Comprobantes: moneda en que se cobró (los anteriores a esta versión están en pesos) y conversión para reportes.
+export const remitoCurrency = r => (r?.currency === 'USD' ? 'USD' : 'ARS');
+export const reportCurrency = () => (chargeArs() ? 'ARS' : currency());
+export function convert(n, from, to, rate = fxRate()) {
+  if (from === to) return Number(n) || 0;
+  if (!(rate > 0)) return null;
+  return round2(from === 'USD' ? n * rate : n / rate);
+}
+
+// Margen general: el precio de venta es el costo más un porcentaje, salvo en los productos con precio a mano.
+export const marginPct = () => { const m = state.extra.settings?.margin; return typeof m === 'number' && m >= 0 ? m : null; };
+export function autoPrice(i, cost = i?.cost) {
+  const m = marginPct();
+  if (m == null || !(cost > 0)) return null;
+  const p = cost * (1 + m / 100);
+  return currency() === 'ARS' ? Math.round(p) : round2(p);
+}
+// Recalcula el precio de venta de los productos que siguen el margen general. Devuelve cuántos cambiaron.
+function refreshAutoPrices(items = state.items) {
+  let n = 0;
+  for (const i of items) {
+    if (i.priceManual) continue;
+    const a = autoPrice(i);
+    if (a && a !== i.price) { i.price = a; n++; }
+  }
+  return n;
+}
+const isManual = i => (i.priceManual && i.cost > 0) || i.priceArs > 0;
+export const manualPriceCount = () => state.items.filter(isManual).length;
+// overrideManual: también pisa los precios escritos a mano (vuelven a seguir el margen).
+export function setMargin(pct, { overrideManual = false } = {}) {
+  const m = pct === null || pct === '' ? null : Number(pct);
+  if (m !== null && (!Number.isFinite(m) || m < 0 || m > 1000)) return fail('La ganancia tiene que ser un número entre 0 y 1000 %.');
+  checkpoint();
+  saveSettings({ margin: m });
+  const freed = overrideManual && m !== null ? state.items.filter(isManual) : [];
+  freed.forEach(i => { delete i.priceManual; delete i.priceArs; });
+  const changed = m === null ? 0 : refreshAutoPrices();
+  if (freed.length) log('edit', 'Ganancia general', null, { note: `Ganancia ${fmt(m)} % aplicada también a ${freed.length} precio${freed.length === 1 ? '' : 's'} escrito${freed.length === 1 ? '' : 's'} a mano`, prices: Object.fromEntries(freed.map(i => [i.sku, { priceManual: false, priceArs: null, price: i.price }])) });
+  commit('settings');
+  return { ok: true, changed };
+}
+
+// Aplica a un producto los cambios de precio guardados en un movimiento (importación de costos, ganancia general).
+function applyPricePatch(i, p) {
+  for (const k of ['cost', 'price', 'priceArs']) if (k in p) { if (cleanPrice(p[k])) i[k] = cleanPrice(p[k]); else delete i[k]; }
+  if ('pricePer' in p) { if (p.pricePer === 'dozen' && i.unitName === 'unidades') i.pricePer = 'dozen'; else delete i.pricePer; }
+  if ('priceManual' in p) { if (p.priceManual) i.priceManual = true; else delete i.priceManual; }
+}
+// Costo de un archivo llevado a la unidad de precio del producto. filePer: 'dozen' | 'unit'.
+// Si el producto tiene un precio de venta a mano por unidad, el costo se pasa a unidad para no mezclar.
+export function costFor(item, cost, filePer = 'dozen') {
+  const from = filePer === 'dozen' && item.unitName === 'unidades' ? 'dozen' : 'unit';
+  const per = item.priceManual && item.price ? pricePerOf(item) : from;
+  return { cost: round2((cost / perFactor(from)) * perFactor(per)), per };
+}
+// Carga costos de muchos productos a la vez (archivo de tandas, Excel). changes: [{ id, cost, per }].
+// Queda un solo registro en el historial con todos los cambios, para no tapar los movimientos de mercadería.
+export function importCosts(changes, label = 'archivo') {
+  const valid = changes.map(c => ({ item: findById(c.id), cost: cleanPrice(c.cost), per: c.per })).filter(c => c.item && c.cost);
+  if (!valid.length) return fail('No hay costos para cargar.');
+  checkpoint();
+  const patch = {};
+  let priced = 0;
+  for (const { item, cost, per } of valid) {
+    const c = costFor(item, cost, per), p = { cost: c.cost, pricePer: c.per };
+    applyPricePatch(item, p);
+    const a = !item.priceManual && autoPrice(item);
+    if (a) { item.price = a; p.price = a; priced++; }
+    item.updatedAt = nowIso();
+    patch[item.sku] = p;
+  }
+  log('edit', 'Importación de costos', null, { note: `Costos de ${valid.length} productos desde ${label}${priced ? ` · ${priced} precios de venta con la ganancia general` : ''}`, prices: patch });
+  commit('costs');
+  return { ok: true, count: valid.length, priced };
 }
 
 // Quién está usando la app (se guarda en cada movimiento). Vacío en modo local.
@@ -143,6 +267,8 @@ export function normalizeItem(i) {
     ...(cleanPrice(i.price) ? { price: cleanPrice(i.price) } : {}),
     ...(cleanPrice(i.cost) ? { cost: cleanPrice(i.cost) } : {}),
     ...(i.pricePer === 'dozen' ? { pricePer: 'dozen' } : {}),
+    ...(i.priceManual ? { priceManual: true } : {}), // precio de venta escrito a mano: no sigue el margen general
+    ...(cleanPrice(i.priceArs) ? { priceArs: cleanPrice(i.priceArs) } : {}), // precio fijo en pesos: no sigue al dólar
     updatedAt: i.updatedAt || nowIso(),
     createdAt: i.createdAt || i.updatedAt || nowIso(),
   };
@@ -214,13 +340,12 @@ function codeLikeness(c, cd, sku) {
   if (!s) return null;
   if (s === c) return { score: 0, strong: true, reason: 'mismo código con otro formato' };
   if (noZeros(s) === noZeros(c)) return { score: 0, strong: true, reason: 'mismo código con otros ceros' };
-  if (cd.length >= 3 && digitsOf(s) === cd) {
-    // 8008 / GT8008 es casi seguro el mismo; GT8008 / PT8008 puede ser otra prenda con el mismo número.
-    const alone = !/[A-Z]/.test(c) || !/[A-Z]/.test(s);
-    return { score: alone ? 1 : 3, strong: alone, reason: alone ? 'mismo número' : 'mismo número, otras letras' };
-  }
+  // 8008 / GT8008 es casi seguro el mismo; GT8008 / PT8008 puede ser otra prenda con el mismo número.
+  const sameDigits = cd.length >= 3 && digitsOf(s) === cd;
+  if (sameDigits && (!/[A-Z]/.test(c) || !/[A-Z]/.test(s))) return { score: 1, strong: true, reason: 'mismo número' };
   const [short, long] = c.length <= s.length ? [c, s] : [s, c];
-  if (short.length >= 3 && short.length / long.length >= 0.5 && long.includes(short)) return { score: 2, strong: true, reason: `${long === s ? 'contiene' : 'está dentro de'} ${c}` };
+  if (short.length >= 3 && short.length / long.length >= 0.5 && long.includes(short)) return { score: 2, strong: true, reason: `${long === s ? 'contiene' : 'está dentro de'} ${c}` }; // N28339 / N28339EP
+  if (sameDigits) return { score: 3, strong: false, reason: 'mismo número, otras letras' };
   if (Math.abs(c.length - s.length) > 2) return null;
   const dist = editDistance(c, s);
   if ((dist === 1 && short.length >= 4) || (dist === 2 && short.length >= 7)) return { score: 3 + dist, strong: false, reason: dist === 1 ? 'un carácter distinto' : 'dos caracteres distintos' };
@@ -236,7 +361,7 @@ export function similarCodes(code, limit = 3) {
     .filter(x => x.m)
     .sort((a, b) => a.m.score - b.m.score || b.item.updatedAt.localeCompare(a.item.updatedAt))
     .slice(0, limit)
-    .map(({ item, m }) => ({ item, reason: m.reason, strong: m.strong }));
+    .map(({ item, m }) => ({ item, reason: m.reason, strong: m.strong, score: m.score }));
 }
 
 // ---------- Etiquetas numeradas ----------
@@ -333,6 +458,7 @@ function log(kind, action, item, d = {}) {
     ...(d.abs ? { abs: true } : {}),             // el stock se fijó a un valor (no es una suma/resta)
     ...(d.fixOf ? { fixOf: d.fixOf } : {}),      // corrección o anulación de otro movimiento
     ...(d.contact ? { contact: d.contact } : {}), // cliente o proveedor
+    ...(d.prices ? { prices: d.prices } : {}),   // cambios de precio de muchos productos: { sku: { cost, price, … } }
     ...(actor ? { by: actor } : {}),
   };
   state.history.unshift(entry);
@@ -435,23 +561,33 @@ export function saveItem(id, patch) {
 }
 
 // Aplica los precios que vengan en patch (price, cost, pricePer). Devuelve el detalle de lo que cambió.
+// Con ganancia general, el precio de venta sigue al costo salvo que se escriba a mano uno distinto
+// (priceAuto: true vuelve al automático; borrar el precio también).
 function applyPrices(i, patch) {
-  const changes = [];
+  const changes = [], before = { price: i.price || null, cost: i.cost || null };
   if ('pricePer' in patch) {
     const per = patch.pricePer === 'dozen' && i.unitName === 'unidades' ? 'dozen' : 'unit';
     if (per !== pricePerOf(i) && (i.price || i.cost || 'price' in patch || 'cost' in patch)) changes.push(`precio ${PRICE_PER[per]}`);
     if (per === 'dozen') i.pricePer = 'dozen'; else delete i.pricePer;
   }
-  for (const [k, label] of [['price', 'venta'], ['cost', 'costo']]) {
+  const beforeArs = i.priceArs || null;
+  for (const k of ['price', 'cost', 'priceArs']) {
     if (!(k in patch)) continue;
     const v = cleanPrice(patch[k]);
-    if ((i[k] || null) === v) continue;
-    changes.push(`${label} ${i[k] ? `$ ${fmt(i[k])}` : '—'} → ${v ? `$ ${fmt(v)}` : '—'}`);
     if (v) i[k] = v; else delete i[k];
+  }
+  if ((i.priceArs || null) !== beforeArs) changes.push(`venta en pesos ${beforeArs ? `$ ${fmt(beforeArs)}` : 'según el dólar'} → ${i.priceArs ? `$ ${fmt(i.priceArs)} fijo` : 'según el dólar'}`);
+  const a = autoPrice(i);
+  if (patch.priceAuto || ('price' in patch && !i.price)) delete i.priceManual;
+  else if ('price' in patch) { if (a && i.price === a) delete i.priceManual; else i.priceManual = true; }
+  if (!i.priceManual && a) i.price = a;
+  for (const [k, label] of [['price', 'venta'], ['cost', 'costo']]) {
+    const v = i[k] || null;
+    if (before[k] !== v) changes.push(`${label} ${before[k] ? `${currencySign()} ${fmt(before[k])}` : '—'} → ${v ? `${currencySign()} ${fmt(v)}` : '—'}`);
   }
   return changes.join(', ');
 }
-// Guarda precios de varios productos (p. ej. los que se escribieron al cerrar una venta). field: 'price' | 'cost'.
+// Guarda precios de varios productos (p. ej. los que se escribieron al cerrar una venta). field: 'price' | 'cost' | 'priceArs'.
 export function setItemPrices(changes, field = 'price') {
   const valid = changes.map(c => ({ ...c, item: findByCode(c.sku), value: cleanPrice(c.value) })).filter(c => c.item && c.value);
   if (!valid.length) return 0;
@@ -727,6 +863,7 @@ export function rebase(remote) {
   const mine = state.history.filter(h => pending.has(h.id) && !remoteIds.has(h.id)).reverse(); // del más viejo al más nuevo
 
   for (const h of mine) {
+    if (h.prices) { for (const [sku, p] of Object.entries(h.prices)) { const it = items.get(sku); if (it) applyPricePatch(it, p); } continue; }
     const k = historyKind(h);
     if (k === 'delete') { items.delete(h.sku); continue; }
     let it = items.get(h.sku);
@@ -738,7 +875,7 @@ export function rebase(remote) {
     } else if (local && local.updatedAt > it.updatedAt) {
       // Datos del producto (marca, prenda, mínimo…) editados acá: se conservan. El stock se recalcula abajo.
       Object.assign(it, { brand: local.brand, type: local.type, barcode: local.barcode, minStock: local.minStock, stockType: local.stockType, unitName: local.unitName, displayUnit: local.displayUnit });
-      for (const k of ['price', 'cost', 'pricePer']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
+      for (const k of ['price', 'cost', 'pricePer', 'priceManual', 'priceArs']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
     }
     if (h.before != null && h.after != null) {
       it.units = round2(Math.max(0, k === 'count' || h.abs ? h.after : it.units + (h.after - h.before)));
@@ -767,6 +904,7 @@ export function rebase(remote) {
   state.items = [...items.values()];
   state.history = [...merged.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, HISTORY_MAX);
   state.extra = mergeExtra(remote.extra, state.extra);
+  refreshAutoPrices(); // la ganancia general pudo cambiar en otro dispositivo
   state.cloud.rev = remote.rev || 0;
   commit('merge');
 }
@@ -828,7 +966,8 @@ export function deleteContact(id) {
 // ---------- Remitos ----------
 // lines: [{ sku, name, qty, unit, units, serials: [], price?, per? }] · kind: 'salida' | 'entrada'
 // sale (opcional): { discount, payment } → queda como venta (salida) o compra (entrada), con importes y total.
-export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [], sale = null }) {
+// currency: moneda en que se cobra · fx: cotización usada si se cobró en pesos con precios en dólares.
+export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [], sale = null, currency: cur = 'ARS', fx = null }) {
   if (!lines.length) return fail('El remito no tiene productos.');
   const number = state.extra.remitoSeq + 1;
   const remito = {
@@ -843,7 +982,8 @@ export function createRemito({ kind = 'salida', contact = null, lines = [], note
     });
     const subtotal = round2(remito.lines.reduce((s, l) => s + l.amount, 0));
     const discount = Math.min(100, Math.max(0, round2(num(sale.discount))));
-    Object.assign(remito, { priced: true, subtotal, discount, total: round2(subtotal * (1 - discount / 100)), payment: PAYMENTS[sale.payment] ? sale.payment : '' });
+    Object.assign(remito, { priced: true, subtotal, discount, total: round2(subtotal * (1 - discount / 100)), payment: PAYMENTS[sale.payment] ? sale.payment : '', currency: cur === 'USD' ? 'USD' : 'ARS' });
+    if (fx?.rate > 0) remito.fx = { rate: fx.rate, source: fx.source || '' };
   }
   state.extra.remitoSeq = number;
   state.extra.remitos.unshift(remito);

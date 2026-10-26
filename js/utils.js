@@ -12,10 +12,17 @@ export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;'
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 export const nowIso = () => new Date().toISOString();
 export const fmt = (n, d = 2) => Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: d });
-// Dinero en pesos: "$ 12.500" (los centavos solo si hay).
-const MONEY = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0, maximumFractionDigits: 0 });
-const MONEY_CENTS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export const money = n => { const v = Math.round((Number(n) || 0) * 100) / 100; return (Number.isInteger(v) ? MONEY : MONEY_CENTS).format(v); };
+// Dinero: "$ 12.500" en pesos o "US$ 51,25" en dólares (los centavos solo si hay).
+// money() usa la moneda de los precios de la app; moneyIn() una moneda puntual (p. ej. una venta cobrada en pesos).
+const MONEY_FMT = {};
+export function moneyIn(n, code = 'ARS') {
+  const v = Math.round((Number(n) || 0) * 100) / 100, c = code === 'USD' ? 'USD' : 'ARS', cents = !Number.isInteger(v);
+  const f = MONEY_FMT[c + cents] ||= new Intl.NumberFormat('es-AR', { style: 'currency', currency: c, minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
+  return f.format(v);
+}
+let moneyCode = 'ARS';
+export function setMoneyCurrency(code) { moneyCode = code === 'USD' ? 'USD' : 'ARS'; }
+export const money = n => moneyIn(n, moneyCode);
 // Lee un importe escrito como en Argentina: "12.500", "12500", "1.234,50", "$ 980". Vacío o inválido → null.
 export function parseMoney(v) {
   const s = String(v ?? '').replace(/[^\d.,]/g, '');

@@ -156,3 +156,51 @@ export async function readImportFile(file) {
   }
   return { rows: normalizeRows(raw).map(r => ({ ...r, stockType: STOCK_TYPES[r.stockType] ? r.stockType : 'inventario' })), total: raw.length, history: null };
 }
+
+// ---------- Costos desde un archivo ----------
+// Acepta el archivo de tandas (.json: { moneda, tandas: [{ tanda, fecha, productos: [{ codigo, costo_usd, … }] }] }),
+// una lista JSON de { codigo, costo } o un Excel/CSV con columnas CÓDIGO y COSTO (COSTO USD, PRECIO DE COSTO…).
+// Opcionales: PRODUCTO, MARCA, DOCENAS, FECHA, TANDA. Devuelve { entries, currency, per }.
+const costNum = v => (typeof v === 'number' ? (v > 0 ? v : null) : parseMoney(v));
+export async function readCostFile(file) {
+  const name = file.name.toLowerCase();
+  let rows = [], currency = null, per = null;
+  if (name.endsWith('.json')) {
+    const d = JSON.parse(await file.text());
+    const moneda = String(d?.moneda || '').toUpperCase();
+    if (/USD|DOLAR|DÓLAR/.test(moneda)) currency = 'USD'; else if (/ARS|PESO/.test(moneda)) currency = 'ARS';
+    if (/DOCENA/.test(moneda)) per = 'dozen'; else if (/UNIDAD/.test(moneda)) per = 'unit';
+    if (Array.isArray(d?.tandas)) rows = d.tandas.flatMap(t => (t.productos || []).map(p => ({ ...p, fecha: p.fecha || t.fecha, tanda: p.tanda || t.tanda })));
+    else rows = Array.isArray(d) ? d : (d.productos || d.items || []);
+  } else {
+    let raw;
+    if (name.endsWith('.csv')) raw = parseCSV(await file.text());
+    else {
+      const X = await ensureXLSX();
+      const wb = X.read(await file.arrayBuffer(), { type: 'array' });
+      raw = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    }
+    const headers = raw.length ? Object.keys(raw[0]).map(k => normKey(k).replace(/_/g, ' ')).join(' ') : '';
+    if (/USD|DOLAR/.test(headers)) currency = 'USD';
+    if (/DOCENA/.test(headers)) per = 'dozen';
+    rows = raw;
+  }
+  const entries = rows.filter(r => r && typeof r === 'object').map(r => {
+    const keys = Object.keys(r);
+    const nk = x => normKey(x).replace(/_/g, ' ');
+    const get = (...names) => { const k = keys.find(x => names.includes(nk(x))); return k === undefined ? '' : r[k]; };
+    // Columnas con nombre libre: "Costo USD por docena", "Código del producto"…
+    const like = (re, not) => { const k = keys.find(x => re.test(nk(x)) && !not?.test(nk(x))); return k === undefined ? '' : r[k]; };
+    return {
+      code: upper(get('CODIGO', 'CODIGO SKU', 'SKU', 'CODE') || like(/^(CODIGO|SKU|CODE)/, /BARRAS|EAN/)).replace(/\s+/g, ''),
+      name: String(get('PRODUCTO', 'DESCRIPCION', 'PRENDA', 'NOMBRE') || '').trim(),
+      brand: String(get('MARCA', 'BRAND') || '').trim(),
+      cost: costNum(get('COSTO USD', 'COSTO', 'PRECIO DE COSTO', 'PRECIO COSTO', 'COSTO ARS', 'COST') || like(/^(PRECIO DE |PRECIO )?COSTO?\b/, /MOTIVO|SIN COSTO/)),
+      dozens: num(get('DOCENAS', 'DOZENS')) || 0,
+      date: String(get('FECHA', 'DATE') || ''),
+      batch: String(get('TANDA', 'LOTE') || ''),
+      reason: String(get('MOTIVO SIN COSTO') || ''),
+    };
+  }).filter(e => e.code);
+  return { entries, currency, per };
+}

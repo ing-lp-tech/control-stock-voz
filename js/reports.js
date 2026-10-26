@@ -1,5 +1,8 @@
 // Reportes (solo la dueña): ventas, ingresos, clientes, equipo y controles para detectar faltantes.
-import { esc, fmt, icon, money, round2 } from './utils.js';
+import { esc, fmt, icon, moneyIn, round2 } from './utils.js';
+
+// Los reportes de dinero se muestran en una sola moneda: en pesos si se cobra en pesos con el dólar blue.
+const money = n => moneyIn(n, S.reportCurrency());
 import * as S from './store.js';
 
 const DAY = 86400000;
@@ -19,26 +22,27 @@ export function periodRemitos(remitos, { days = 30, user = '' } = {}) {
   return remitos.filter(r => new Date(r.at).getTime() >= from && (!user || r.by === user));
 }
 
-// Ventas y compras en pesos (solo comprobantes con precios y no anulados).
-// La ganancia es estimada: ventas menos el costo actual de lo vendido (solo de productos con costo cargado).
+// Ventas y compras (solo comprobantes con precios y no anulados), llevadas a la moneda de los reportes con la
+// cotización que usó cada venta. La ganancia es estimada: ventas menos el costo actual de lo vendido.
 function computeSales(state, opts) {
   const list = periodRemitos(state.extra.remitos, opts).filter(r => r.priced && !r.voided);
   const sales = list.filter(r => r.kind !== 'entrada'), buys = list.filter(r => r.kind === 'entrada');
-  const total = l => round2(l.reduce((s, r) => s + (Number(r.total) || 0), 0));
+  const cur = S.reportCurrency(), conv = (r, n, from = S.remitoCurrency(r)) => S.convert(Number(n) || 0, from, cur, r.fx?.rate) ?? 0;
+  const total = l => round2(l.reduce((s, r) => s + conv(r, r.total), 0));
   const bySku = new Map(), byClient = new Map(), byPay = new Map();
   let costOfSold = 0, revenueWithCost = 0;
   for (const r of sales) {
     const k = r.subtotal ? r.total / r.subtotal : 1; // descuento repartido en las líneas
     for (const l of r.lines) {
-      const amount = (Number(l.amount) || 0) * k, item = S.findByCode(l.sku);
+      const amount = conv(r, l.amount) * k, item = S.findByCode(l.sku);
       const g = bySku.get(l.sku) || { key: l.sku, item, amount: 0, units: 0 };
       g.amount += amount; g.units += Number(l.units) || 0; bySku.set(l.sku, g);
-      if (item?.cost) { costOfSold += S.lineAmount(l.units, item.cost, S.pricePerOf(item)); revenueWithCost += amount; }
+      if (item?.cost) { costOfSold += conv(r, S.lineAmount(l.units, item.cost, S.pricePerOf(item)), S.currency()); revenueWithCost += amount; }
     }
     const c = r.contact?.name || 'Sin cliente', gc = byClient.get(c) || { key: c, amount: 0, count: 0 };
-    gc.amount += Number(r.total) || 0; gc.count++; byClient.set(c, gc);
+    gc.amount += conv(r, r.total); gc.count++; byClient.set(c, gc);
     const p = S.PAYMENTS[r.payment] || 'Sin indicar', gp = byPay.get(p) || { key: p, amount: 0, count: 0 };
-    gp.amount += Number(r.total) || 0; gp.count++; byPay.set(p, gp);
+    gp.amount += conv(r, r.total); gp.count++; byPay.set(p, gp);
   }
   const sort = m => [...m.values()].sort((a, b) => b.amount - a.amount);
   const salesTotal = total(sales);
@@ -179,7 +183,7 @@ function mbars(list, { label, sub, limit = 8 }) {
 }
 function salesSection(s) {
   if (!s) return '';
-  if (!s.salesCount && !s.buysCount) return `<section class="panel"><div class="panel-head"><h3>${icon('cash')} Ventas en pesos</h3><p>Todavía no hay ventas con precio en este período. Al escanear una salida, dejá encendido «Es una venta».</p></div></section>`;
+  if (!s.salesCount && !s.buysCount) return `<section class="panel"><div class="panel-head"><h3>${icon('cash')} Ventas con precio</h3><p>Todavía no hay ventas con precio en este período. Al escanear una salida, dejá encendido «Es una venta».</p></div></section>`;
   const profit = s.profit == null ? '<strong>—</strong><small>Cargá el precio de costo de los productos para estimarla</small>'
     : `<strong class="${s.profit < 0 ? 'warn' : ''}">${money(s.profit)}</strong><small>${s.profitCoverage < 0.999 ? `sobre el ${fmt(s.profitCoverage * 100, 0)} % de las ventas (productos con costo)` : 'ventas menos el costo de lo vendido'}</small>`;
   return `

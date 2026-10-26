@@ -482,9 +482,39 @@
        <li><b>Salida sin precio</b> (un traslado, una muestra, una consignación): apagá <b>Es una venta</b> antes de escanear.</li>
        <li><b>Compras:</b> en una <b>Entrada</b> encendé <b>Es una compra</b> para registrar el costo de lo que llega.</li>
        <li><b>Anular una venta</b> (solo la dueña): en <b>Clientes → remitos</b> tocá la venta → <b>Anular</b>. Podés devolver la mercadería al stock en el mismo paso.</li>
-       <li><b>Reportes</b> muestra lo vendido en pesos, el ticket promedio, la ganancia estimada y las ventas por cliente y forma de pago.</li>
+       <li><b>Reportes</b> muestra cuánto vendiste, el ticket promedio, la ganancia estimada y las ventas por cliente y forma de pago.</li>
        <li>Los empleados ven el precio de venta, pero <b>no el de costo</b>, y no pueden cambiar precios.</li>
        <li>El comprobante dice <b>«Documento no válido como factura»</b>: no reemplaza a la factura de AFIP/ARCA.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic owner-only" id="m-costos">
+      <summary><h3>Costos, ganancia general y precio de venta</h3><span>Cargar todos los costos de una vez y que el precio de venta se calcule solo.</span></summary>
+      <ol class="manual-steps">
+       <li><b>Elegí la moneda:</b> en <b>Cuenta y nube → Precios y ventas</b>, en <b>Moneda de los precios</b>, elegí <b>Dólares (US$)</b> o <b>Pesos ($)</b>. Solo cambia cómo se muestran: no convierte los importes ya cargados.</li>
+       <li><b>Importá los costos:</b> tocá <b>Importar costos</b> (en Precios y ventas o arriba del Inventario) y elegí el <b>archivo de tandas</b> (.json) o un <b>Excel / CSV</b> con una columna <b>CÓDIGO</b> y otra <b>COSTO</b> (también sirve <i>COSTO USD</i> o <i>PRECIO DE COSTO</i>).</li>
+       <li><b>Revisá la vista previa:</b> cada código del archivo aparece con el producto de tu inventario que va a recibir el costo. Si un código no está igual pero se parece (ej. <code>4012</code> y <code>YT-4012</code>), aparece como <b>parecido</b>: marcalo solo si es el mismo producto.</li>
+       <li>Elegí si los costos son <b>por docena</b> o <b>por unidad</b>, y si un código está en varias tandas, si usás <b>el de la tanda más nueva</b> o <b>el promedio</b>. Tocá <b>Cargar costos</b>.</li>
+       <li><b>Poné la ganancia general:</b> en <b>Ganancia general sobre el costo</b> escribí el porcentaje (ej. <code>40</code>) y tocá <b>Aplicar</b>. El precio de venta de todos los productos con costo pasa a ser <b>costo + 40 %</b> (costo US$ 50 → venta US$ 70).</li>
+      </ol>
+      <ul class="manual-list">
+       <li><b>Un producto más caro o más barato:</b> en <b>Inventario</b> tocá el producto y escribí su <b>Precio de venta</b>. Queda como <b>precio a mano</b> y no cambia aunque cambies la ganancia general. Para que vuelva a seguir la ganancia, tocá <b>Usar el automático</b>.</li>
+       <li>Si cambiás la ganancia general, la app pregunta si los precios a mano quedan como están o también cambian.</li>
+       <li>Cuando importás costos nuevos, el precio de venta se recalcula solo (menos en los precios a mano).</li>
+       <li>La importación queda como un solo registro en el Historial y se puede <b>Deshacer</b> enseguida.</li>
+       <li>Los costos los ve y los carga solo la dueña. Los empleados ven el precio de venta.</li>
+      </ul>
+      <h4 class="manual-sub">Cobrar en pesos con el dólar blue</h4>
+      <ol class="manual-steps">
+       <li>Con la moneda en <b>Dólares (US$)</b>, encendé <b>Cobrar en pesos con el dólar blue</b>. La app consulta el <b>dólar blue (venta)</b> en internet al abrirse y cada 30 minutos (o cuando tocás <b>Actualizar</b>).</li>
+       <li>El precio en pesos es <b>precio en dólares × dólar blue</b>, redondeado como elijas (por ejemplo a $ 100). En el Inventario ves los dos: <i>US$ 92,45 · $ 144.700 c/docena</i>.</li>
+       <li><b>Vender escaneando:</b> en Escanear elegí <b>Salida</b> con <b>Es una venta</b> encendido. Cada lectura suma su precio en pesos y ves el <b>total en pesos y en dólares</b> mientras escaneás.</li>
+       <li>Al <b>terminar la venta</b> podés cambiar cualquier precio en pesos ahí mismo. Si marcás <b>Guardar los precios nuevos</b>, ese producto queda con ese <b>precio fijo en pesos</b> para la próxima.</li>
+      </ol>
+      <ul class="manual-list">
+       <li><b>Precio en pesos que no te gusta cómo cerró:</b> en <b>Inventario</b> tocá el producto y escribí el <b>Precio de venta en pesos</b>. Queda <b>fijo</b> y no cambia con el dólar. Borralo para volver al cálculo.</li>
+       <li>Si no hay internet se usa la última cotización guardada. También podés escribir una <b>cotización fija</b>: se usa esa en lugar del blue hasta que la borres.</li>
+       <li>Cada venta guarda la cotización con la que se cobró. Los <b>Reportes</b> muestran todo en pesos.</li>
       </ul>
      </details>
 
@@ -638,6 +668,25 @@
        <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="cash"></i></span><div><h3>Precios y ventas</h3><p>Opcional · para todo el equipo</p></div></div></div>
        <label class="switch"><input type="checkbox" id="pricesOn"><span class="track"></span><span>Usar precios, ventas y compras</span></label>
        <p class="hint" id="pricesHint" style="margin-top:10px"></p>
+       <div class="pricing-box price-only owner-only">
+        <div class="form-grid">
+         <div class="field"><label for="setCurrency">Moneda de los precios</label><select id="setCurrency" class="input"><option value="ARS">Pesos ($)</option><option value="USD">Dólares (US$)</option></select></div>
+         <div class="field"><label for="setMargin">Ganancia general sobre el costo (%)</label><div class="input-group"><input id="setMargin" class="input" type="number" min="0" max="1000" step="any" inputmode="decimal" placeholder="Ej.: 40"><button type="button" class="btn" id="setMarginBtn">Aplicar</button></div></div>
+        </div>
+        <p class="hint" id="marginHint"></p>
+        <div id="arsBox" class="ars-box" hidden>
+         <label class="switch"><input type="checkbox" id="arsOn"><span class="track"></span><span>Cobrar en pesos con el dólar blue</span></label>
+         <div id="arsDetails" class="stack-sm">
+          <div class="fx-row"><p class="hint" id="fxStatus"></p><button type="button" class="btn btn-sm" id="fxRefresh" title="Consultar el dólar blue ahora"><i data-i="refresh" class="sm"></i><span>Actualizar</span></button></div>
+          <div class="form-grid">
+           <div class="field"><label for="arsRound">Redondear los precios en pesos</label><select id="arsRound" class="input"><option value="0">Sin redondear</option><option value="10">A $ 10</option><option value="100">A $ 100</option><option value="500">A $ 500</option><option value="1000">A $ 1.000</option></select></div>
+           <div class="field"><label for="fxFixed">Cotización fija (opcional)</label><input id="fxFixed" class="input money" inputmode="decimal" placeholder="Vacío = usar el blue" autocomplete="off"></div>
+          </div>
+          <p class="hint">Los precios y costos quedan en dólares. En cada venta se cobra en pesos y queda guardada la cotización que se usó.</p>
+         </div>
+        </div>
+        <button type="button" class="btn btn-ghost" data-cost-import><i data-i="upload"></i>Importar costos (archivo de tandas o Excel)</button>
+       </div>
       </div>
       <a class="admin-link" href="admin.html"><i data-i="shield" class="sm"></i>Panel de administración</a>
      </div>
@@ -691,6 +740,7 @@
    <div class="field"><label for="eStockType">Tipo de stock</label><select id="eStockType" class="input" data-options="stockTypes"></select></div>
    <div class="field price-only"><label for="ePrice">Precio de venta</label><input id="ePrice" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
    <div class="field price-only owner-only"><label for="eCost">Precio de costo</label><input id="eCost" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
+   <div class="field price-only owner-only span-2" id="ePriceArsField" hidden><label for="ePriceArs">Precio de venta en pesos (opcional, fijo)</label><input id="ePriceArs" class="input money" inputmode="decimal" placeholder="Según el dólar" autocomplete="off"></div>
    <div class="field price-only" id="ePerField"><label for="ePer">Los precios son</label><select id="ePer" class="input"><option value="unit">Por unidad</option><option value="dozen">Por docena</option></select></div>
    <p class="hint price-only span-2" id="eMargin"></p>
   </div>
@@ -715,6 +765,14 @@
    <div class="field span-2"><label for="nMin">Stock mínimo (opcional)</label><input id="nMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>
   </div>
   <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary"><i data-i="check"></i>Guardar y registrar</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal modal-lg" id="costDialog">
+ <form class="modal-inner" id="costForm" novalidate>
+  <div class="modal-head"><div><h3>Importar costos</h3><p class="muted" id="costSub">Archivo de tandas (.json) o Excel / CSV con código y costo.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack" id="costBody"></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="costSave" disabled><i data-i="check"></i><span>Cargar costos</span></button></div>
  </form>
 </dialog>
 
