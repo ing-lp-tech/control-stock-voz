@@ -297,6 +297,14 @@ function sessionMoney() {
   return { total: round2(total), cur, usd: rate ? round2(total / rate) : null, missing: missing.size, kind: k };
 }
 
+// Productos que se cargan y se ven en docenas (la cuenta interna sigue en unidades).
+const isDozenItem = i => i?.unitName === 'unidades' && i.displayUnit === 'dozen';
+const stockWords = (i, units) => (isDozenItem(i) ? `${fmt(units / 12)} docenas` : `${fmt(units)} ${S.unitLabel(i.unitName)}`);
+// Cuánto se movió en la sesión: en docenas si hay productos en docenas.
+function sessionQty(live) {
+  const units = live.reduce((s, f) => s + f.amount, 0), dz = live.some(f => f.dz), value = dz ? units / 12 : units;
+  return { units, value, label: dz ? (value === 1 ? 'docena' : 'docenas') : (value === 1 ? 'unidad' : 'unidades'), short: dz ? 'doc.' : 'u.' };
+}
 const sessionMoneyText = sm => `${moneyIn(sm.total, sm.cur)}${sm.usd ? ` · ${moneyIn(sm.usd, 'USD')}` : ''}`;
 
 // opts.time: mostrar la hora (en listas agrupadas por día) en lugar de "hace 5 min".
@@ -838,7 +846,7 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
   }
   const item = resolved?.item || null;
   const pack = resolved?.pack ? S.PACKS[resolved.pack] : null;
-  let r;
+  let r, scanUnit = null;
   if (!item) {
     if (op === 'restar') return scanFail(code, `${code} no existe en el inventario; no se descontó nada.`);
     if (prefs.scanUnknown === 'reject') return scanFail(code, `${code} no está en el inventario.`);
@@ -849,10 +857,12 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
       focusScan();
       if (!data) return scanFail(code, 'Lectura cancelada.');
     }
+    scanUnit = data.unit;
     r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta`, contact: sessionContact() });
   } else {
-    // Cada lectura cuenta en la unidad base (1 = una prenda aunque el producto se muestre en docenas).
-    let unit = item.unitName === 'unidades' ? (opts.unit === 'dozen' ? 'dozen' : 'unit') : S.inputUnitFor(item), amount = qty, note = source;
+    // Cada lectura mueve la cantidad en la unidad en que se carga el producto: si está en docenas, 1 = una docena.
+    // A mano se puede elegir docenas o unidades.
+    let unit = item.unitName !== 'unidades' ? S.inputUnitFor(item) : opts.unit ? (opts.unit === 'dozen' ? 'dozen' : 'unit') : (isDozenItem(item) ? 'dozen' : 'unit'), amount = qty, note = source;
     if (pack) {
       // Etiqueta numerada: mueve exactamente una docena o una unidad, y no se puede registrar dos veces por error.
       amount = 1;
@@ -874,6 +884,7 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
       }
     }
     const operation = op === 'establecer' && session.counted.has(item.id) ? 'sumar' : op;
+    scanUnit = unit;
     r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact() });
   }
   if (!r.ok) return scanFail(code, r.error);
@@ -883,18 +894,18 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
   session.units += r.amount;
   session.products.add(r.item.id);
   const serialTag = pack ? `${pack.label} N.º ${String(resolved.number).padStart(4, '0')}` : '';
-  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), at: new Date().toISOString(), undone: false });
+  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), dz: isDozenItem(r.item), at: new Date().toISOString(), undone: false });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
   // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
-  // Cargado a mano en docenas: "−2 docenas (24 unidades)".
-  const dz = !pack && opts.unit === 'dozen' && r.item.unitName === 'unidades' && op !== 'establecer';
-  const moved = op === 'establecer' ? `= ${unitWords(r.after, S.unitLabel(r.item.unitName))}`
+  // Producto en docenas (leído o cargado a mano): "−2 docenas (24 unidades)".
+  const dz = !pack && scanUnit === 'dozen' && r.item.unitName === 'unidades' && op !== 'establecer';
+  const moved = op === 'establecer' ? `= ${isDozenItem(r.item) ? unitWords(r.after / 12, 'docenas') : unitWords(r.after, S.unitLabel(r.item.unitName))}`
     : resolved?.pack === 'D' ? `${sign}1 docena` : dz ? `${sign}${unitWords(r.amount / 12, 'docenas')}` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
   const movedSub = (resolved?.pack === 'D' || dz) && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
   const sk = saleKind(), pr = sk && salePrice(r.item, sk);
   const priceInfo = !sk ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
-  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${fmt(r.after)} ${esc(S.unitLabel(r.item.unitName))}${priceInfo}</div></div></div>`);
+  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${esc(stockWords(r.item, r.after))}${priceInfo}</div></div></div>`);
   renderScanSession();
   focusScan();
   return true;
@@ -961,7 +972,9 @@ async function maAdd() {
 function renderScanSession() {
   renderKiosk();
   byId('ssReads').textContent = fmt(session.reads);
-  byId('ssUnits').textContent = fmt(session.units);
+  const sq = sessionQty(liveFeed());
+  byId('ssUnits').textContent = fmt(sq.value);
+  byId('ssUnits').nextElementSibling.textContent = sq.label;
   byId('ssProducts').textContent = fmt(session.products.size);
   const sm = sessionMoney(), sk = saleKind();
   byId('ssMoneyBox').hidden = !sm;
@@ -970,7 +983,7 @@ function renderScanSession() {
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
-        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${lineMoney(f)}</div></div>
+        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : f.dz ? (f.op === 'establecer' ? unitWords(f.after / 12, 'docenas') : `${unitWords(f.amount / 12, 'docenas')} (${unitWords(f.amount, 'unidades')})`) : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${f.dz ? `${fmt(f.before / 12)} → ${fmt(f.after / 12)} docenas` : `${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)}`} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${lineMoney(f)}</div></div>
         ${f.undone ? '<span class="badge">Revertido</span>' : `<button class="btn btn-ghost btn-sm" type="button" data-revert="${f.id}">${icon('undo', 'sm')}Revertir</button>`}</div>`).join('')
     : emptyState('scan', 'Sin lecturas todavía', 'Escaneá un código con la pistola o la cámara para empezar.');
 }
@@ -2289,9 +2302,10 @@ function enterKiosk() {
 }
 // Contadores del mostrador y botón "Terminar" (se comparten con Escanear).
 function renderKiosk() {
-  const live = liveFeed(), units = live.reduce((s, f) => s + f.amount, 0), m = scanMode();
+  const live = liveFeed(), sq = sessionQty(live), m = scanMode();
   byId('kCount').textContent = fmt(live.length);
-  byId('kUnits').textContent = fmt(units);
+  byId('kUnits').textContent = fmt(sq.value);
+  byId('kUnits').nextElementSibling.textContent = sq.label;
   byId('kUndo').disabled = !live.length;
   const verb = `Terminar ${m.name}`;
   byId('kRemito').disabled = byId('scanRemito').disabled = !live.length;
@@ -2299,7 +2313,7 @@ function renderKiosk() {
   const sm = sessionMoney();
   byId('kMoneyBox').hidden = !sm;
   if (sm) byId('kMoney').textContent = sessionMoneyText(sm);
-  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${sm ? moneyIn(sm.total, sm.cur) : `${fmt(units)} u.`})` : verb;
+  byId('scanFinishLabel').textContent = live.length ? `${verb} (${fmt(live.length)} lectura${live.length === 1 ? '' : 's'} · ${sm ? moneyIn(sm.total, sm.cur) : `${fmt(sq.value)} ${sq.short}`})` : verb;
   byId('scanRemito').className = `btn btn-lg btn-block finish-btn ${m.tone}`;
   byId('kRemito').className = `btn btn-lg finish-btn ${m.tone}`;
 }

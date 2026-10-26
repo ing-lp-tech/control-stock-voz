@@ -239,7 +239,7 @@
       <div class="field"><label for="taskScan">Tarea</label><select id="taskScan" class="input task-select" data-options="stockTypes"></select></div>
       <div class="field"><label for="scanQty">Cantidad por lectura</label>
        <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="scanQty" type="number" inputmode="decimal" min="0.01" step="any" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
-       <p class="hint">1 = una prenda. Las etiquetas numeradas mueven siempre lo suyo: una de docena = 12, una de unidad = 1.</p>
+       <p class="hint">Se cuenta en la unidad de cada producto: 1 = una docena si el producto está en docenas, o una prenda si está en unidades. Las etiquetas numeradas mueven siempre lo suyo: una de docena = 12, una de unidad = 1.</p>
       </div>
       <div class="field"><label for="scanUnknown">Si el código no existe</label>
        <select id="scanUnknown" class="input"><option value="ask">Pedir los datos del producto</option><option value="quick">Crearlo solo con el código</option><option value="reject">Rechazar la lectura</option></select>
@@ -459,7 +459,7 @@
         <ul>
          <li>Etiqueta de <b>docena</b> (ej. 1015D0003): resta 12 unidades.</li>
          <li>Etiqueta de <b>unidad</b> (ej. 1015U0012): resta 1.</li>
-         <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1).</li>
+         <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1) en la unidad del producto: <b>1 docena</b> si está cargado en docenas, o 1 prenda si está en unidades.</li>
         </ul></li>
        <li><b>¿Sin pistola?</b> En <b>Cargá a mano</b> (debajo del campo de la pistola) buscá el producto por código, marca o prenda, elegilo de la lista, poné la cantidad en <b>docenas</b> o <b>unidades</b> y tocá <b>Agregar</b>. Se suma a la misma salida o venta, con su precio.</li>
        <li><b>Paso 4 · Tocá «Terminar salida».</b> Ves el resumen y elegís: <b>Enviar remito por WhatsApp</b>, <b>Descargar PDF</b> o <b>Terminar sin remito</b>. La lista queda vacía para la próxima salida.</li>
