@@ -1020,3 +1020,19 @@ body:not(.prices-on) .price-only { display: none !important; }
 .ma-opt small { width: 100%; color: var(--muted); font-size: 12px; }
 .manual-add .hint { margin: 8px 0 0; }
 @media (max-width: 480px) { .manual-add-row { grid-template-columns: 1fr 1fr; } .manual-add-row .ma-add { grid-column: 1 / -1; } }
+
+/* Venta: precio solo para esta venta en la lista */
+.feed-price-btn { margin-left: 6px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; cursor: pointer; }
+.feed-price-btn .i { width: 13px; height: 13px; }
+.feed-price-edit { display: inline-flex; align-items: center; gap: 6px; }
+.feed-price-edit .input { width: 130px; height: 32px; padding: 4px 10px; font-size: 14px; }
+.feed-money { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-size: 13.5px; }
+.feed-money small { color: var(--muted); }
+.mini-stats:has(.money-stat:not([hidden])) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mini-stats .money-stat { grid-column: 1 / -1; }
+.mini-stats .money-stat strong { font-size: 20px; white-space: normal; }
+.scan-result.reverted .big { color: var(--muted); }
+.scan-result.reverted .big .i { width: 26px; height: 26px; }
+/* Celular: el botón de terminar y la lista de la venta no se cortan */
+.finish-btn { white-space: normal; height: auto; padding-block: 12px; line-height: 1.25; text-align: center; }
+@media (max-width: 640px) { .feed-item .tl-title, .feed-item .tl-sub { white-space: normal; overflow: visible; } .finish-btn { font-size: 15px; } }

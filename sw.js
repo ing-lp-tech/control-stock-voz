@@ -1,6 +1,6 @@
 // Service worker de StockVoz: la app abre sin internet después de la primera visita.
 // Al publicar cambios, subí VERSION para que los usuarios reciban la actualización.
-const VERSION = 'stockvoz-v6.5.3';
+const VERSION = 'stockvoz-v6.5.4';
 const CORE = [
   './', './index.html', './admin.html', './manifest.webmanifest', './css/styles.css',
   './js/app.js', './js/admin.js', './js/config.js', './js/utils.js', './js/store.js', './js/cloud.js',

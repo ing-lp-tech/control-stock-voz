@@ -289,7 +289,7 @@ function sessionMoney() {
   let total = 0;
   const missing = new Set(), cur = saleCur(k);
   for (const f of liveFeed()) {
-    const p = salePrice(S.findById(f.itemId), k);
+    const p = linePrice(f, k);
     if (p) total += S.lineAmount(f.amount, p.price, p.per); else missing.add(f.sku);
   }
   // Con cobro en pesos se muestra también cuánto es en dólares (igual que al cerrar la venta).
@@ -709,8 +709,19 @@ function speakForm() {
 // =========================================================
 // Escáner
 // =========================================================
-const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), feed: [], contactName: '' };
+// prices: precio de un producto solo para esta venta (itemId → precio, en la moneda y unidad de precio del producto).
+const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), prices: new Map(), feed: [], contactName: '' };
 let lastScan = { code: '', at: 0 };
+// Venta como carrito: lo escaneado se reserva y el stock se descuenta recién al confirmar la venta.
+const cartMode = () => prefs.scanOp === 'restar' && saleKind() === 'venta';
+const cartPending = () => liveFeed().filter(f => f.pending);
+// Precio de una lectura: el cambiado para esta venta o el del producto.
+function linePrice(f, k = saleKind()) {
+  const it = S.findById(f.itemId), p = k && salePrice(it, k);
+  if (k === 'venta' && session.prices.has(f.itemId)) return { price: session.prices.get(f.itemId), per: p?.per || S.pricePerOf(it), custom: true };
+  return p || null;
+}
+let feedPriceEdit = null;
 
 // Textos de cada modo de escaneo: el aviso de color, el botón de terminar y la lista.
 const SCAN_MODES = {
@@ -720,7 +731,7 @@ const SCAN_MODES = {
 };
 // Con precios activados, una salida puede ser una venta y una entrada una compra.
 const SALE_TEXT = {
-  venta: { banner: 'Cada código que escanees se <b>RESTA</b> del stock y <b>suma su precio</b> a la venta.', hint: 'Te muestra el total; podés poner descuento y forma de pago, y mandar el comprobante por WhatsApp.' },
+  venta: { banner: 'Cada código que escanees <b>se suma a la venta</b> con su precio. El stock se descuenta <b>recién cuando confirmás</b> la venta al terminar.', hint: 'Te muestra el total; podés cambiar precios, poner descuento y forma de pago. Al confirmar se descuenta del stock.' },
   compra: { banner: 'Cada código que escanees se <b>SUMA</b> al stock y registra su <b>costo</b>.', hint: 'Te muestra el total de la compra y podés guardar el remito de entrada.' },
 };
 const scanMode = () => { const base = SCAN_MODES[prefs.scanOp], k = saleKind(); return k ? { ...base, name: k, ...SALE_TEXT[k] } : base; };
@@ -750,7 +761,14 @@ function setScanOp(op) {
   updateContactLabels();
   renderScanSession();
 }
-function setSale(on) {
+async function setSale(on) {
+  // Apagar la venta con productos sin confirmar los descartaría: primero se pregunta.
+  if (!on && cartPending().length) {
+    const n = cartPending().length;
+    const ok = await ask({ title: 'Tenés una venta sin confirmar', message: `Hay ${n} lectura${n === 1 ? '' : 's'} en la venta (todavía no se descontó nada). Si la apagás, se descarta.`, confirm: 'Descartar la venta', cancel: 'Seguir con la venta', danger: true });
+    if (!ok) { byId('scanSale').checked = byId('kSale').checked = true; focusKioskOrScan(); return; }
+    resetSession();
+  }
   if (prefs.scanOp === 'restar') prefs.saleOut = on; else if (prefs.scanOp === 'sumar') prefs.buyIn = on;
   savePrefs();
   setScanOp(prefs.scanOp);
@@ -764,7 +782,9 @@ async function chooseScanOp(op) {
     const cur = scanMode().name, next = SCAN_MODES[op]?.name || '';
     const v = await ask({
       title: `Tenés una ${cur} sin terminar`,
-      message: `Hay ${pending} lectura${pending === 1 ? '' : 's'} de ${cur} (ya descontada${pending === 1 ? '' : 's'} del stock). Terminala para hacer el remito, o cambiá igual y empezá una lista nueva.`,
+      message: cartPending().length
+        ? `Hay ${pending} lectura${pending === 1 ? '' : 's'} en la ${cur} sin confirmar (todavía no se descontó nada). Terminala para confirmarla, o cambiá igual y se descarta.`
+        : `Hay ${pending} lectura${pending === 1 ? '' : 's'} de ${cur} (ya descontada${pending === 1 ? '' : 's'} del stock). Terminala para hacer el remito, o cambiá igual y empezá una lista nueva.`,
       choices: [{ label: `Terminar la ${cur}`, value: 'finish', primary: true }, { label: `Cambiar a ${next} igual`, value: 'switch' }],
       cancel: `Seguir con la ${cur}`,
     });
@@ -870,6 +890,7 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
       const label = `${pack.label.toLowerCase()} N.º ${String(resolved.number).padStart(4, '0')}`;
       note = `${source} · ${label}`;
       if (op === 'establecer' && session.serials.has(code)) return scanFail(code, `Esta ${label} ya se contó en esta sesión.`);
+      if (cartMode() && session.serials.has(code)) return scanFail(code, `Esta ${label} ya está en esta venta.`);
       const last = S.lastSerialEvent(code);
       const repeated = last && ((op === 'restar' && last.kind === 'out') || (op === 'sumar' && last.kind === 'in'));
       if (repeated) {
@@ -885,7 +906,14 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
     }
     const operation = op === 'establecer' && session.counted.has(item.id) ? 'sumar' : op;
     scanUnit = unit;
-    r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact() });
+    if (cartMode()) {
+      // Venta: se reserva sin tocar el stock. Se controla que alcance contando lo que ya está en la venta.
+      const units = round2(amount * S.inputUnit(unit).factor), reserved = cartPending().filter(f => f.itemId === item.id).reduce((s, f) => s + f.amount, 0);
+      const free = round2(item.units - reserved);
+      if (free < units) return scanFail(code, `Stock insuficiente de ${item.sku}: ${reserved ? `quedan ${stockWords(item, free)} (ya hay ${stockWords(item, reserved)} en esta venta)` : `hay ${stockWords(item, item.units)}`}.`);
+      r = { ok: true, item, before: free, after: round2(free - units), amount: units, entryId: null, created: false, pending: true, qty: amount, unitIn: unit, note };
+      if (pack) session.serials.add(code);
+    } else r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact() });
   }
   if (!r.ok) return scanFail(code, r.error);
 
@@ -894,7 +922,7 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
   session.units += r.amount;
   session.products.add(r.item.id);
   const serialTag = pack ? `${pack.label} N.º ${String(resolved.number).padStart(4, '0')}` : '';
-  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), dz: isDozenItem(r.item), at: new Date().toISOString(), undone: false });
+  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), dz: isDozenItem(r.item), at: new Date().toISOString(), undone: false, ...(r.pending ? { pending: true, qty: r.qty, unitIn: r.unitIn, note: r.note } : {}) });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
   // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
@@ -903,9 +931,9 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
   const moved = op === 'establecer' ? `= ${isDozenItem(r.item) ? unitWords(r.after / 12, 'docenas') : unitWords(r.after, S.unitLabel(r.item.unitName))}`
     : resolved?.pack === 'D' ? `${sign}1 docena` : dz ? `${sign}${unitWords(r.amount / 12, 'docenas')}` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
   const movedSub = (resolved?.pack === 'D' || dz) && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
-  const sk = saleKind(), pr = sk && salePrice(r.item, sk);
+  const sk = saleKind(), pr = sk && linePrice({ itemId: r.item.id }, sk);
   const priceInfo = !sk ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
-  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${esc(stockWords(r.item, r.after))}${priceInfo}</div></div></div>`);
+  scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${r.pending ? 'En la venta' : op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${esc(stockWords(r.item, r.after))}${r.pending ? ' al confirmar' : ''}${priceInfo}</div></div></div>`);
   renderScanSession();
   focusScan();
   return true;
@@ -975,15 +1003,22 @@ function renderScanSession() {
   const sq = sessionQty(liveFeed());
   byId('ssUnits').textContent = fmt(sq.value);
   byId('ssUnits').nextElementSibling.textContent = sq.label;
-  byId('ssProducts').textContent = fmt(session.products.size);
+  byId('ssProducts').textContent = fmt(new Set(liveFeed().map(f => f.itemId)).size); // sin contar lo revertido
   const sm = sessionMoney(), sk = saleKind();
   byId('ssMoneyBox').hidden = !sm;
   if (sm) byId('ssMoney').textContent = sessionMoneyText(sm);
-  const lineMoney = f => { if (!sk || f.undone) return ''; const pr = salePrice(S.findById(f.itemId), sk); return pr ? ` · ${moneyIn(S.lineAmount(f.amount, pr.price, pr.per), saleCur(sk))}` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`; };
+  // En una venta cada producto tiene "Cambiar precio": vale solo para esta venta.
+  const lineMoney = f => {
+    if (!sk || f.undone) return '';
+    const pr = linePrice(f, sk), cur = saleCur(sk), per = pr?.per || S.pricePerOf(S.findById(f.itemId));
+    if (sk === 'venta' && feedPriceEdit === f.itemId) return `<div class="feed-money"><span class="feed-price-edit"><input class="input money feed-price" data-feed-price="${esc(f.itemId)}" inputmode="decimal" value="${pr ? fmt(pr.price) : ''}" placeholder="${cur === 'USD' ? 'US$' : '$'} 0" aria-label="Precio de ${esc(f.sku)} para esta venta"> <small>${S.PRICE_PER[per]} · Enter para guardar</small></span></div>`;
+    const amount = pr ? `<b>${moneyIn(S.lineAmount(f.amount, pr.price, pr.per), cur)}</b>` : `<span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`;
+    return `<div class="feed-money">${amount}${pr ? ` <small>(${moneyIn(pr.price, cur)} ${S.PRICE_PER[per]})</small>` : ''}${pr?.custom ? ' <span class="badge badge-warn">precio solo de esta venta</span>' : ''}${sk === 'venta' ? ` <button type="button" class="link feed-price-btn" data-price-edit="${esc(f.itemId)}">${icon('edit', 'sm')}Cambiar precio</button>` : ''}</div>`;
+  };
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
         <span class="tl-icon">${icon(f.op === 'restar' ? 'arrow-out' : f.op === 'establecer' ? 'equal' : 'arrow-in')}</span>
-        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : f.dz ? (f.op === 'establecer' ? unitWords(f.after / 12, 'docenas') : `${unitWords(f.amount / 12, 'docenas')} (${unitWords(f.amount, 'unidades')})`) : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${f.dz ? `${fmt(f.before / 12)} → ${fmt(f.after / 12)} docenas` : `${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)}`} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${lineMoney(f)}</div></div>
+        <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(f.sku)}</strong> <span>${esc(f.name)}</span></div><div class="tl-sub"><b>${f.op === 'restar' ? '−' : f.op === 'establecer' ? '=' : '+'}${S.serialInfo(f.serial)?.pack === 'D' ? `1 docena (${unitWords(f.amount, 'unidades')})` : f.dz ? (f.op === 'establecer' ? unitWords(f.after / 12, 'docenas') : `${unitWords(f.amount / 12, 'docenas')} (${unitWords(f.amount, 'unidades')})`) : unitWords(f.op === 'establecer' ? f.after : f.amount, f.unit)}</b> · stock ${f.dz ? `${fmt(f.before / 12)} → ${fmt(f.after / 12)} docenas` : `${fmt(f.before)} → ${fmt(f.after)} ${esc(f.unit)}`}${f.pending ? ' al confirmar' : ''} · ${new Date(f.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>${lineMoney(f)}</div>
         ${f.undone ? '<span class="badge">Revertido</span>' : `<button class="btn btn-ghost btn-sm" type="button" data-revert="${f.id}">${icon('undo', 'sm')}Revertir</button>`}</div>`).join('')
     : emptyState('scan', 'Sin lecturas todavía', 'Escaneá un código con la pistola o la cámara para empezar.');
 }
@@ -992,7 +1027,8 @@ function revertScan(id) {
   const f = session.feed.find(x => String(x.id) === String(id));
   if (!f || f.undone) return;
   // Revertir una lectura de esta sesión es anularla (queda registrado quién y por qué). Lo puede hacer quien la hizo.
-  const r = f.entryId
+  // Si todavía estaba solo en la venta (sin confirmar), se saca de la lista: el stock no se había tocado.
+  const r = f.pending ? { ok: true } : f.entryId
     ? S.fixMovement(f.entryId, { remove: true, reason: 'Lectura revertida desde la sesión de escaneo' })
     : { ok: false, error: 'No se encontró la lectura en el historial.' };
   if (!r.ok) return toast(r.error, 'error');
@@ -1001,6 +1037,12 @@ function revertScan(id) {
   session.reads = Math.max(0, session.reads - 1);
   session.units = Math.max(0, session.units - f.amount);
   renderScanSession();
+  // El recuadro de la última lectura ya no puede mostrarla como registrada.
+  const html = `<div class="scan-result reverted"><span class="big">${icon('undo', 'lg')}</span><div><strong class="mono">${esc(f.sku)}</strong><div class="small">Lectura revertida: ${f.pending ? 'se sacó de la venta' : 'se devolvió al stock'}. ${liveFeed().length ? `Quedan ${liveFeed().length} en la lista.` : 'La lista quedó vacía.'}</div></div></div>`;
+  byId('scanLast').innerHTML = html;
+  const k = byId('kResult');
+  k.className = 'kiosk-result';
+  k.innerHTML = html;
   toast(`Lectura de ${f.sku} revertida`, 'info');
 }
 
@@ -2077,6 +2119,7 @@ function linesFromMoves(moves) {
     const it = S.findByCode(m.sku);
     const l = map.get(m.sku) || { sku: m.sku, name: it ? productName(it) : '', units: 0, serials: [], stock: it?.unitName || 'unidades' };
     l.units += num(m.units);
+    if (m.price != null) l.price = m.price; // precio cambiado solo para esta venta
     if (m.serial) l.serials.push(m.serial);
     map.set(m.sku, l);
   }
@@ -2084,14 +2127,15 @@ function linesFromMoves(moves) {
     const dozens = l.stock === 'unidades' && l.units >= 12 && l.units % 12 === 0;
     const qty = dozens ? l.units / 12 : l.units;
     const unit = dozens ? (qty === 1 ? 'docena' : 'docenas') : l.stock === 'unidades' ? (qty === 1 ? 'unidad' : 'unidades') : S.unitLabel(l.stock);
-    return { sku: l.sku, name: l.name, serials: l.serials, units: l.units, qty, unit };
+    return { sku: l.sku, name: l.name, serials: l.serials, units: l.units, qty, unit, ...(l.price != null ? { price: l.price } : {}) };
   });
 }
-const feedMoves = op => session.feed.filter(f => !f.undone && f.op === op && f.entryId).map(f => ({ sku: f.sku, units: f.amount, serial: f.serial, entryId: f.entryId }));
+const feedMoves = op => session.feed.filter(f => !f.undone && f.op === op && (f.entryId || f.pending)).map(f => ({ sku: f.sku, units: f.amount, serial: f.serial, entryId: f.entryId, price: session.prices.get(f.itemId) }));
 const liveFeed = () => session.feed.filter(f => !f.undone);
 
 function resetSession() {
-  Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), feed: [] });
+  Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), prices: new Map(), feed: [] });
+  feedPriceEdit = null;
   setSessionContact('');
   byId('scanLast').innerHTML = '';
   const k = byId('kResult');
@@ -2131,8 +2175,10 @@ function openRemito({ kind, moves, contactName = '', finish = null, priced = nul
   // Cada línea arranca con el precio guardado del producto; se puede cambiar solo para este comprobante.
   // Venta con cobro en pesos: cada línea arranca con el precio en pesos (fijo o dólares × blue) y se puede corregir.
   const cur = saleCur(pk), fx = cur !== S.currency() ? S.fxNow() : null;
-  const lines = linesFromMoves(moves).map(l => { const it = S.findByCode(l.sku), p = salePrice(it, pk); return { ...l, per: p?.per || S.pricePerOf(it), price: p?.price ?? null, stored: p?.price ?? null }; });
-  pendingRemito = { kind, pk, cur, fx, lines, entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish, discount: 0, payment: '',
+  const lines = linesFromMoves(moves).map(l => { const it = S.findByCode(l.sku), p = salePrice(it, pk); return { ...l, per: p?.per || S.pricePerOf(it), price: l.price ?? p?.price ?? null, stored: p?.price ?? null }; });
+  // Venta sin confirmar: el stock se descuenta al guardar o enviar el comprobante.
+  const cart = finish && kind === 'salida' && cartPending().length > 0;
+  pendingRemito = { kind, pk, cur, fx, lines, cart, entryIds: moves.map(m => m.entryId).filter(Boolean), created: null, finish, discount: 0, payment: '',
     priced: S.pricesOn() && (priced ?? (kind === 'entrada' ? prefs.buyIn : prefs.saleOut)) };
   byId('rmTitle').textContent = finish ? `Terminar ${finish.name}` : kind === 'entrada' ? 'Remito de entrada' : 'Remito de salida';
   byId('rmSub').textContent = `Comprobante ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${new Date().toLocaleDateString('es-AR')}`;
@@ -2148,7 +2194,7 @@ function openRemito({ kind, moves, contactName = '', finish = null, priced = nul
 function renderRemitoLines() {
   const r = pendingRemito, priced = r.priced && S.pricesOn(), units = r.lines.reduce((s, l) => s + l.units, 0);
   byId('rmFinish').hidden = !r.finish && !priced;
-  byId('rmFinish').innerHTML = `${icon('check')}${priced ? `Guardar ${r.pk} sin enviar` : 'Terminar sin remito'}`;
+  byId('rmFinish').innerHTML = `${icon('check')}${r.cart ? `Confirmar ${r.pk} sin enviar` : priced ? `Guardar ${r.pk} sin enviar` : 'Terminar sin remito'}`;
   const serialNote = l => (l.serials.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : '');
   byId('rmLines').innerHTML = priced
     ? `<div class="table-wrap"><table class="table rm-priced"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>
@@ -2166,7 +2212,7 @@ function renderRemitoLines() {
         <div class="rm-total"><span id="rmSubRow"></span><strong id="rmTotal"></strong></div>
       </div>
       <div id="rmPriceWarn"></div>
-      <label class="switch" id="rmSavePricesWrap" hidden><input type="checkbox" id="rmSavePrices" checked><span class="track"></span><span>${r.cur !== S.currency() ? 'Guardar los precios nuevos como precio fijo en pesos de cada producto (para la próxima)' : 'Guardar los precios nuevos en los productos (para la próxima)'}</span></label>`
+      <label class="switch" id="rmSavePricesWrap" hidden><input type="checkbox" id="rmSavePrices"><span class="track"></span><span>${r.cur !== S.currency() ? 'Guardar los precios cambiados como precio fijo en pesos del producto (si no, valen solo para esta venta)' : 'Guardar los precios cambiados en los productos (si no, valen solo para esta venta)'}</span></label>`
     : '';
   updateRemitoTotals();
 }
@@ -2194,11 +2240,35 @@ function updateRemitoTotals() {
   byId('rmTotal').textContent = m(total);
   byId('rmPriceWarn').innerHTML = missing ? `<div class="notice warn">${icon('alert')}<span>${missing === 1 ? 'Un producto no tiene' : `${missing} productos no tienen`} ${r.pk === 'compra' ? 'costo' : 'precio'}: escribilo en la tabla o se registra en $ 0.</span></div>` : '';
   byId('rmSavePricesWrap').hidden = !changed || !canManage();
-  byId('rmSummary').innerHTML = `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon('cash')}<span>${r.finish ? `${finishSummary(r.finish)} · ` : ''}<b>${cap(r.pk)} por ${m(total)}</b>${usd}. ${r.finish ? `El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}.` : ''}</span></div>`;
+  byId('rmSummary').innerHTML = `<div class="mode-banner ${r.kind === 'entrada' ? 'success' : 'danger'}">${icon('cash')}<span>${r.finish ? `${finishSummary(r.finish)} · ` : ''}<b>${cap(r.pk)} por ${m(total)}</b>${usd}. ${r.cart ? 'Todavía no se descontó nada: <b>al confirmar</b> (guardar o enviar) se descuenta del stock.' : r.finish ? `El stock ya está ${r.kind === 'entrada' ? 'sumado' : 'descontado'}.` : ''}</span></div>`;
+}
+// Confirma la venta: descuenta del stock todo lo reservado. Primero controla que alcance todo; si algo cambió
+// (por ejemplo otra persona vendió lo mismo), no descuenta nada y avisa.
+function commitCart(pr) {
+  const list = cartPending();
+  if (!list.length) return true;
+  const need = new Map();
+  for (const f of list) need.set(f.itemId, (need.get(f.itemId) || 0) + f.amount);
+  for (const [id, units] of need) {
+    const it = S.findById(id);
+    if (!it) { toast('Un producto de la venta ya no está en el inventario. Revertilo y volvé a confirmar.', 'error'); return false; }
+    if (it.units < units) { toast(`Stock insuficiente de ${it.sku}: hay ${stockWords(it, it.units)} y la venta lleva ${stockWords(it, units)}. Corregí la venta antes de confirmar.`, 'error'); return false; }
+  }
+  const contact = resolveContact(byId('rmContact').value, 'restar');
+  for (const f of [...list].reverse()) { // en el orden en que se escanearon
+    const it = S.findById(f.itemId);
+    const r = S.applyMovement({ sku: it.sku, qty: f.qty, unit: f.unitIn, stockType: prefs.task, operation: 'restar', source: f.note, keepDisplay: true, serial: f.serial || undefined, contact });
+    if (!r.ok) { toast(r.error, 'error'); return false; }
+    Object.assign(f, { pending: false, entryId: r.entryId, before: r.before, after: r.after });
+  }
+  pr.entryIds = feedMoves('restar').reverse().map(m => m.entryId).filter(Boolean);
+  pr.cart = false;
+  return true;
 }
 function ensureRemito() {
   if (pendingRemito.created) return pendingRemito.created;
   const pr = pendingRemito, op = pr.kind === 'entrada' ? 'sumar' : 'restar';
+  if (pr.cart && !commitCart(pr)) return null;
   // Venta/compra solo si hay precios activados y al menos un precio; si no, es un remito común.
   const sale = pr.priced && S.pricesOn() && pr.lines.some(l => l.price) ? { discount: pr.discount, payment: pr.payment } : null;
   const lines = pr.lines.map(({ stored, price, per, ...l }) => (sale ? { ...l, price, per } : l));
@@ -2217,6 +2287,7 @@ function finishWithoutSending() {
   const pr = pendingRemito;
   if (!pr) return;
   const sale = pr.priced && S.pricesOn();
+  if (!sale && pr.cart && !commitCart(pr)) return;
   const rem = sale ? ensureRemito() : pr.created;
   if (sale && !rem) return;
   if (pr.finish) endScanSession(rem);
@@ -2817,8 +2888,41 @@ function bindEvents() {
   byId('scanSale').onchange = e => setSale(e.target.checked);
   byId('kSale').onchange = e => setSale(e.target.checked);
   byId('scanCamera').onclick = () => openCamera({ continuous: true, onCode: c => handleScan(c, 'cámara') });
-  byId('scanNewSession').onclick = () => { resetSession(); toast('Lista vacía. Lo escaneado antes ya quedó guardado en el stock.', 'info'); focusScan(); };
+  byId('scanNewSession').onclick = async () => {
+    const n = cartPending().length;
+    if (n && !(await ask({ title: '¿Descartar la venta sin confirmar?', message: `Hay ${n} lectura${n === 1 ? '' : 's'} en la venta. Todavía no se descontó nada del stock.`, confirm: 'Descartar', danger: true }))) return;
+    resetSession();
+    toast(n ? 'Venta descartada: no se descontó nada.' : 'Lista vacía. Lo escaneado antes ya quedó guardado en el stock.', 'info');
+    focusScan();
+  };
+  // Una venta sin confirmar se pierde si se cierra la app: el navegador avisa antes.
+  addEventListener('beforeunload', e => { if (cartPending().length) { e.preventDefault(); e.returnValue = ''; } });
+  // Precio solo para esta venta
+  const savePriceEdit = el => {
+    const id = el.dataset.feedPrice, v = parseMoney(el.value), it = S.findById(id), base = salePrice(it, 'venta');
+    if (txt(el.value) && v == null) { toast('Escribí el precio como número, por ejemplo 120000 o 120.000.', 'error'); return; }
+    if (v == null || (base && v === base.price)) session.prices.delete(id); else session.prices.set(id, v);
+    feedPriceEdit = null;
+    renderScanSession();
+    if (v != null && base && v !== base.price) toast(`${it.sku}: ${moneyIn(v, saleCur('venta'))} ${S.PRICE_PER[base.per]} solo para esta venta`, 'info');
+  };
+  byId('scanFeed').addEventListener('keydown', e => {
+    const el = e.target.closest('[data-feed-price]');
+    if (!el) return;
+    if (e.key === 'Enter') { e.preventDefault(); savePriceEdit(el); }
+    if (e.key === 'Escape') { feedPriceEdit = null; renderScanSession(); }
+  });
+  byId('scanFeed').addEventListener('focusout', e => { const el = e.target.closest('[data-feed-price]'); if (el && feedPriceEdit) savePriceEdit(el); });
   byId('scanFeed').addEventListener('click', e => {
+    const pe = e.target.closest('[data-price-edit]');
+    if (pe) {
+      feedPriceEdit = pe.dataset.priceEdit;
+      renderScanSession();
+      const el = $(`[data-feed-price="${CSS.escape(feedPriceEdit)}"]`);
+      el?.focus(); el?.select();
+      return;
+    }
+    if (e.target.closest('[data-feed-price]')) return;
     const b = e.target.closest('[data-revert]');
     if (b) { revertScan(b.dataset.revert); return; }
     const row = e.target.closest('[data-move]');
