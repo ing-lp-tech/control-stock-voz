@@ -54,6 +54,7 @@
    <a class="topbar-logo" href="#/panel" aria-label="Inicio"><img src="icons/icon.svg" alt="" width="34" height="34"></a>
    <div class="topbar-title"><h1 id="viewTitle">Panel</h1><p id="viewSubtitle"></p></div>
    <div class="topbar-actions">
+    <button class="sync-chip fx-chip" id="fxChip" type="button" title="Cotización del dólar que usa la app · tocá para actualizarla" hidden></button>
     <button class="sync-chip" id="syncChip" type="button" title="Estado de la nube"></button>
     <button class="icon-btn" id="installBtn" type="button" title="Instalar la app" hidden><i data-i="download"></i></button>
     <button class="icon-btn hide-sm" id="undoBtn" type="button" title="Deshacer (Ctrl+Z)" disabled><i data-i="undo"></i></button>
@@ -506,8 +507,8 @@
       </ul>
       <h4 class="manual-sub">Cobrar en pesos con el dólar blue</h4>
       <ol class="manual-steps">
-       <li>Con la moneda en <b>Dólares (US$)</b>, encendé <b>Cobrar en pesos con el dólar blue</b>. La app consulta el <b>dólar blue (venta)</b> en internet al abrirse y cada 30 minutos (o cuando tocás <b>Actualizar</b>).</li>
-       <li>El precio en pesos es <b>precio en dólares × dólar blue</b>, redondeado como elijas (por ejemplo a $ 100). En el Inventario ves los dos: <i>US$ 92,45 · $ 144.700 c/docena</i>.</li>
+       <li>En <b>Moneda de los precios</b> elegí <b>Pesos con dólar blue (costos en US$)</b>. La app consulta el <b>dólar blue venta</b> (el valor más alto) en internet al abrirse y cada 30 minutos, o cuando tocás <b>Actualizar</b> o la cotización de arriba de todo.</li>
+       <li>El precio en pesos es <b>(costo en dólares + ganancia) × dólar blue venta</b>, redondeado como elijas (por ejemplo a $ 100). Ej.: costo US$ 72,26 + 50 % = US$ 108,39 × $ 1.565 = $ 169.600. En el Inventario ves los dos: <i>US$ 92,45 · $ 144.700 c/docena</i>.</li>
        <li><b>Vender escaneando:</b> en Escanear elegí <b>Salida</b> con <b>Es una venta</b> encendido. Cada lectura suma su precio en pesos y ves el <b>total en pesos y en dólares</b> mientras escaneás.</li>
        <li>Al <b>terminar la venta</b> podés cambiar cualquier precio en pesos ahí mismo. Si marcás <b>Guardar los precios nuevos</b>, ese producto queda con ese <b>precio fijo en pesos</b> para la próxima.</li>
       </ol>
@@ -670,19 +671,18 @@
        <p class="hint" id="pricesHint" style="margin-top:10px"></p>
        <div class="pricing-box price-only owner-only">
         <div class="form-grid">
-         <div class="field"><label for="setCurrency">Moneda de los precios</label><select id="setCurrency" class="input"><option value="ARS">Pesos ($)</option><option value="USD">Dólares (US$)</option></select></div>
+         <div class="field span-2"><label for="setCurrency">Moneda de los precios</label><select id="setCurrency" class="input"><option value="BLUE">Pesos con dólar blue (costos en US$)</option><option value="USD">Solo dólares (US$)</option><option value="ARS">Solo pesos (costos en $)</option></select></div>
          <div class="field"><label for="setMargin">Ganancia general sobre el costo (%)</label><div class="input-group"><input id="setMargin" class="input" type="number" min="0" max="1000" step="any" inputmode="decimal" placeholder="Ej.: 40"><button type="button" class="btn" id="setMarginBtn">Aplicar</button></div></div>
         </div>
         <p class="hint" id="marginHint"></p>
         <div id="arsBox" class="ars-box" hidden>
-         <label class="switch"><input type="checkbox" id="arsOn"><span class="track"></span><span>Cobrar en pesos con el dólar blue</span></label>
          <div id="arsDetails" class="stack-sm">
           <div class="fx-row"><p class="hint" id="fxStatus"></p><button type="button" class="btn btn-sm" id="fxRefresh" title="Consultar el dólar blue ahora"><i data-i="refresh" class="sm"></i><span>Actualizar</span></button></div>
           <div class="form-grid">
            <div class="field"><label for="arsRound">Redondear los precios en pesos</label><select id="arsRound" class="input"><option value="0">Sin redondear</option><option value="10">A $ 10</option><option value="100">A $ 100</option><option value="500">A $ 500</option><option value="1000">A $ 1.000</option></select></div>
            <div class="field"><label for="fxFixed">Cotización fija (opcional)</label><input id="fxFixed" class="input money" inputmode="decimal" placeholder="Vacío = usar el blue" autocomplete="off"></div>
           </div>
-          <p class="hint">Los precios y costos quedan en dólares. En cada venta se cobra en pesos y queda guardada la cotización que se usó.</p>
+          <p class="hint">Precio en pesos = (costo en dólares + ganancia) × dólar blue venta. Los costos quedan en dólares; en cada venta se cobra en pesos y queda guardada la cotización que se usó.</p>
          </div>
         </div>
         <button type="button" class="btn btn-ghost" data-cost-import><i data-i="upload"></i>Importar costos (archivo de tandas o Excel)</button>

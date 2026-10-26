@@ -1003,3 +1003,5 @@ body:not(.prices-on) .price-only { display: none !important; }
 .manual-sub { margin: 18px 0 8px; font-size: 15px; }
 .fx-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .fx-row .hint { margin: 0; }
+.fx-chip b { font-weight: 700; color: var(--text); }
+@media (max-width: 560px) { .fx-chip b { font-size: 12px; } }

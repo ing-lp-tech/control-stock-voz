@@ -201,8 +201,9 @@ function applyPricesUI() {
     : 'Apagado: la app funciona solo como control de stock. Encendelo si además querés registrar precios, ventas y compras.';
   if (!canManage()) byId('pricesHint').textContent += ' Solo el dueño de la cuenta puede cambiarlo.';
   setMoneyCurrency(S.currency());
-  byId('setCurrency').value = S.currency();
+  byId('setCurrency').value = priceMode();
   renderArsSettings();
+  renderFxChip();
   const m = S.marginPct(), withCost = state.items.filter(i => i.cost > 0).length, manual = S.manualPriceCount();
   if (document.activeElement !== byId('setMargin')) byId('setMargin').value = m ?? '';
   byId('marginHint').innerHTML = m == null
@@ -213,15 +214,21 @@ function applyPricesUI() {
 // Cobro en pesos: cotización del blue, redondeo y cotización fija.
 function renderArsSettings() {
   const usd = S.currency() === 'USD', on = S.chargeArs(), fx = S.fxNow(), live = S.fxLiveInfo();
-  byId('arsBox').hidden = !usd;
-  byId('arsOn').checked = on;
+  byId('arsBox').hidden = !usd || !on;
   byId('arsRound').value = String(S.arsRound());
   if (document.activeElement !== byId('fxFixed')) byId('fxFixed').value = S.fxFixed() ? fmt(S.fxFixed()) : '';
   byId('arsDetails').hidden = !on;
   const ex = S.marginPct() != null ? S.autoPrice({ cost: 100 }) : 100;
   byId('fxStatus').innerHTML = !fx
     ? `<span class="warn">Todavía no hay cotización. Revisá la conexión y tocá Actualizar, o escribí una cotización fija.</span>`
-    : `${S.fxFixed() ? 'Cotización fija' : 'Dólar blue (venta)'}: <b>${moneyIn(fx.rate, 'ARS')}</b>${!S.fxFixed() && live ? ` · ${esc(live.source)} · ${relTime(live.fetchedAt || live.at)}` : ''}${S.fxFixed() && live ? ` · el blue está a ${moneyIn(live.rate, 'ARS')}` : ''}<br>Ej.: ${moneyIn(ex, 'USD')} → <b>${moneyIn(S.roundArs(ex * fx.rate), 'ARS')}</b>`;
+    : `${S.fxFixed() ? 'Cotización fija' : 'Dólar blue (venta)'}: <b>${moneyIn(fx.rate, 'ARS')}</b>${!S.fxFixed() && live ? ` · ${esc(live.source)} · ${relTime(live.fetchedAt || live.at)}` : ''}${S.fxFixed() && live ? ` · el blue está a ${moneyIn(live.rate, 'ARS')}` : ''}<br>Ej.: ${S.marginPct() != null ? `costo ${moneyIn(100, 'USD')} + ${fmt(S.marginPct())} % = ` : ''}${moneyIn(ex, 'USD')} × ${moneyIn(fx.rate, 'ARS')} = <b>${moneyIn(S.roundArs(ex * fx.rate), 'ARS')}</b>${S.arsRound() ? ` (redondeado a ${moneyIn(S.arsRound(), 'ARS')})` : ''}`;
+}
+// Cotización a la vista: arriba de todo, cuando los precios están en dólares.
+function renderFxChip() {
+  const fx = S.fxNow(), chip = byId('fxChip');
+  chip.hidden = !S.pricesOn() || S.currency() !== 'USD' || !fx;
+  if (chip.hidden) return;
+  chip.innerHTML = `${icon('cash')}<b>${fx.fixed ? 'Dólar fijo' : 'Dólar blue'} ${moneyIn(fx.rate, 'ARS')}</b>`;
 }
 // Consulta el blue (al abrir, cada 30 minutos y con el botón). quiet: sin avisos si falla.
 let fxBusy = false;
@@ -258,13 +265,22 @@ async function applyMargin() {
   if (!r.ok) { toast(r.error, 'error'); return; }
   toast(m === null ? 'Ganancia general quitada: los precios quedan como están.' : `Ganancia ${fmt(m)} % aplicada: ${fmt(r.changed)} precio${r.changed === 1 ? '' : 's'} de venta actualizado${r.changed === 1 ? '' : 's'}.`, { action: () => { if (S.undo()) toast('Cambio deshecho', 'info'); } });
 }
-async function changeCurrency(c) {
-  if (!ownerOnly('cambiar la moneda')) { byId('setCurrency').value = S.currency(); return; }
-  if (c === S.currency()) return;
+// Moneda de los precios: BLUE = costos y precios en dólares y se cobra en pesos con el dólar blue (venta);
+// USD = todo en dólares; ARS = todo en pesos.
+const priceMode = () => (S.chargeArs() ? 'BLUE' : S.currency());
+const PRICE_MODES = { BLUE: 'pesos con el dólar blue', USD: 'dólares (US$)', ARS: 'pesos ($)' };
+async function changeCurrency(mode) {
+  if (!ownerOnly('cambiar la moneda')) { byId('setCurrency').value = priceMode(); return; }
+  if (mode === priceMode()) return;
+  const base = mode === 'ARS' ? 'ARS' : 'USD';
   const priced = state.items.some(i => i.price || i.cost);
-  if (priced && !(await ask({ title: `¿Mostrar los precios en ${c === 'USD' ? 'dólares' : 'pesos'}?`, message: 'Los importes ya cargados no se convierten: solo cambia el signo. Usalo si tus costos y precios ya están en esa moneda.', confirm: 'Cambiar moneda' }))) { byId('setCurrency').value = S.currency(); return; }
-  S.setCurrency(c);
-  toast(`Precios en ${c === 'USD' ? 'dólares (US$)' : 'pesos ($)'}.`, 'success');
+  if (base !== S.currency() && priced && !(await ask({
+    title: base === 'USD' ? '¿Tus costos y precios están en dólares?' : '¿Tus costos y precios están en pesos?',
+    message: `Los importes ya cargados no se convierten: se toman como ${base === 'USD' ? 'dólares' : 'pesos'}.${mode === 'BLUE' ? ' En pesos se muestran multiplicados por el dólar blue venta.' : ''}`,
+    confirm: 'Sí, cambiar',
+  }))) { byId('setCurrency').value = priceMode(); return; }
+  S.setCurrency(base, mode === 'BLUE');
+  toast(mode === 'BLUE' ? 'Precios en pesos con el dólar blue: (costo en US$ + ganancia) × blue venta.' : `Precios en ${PRICE_MODES[mode]}.`, 'success');
 }
 // Total en pesos de lo escaneado (con los precios actuales de cada producto).
 function sessionMoney() {
@@ -1017,7 +1033,7 @@ function renderInvValue() {
   }
   const m = S.marginPct(), noCost = state.items.filter(i => !(i.cost > 0)).length;
   box.innerHTML = `<div class="inv-value">${icon('cash')}<span class="grow">Valor del stock: <b>${money(sale)}</b>${S.chargeArs() && saleArs ? ` (<b>${moneyIn(saleArs, 'ARS')}</b>)` : ''} a precio de venta${cost ? ` · <b>${money(cost)}</b> al costo` : ''}${noPrice ? ` · <span class="muted">${fmt(noPrice)} producto${noPrice === 1 ? '' : 's'} con stock sin precio</span>` : ''}
-    <br><span class="muted small">${m != null ? `Ganancia general: ${fmt(m)} % sobre el costo` : 'Sin ganancia general'}${noCost ? ` · ${fmt(noCost)} sin costo` : ''}</span></span>
+    <br><span class="muted small">${m != null ? `Ganancia general: ${fmt(m)} % sobre el costo` : 'Sin ganancia general'}${noCost ? ` · ${fmt(noCost)} sin costo` : ''}${S.currency() === 'USD' && S.fxRate() ? ` · dólar ${S.fxFixed() ? 'fijo' : 'blue'} ${moneyIn(S.fxRate(), 'ARS')}` : ''}</span></span>
     <span class="inv-value-actions"><button class="btn btn-ghost btn-sm" type="button" data-cost-import>${icon('upload', 'sm')}Importar costos</button><a class="btn btn-ghost btn-sm" href="#/cuenta">${icon('settings', 'sm')}Ganancia y moneda</a></span></div>`;
 }
 
@@ -1074,6 +1090,9 @@ function openEdit(i) {
   byId('ePrice').disabled = byId('ePer').disabled = byId('ePriceArs').disabled = !canManage();
   byId('ePriceArsField').hidden = !S.chargeArs();
   byId('ePriceArs').value = i.priceArs ? fmt(i.priceArs) : '';
+  const sign = S.currency() === 'USD' ? 'US$' : '$';
+  $('label[for="ePrice"]').textContent = `Precio de venta (${sign})`;
+  $('label[for="eCost"]').textContent = `Precio de costo (${sign})`;
   renderMargin();
   byId('editDialog').showModal();
 }
@@ -1089,13 +1108,13 @@ function renderMargin(e) {
   if (!canManage()) { el.textContent = price ? 'Solo el dueño puede cambiar los precios.' : ''; return; }
   const parts = [];
   if (price && cost) { const gain = price - cost; parts.push(`Ganancia ${per === 'dozen' ? 'por docena' : 'por unidad'}: <b class="${gain < 0 ? 'danger-text' : ''}">${money(gain)}</b> (${fmt((gain / cost) * 100, 1)} % sobre el costo)`); }
-  if (auto) parts.push(price && price !== auto ? `Precio a mano: no sigue la ganancia general (con ${fmt(m)} % sería ${money(auto)}). <a href="#" class="link" data-price-auto>Usar el automático</a>` : `Precio automático: costo + ${fmt(m)} %.`);
+  if (auto) parts.push(price && price !== auto ? `Precio a mano: no sigue la ganancia general (con ${fmt(m)} % sería ${money(auto)}). <a href="#" class="link" data-price-auto>Usar el automático</a>` : `Precio automático: costo ${money(cost)} + ${fmt(m)} % = <b>${money(auto)}</b>${S.currency() === 'ARS' ? ' (redondeado a pesos)' : ''}.`);
   // En pesos: el precio fijo escrito, o el de dólares por la cotización (se muestra como sugerencia).
   if (S.chargeArs()) {
     const fixed = parseMoney(byId('ePriceArs').value), rate = S.fxRate(), calc = price && rate ? S.roundArs(price * rate) : null;
     byId('ePriceArs').placeholder = calc ? `${fmt(calc)} (según el dólar)` : 'Según el dólar';
     parts.push(fixed ? `En pesos: <b>${moneyIn(fixed, 'ARS')}</b> fijo, no cambia con el dólar${calc ? ` (según el dólar sería ${moneyIn(calc, 'ARS')})` : ''}. Borralo para volver al cálculo.`
-      : calc ? `En pesos: <b>${moneyIn(calc, 'ARS')}</b> (dólar a ${moneyIn(rate, 'ARS')}, redondeado). Si no te gusta, escribí un precio fijo en pesos.` : '');
+      : calc ? `En pesos: ${money(price)} × dólar ${moneyIn(rate, 'ARS')} = <b>${moneyIn(calc, 'ARS')}</b>${S.arsRound() ? ' (redondeado)' : ''}. Si no te gusta, escribí un precio fijo en pesos.` : '');
   }
   el.innerHTML = parts.filter(Boolean).join('<br>');
 }
@@ -2728,11 +2747,6 @@ function bindEvents() {
   byId('setMarginBtn').onclick = applyMargin;
   byId('setMargin').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyMargin(); } });
   byId('setCurrency').onchange = e => changeCurrency(e.target.value).then(() => refreshFx());
-  byId('arsOn').onchange = e => {
-    if (!ownerOnly('cambiar cómo se cobra')) { e.target.checked = S.chargeArs(); return; }
-    S.setArsSettings({ ars: e.target.checked });
-    if (e.target.checked) { refreshFx(false); toast('Las ventas se cobran en pesos con el dólar blue. Los precios siguen guardados en dólares.', 'info'); }
-  };
   byId('arsRound').onchange = e => { if (ownerOnly('cambiar el redondeo')) S.setArsSettings({ arsRound: e.target.value }); else renderArsSettings(); };
   byId('fxFixed').addEventListener('change', e => {
     if (!ownerOnly('fijar la cotización')) { renderArsSettings(); return; }
@@ -2742,6 +2756,7 @@ function bindEvents() {
     toast(v ? `Cotización fija: ${moneyIn(v, 'ARS')} por dólar.` : 'Se vuelve a usar el dólar blue automático.', 'info');
   });
   byId('fxRefresh').onclick = () => refreshFx(false);
+  byId('fxChip').onclick = () => refreshFx(false);
   // Cotización: al abrir, cada 30 minutos y al volver a la app.
   if (fxStale()) refreshFx();
   setInterval(() => { if (fxStale()) refreshFx(); }, 5 * 60000);

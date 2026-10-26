@@ -86,8 +86,10 @@ export function setPricesEnabled(on) {
 export const CURRENCIES = { ARS: 'Pesos ($)', USD: 'Dólares (US$)' };
 export const currency = () => (state.extra.settings?.currency === 'USD' ? 'USD' : 'ARS');
 const currencySign = () => (currency() === 'USD' ? 'US$' : '$');
-export function setCurrency(c) {
-  saveSettings({ currency: c === 'USD' ? 'USD' : 'ARS' });
+// ars: además cobrar en pesos con el dólar blue (solo con precios en dólares).
+export function setCurrency(c, ars = state.extra.settings?.ars) {
+  saveSettings({ currency: c === 'USD' ? 'USD' : 'ARS', ars: c === 'USD' && !!ars });
+  refreshAutoPrices(); // en pesos se redondea a pesos enteros y en dólares a centavos
   commit('settings');
 }
 
