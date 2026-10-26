@@ -428,13 +428,21 @@
       <button class="btn btn-ghost" type="button" id="kExit"><i data-i="x"></i><span>Salir</span></button>
      </div>
      <div class="mode-banner" id="kModeBanner"></div>
-     <form id="kForm" class="kiosk-input" autocomplete="off"><input id="kInput" class="scan-input" placeholder="Escaneá un código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado"></form>
-     <div class="kiosk-result" id="kResult"><p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p></div>
+     <div class="kiosk-body">
+      <div class="kiosk-main">
+       <form id="kForm" class="kiosk-input" autocomplete="off"><input id="kInput" class="scan-input" list="skuList" placeholder="Escaneá o escribí un código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado o escrito"></form>
+       <div class="kiosk-result" id="kResult"><p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p></div>
+      </div>
+      <aside class="kiosk-cart" id="kCart" hidden aria-live="polite">
+       <div class="kiosk-cart-head"><div><h3 id="kCartTitle">Esta venta</h3><p id="kCartSub"></p></div></div>
+       <div class="kiosk-cart-list" id="kCartList"></div>
+      </aside>
+     </div>
      <div class="kiosk-foot">
       <div class="kiosk-num"><strong id="kCount">0</strong><span>lecturas</span></div>
       <div class="kiosk-num"><strong id="kUnits">0</strong><span>unidades</span></div>
-      <div class="kiosk-num price-only" id="kMoneyBox" hidden><strong id="kMoney">$ 0</strong><span>total</span></div>
-      <button class="btn btn-ghost btn-lg" type="button" id="kUndo" disabled><i data-i="undo"></i>Revertir la última</button>
+      <div class="kiosk-num kiosk-total price-only" id="kMoneyBox" hidden><strong id="kMoney">$ 0</strong><span>total</span></div>
+      <button class="btn btn-ghost btn-lg" type="button" id="kUndo" disabled><i data-i="undo"></i><span>Revertir la última</span></button>
       <button class="btn btn-lg finish-btn" type="button" id="kRemito" disabled><i data-i="check"></i><span id="kFinishLabel">Terminar salida</span></button>
      </div>
     </div>
@@ -537,7 +545,8 @@
       <ol class="manual-steps">
        <li>Abrilo desde <b>Escanear → Pantalla grande</b>, desde el Panel o desde <b>Más → Mostrador</b>.</li>
        <li>Arriba elegí <b>Salida</b> o <b>Entrada</b> y el cliente.</li>
-       <li>Escaneá: el resultado aparece gigante (ej. <i>−1 docena</i>) con borde verde si salió bien o rojo si hubo un problema.</li>
+       <li>Escaneá (o escribí el código): el resultado aparece grande (ej. <i>−1 docena</i>) con borde verde si salió bien o rojo si hubo un problema.</li>
+       <li>A la derecha (abajo en el celular) está la lista <b>Esta venta</b>, agrupada por producto: cantidad, importe, <b>Cambiar precio</b> (solo para esta venta) y <b>−</b> para quitar una lectura. En una venta nada se descuenta del stock hasta que la confirmás.</li>
        <li>Al terminar tocá <b>Terminar salida</b>. Para volver a la app normal, tocá <b>Salir</b>.</li>
       </ol>
      </details>

@@ -731,7 +731,7 @@ const SCAN_MODES = {
 };
 // Con precios activados, una salida puede ser una venta y una entrada una compra.
 const SALE_TEXT = {
-  venta: { banner: 'Cada código que escanees <b>se suma a la venta</b> con su precio. El stock se descuenta <b>recién cuando confirmás</b> la venta al terminar.', hint: 'Te muestra el total; podés cambiar precios, poner descuento y forma de pago. Al confirmar se descuenta del stock.' },
+  venta: { short: 'Escaneá los productos: se suman a la venta. <b>El stock se descuenta al confirmar.</b>', banner: 'Cada código que escanees <b>se suma a la venta</b> con su precio. El stock se descuenta <b>recién cuando confirmás</b> la venta al terminar.', hint: 'Te muestra el total; podés cambiar precios, poner descuento y forma de pago. Al confirmar se descuenta del stock.' },
   compra: { banner: 'Cada código que escanees se <b>SUMA</b> al stock y registra su <b>costo</b>.', hint: 'Te muestra el total de la compra y podés guardar el remito de entrada.' },
 };
 const scanMode = () => { const base = SCAN_MODES[prefs.scanOp], k = saleKind(); return k ? { ...base, name: k, ...SALE_TEXT[k] } : base; };
@@ -745,6 +745,7 @@ function setScanOp(op) {
   segmented(byId('kOp'), prefs.scanOp);
   const banner = `${icon(m.icon)}<span><b>${cap(m.name)}</b> · ${m.banner}</span>`;
   for (const id of ['scanModeBanner', 'kModeBanner']) { byId(id).className = `mode-banner ${m.tone}`; byId(id).innerHTML = banner; }
+  if (m.short) byId('kModeBanner').innerHTML = `${icon(m.icon)}<span><b>${cap(m.name)}</b> · ${m.short}</span>`;
   byId('scanHero').dataset.mode = prefs.scanOp;
   byId('scanFinishTitle').textContent = `Terminá ${prefs.scanOp === 'establecer' ? 'el conteo' : `la ${m.name}`}`;
   byId('scanFinishHint').textContent = m.hint;
@@ -2371,8 +2372,38 @@ function enterKiosk() {
   renderKiosk();
   setTimeout(() => byId('kInput').focus({ preventScroll: true }), 80);
 }
+// Lista del mostrador: lo de esta venta (o salida/entrada) agrupado por producto, con importe y "Cambiar precio".
+function renderKioskCart() {
+  const live = liveFeed(), sk = saleKind(), cur = saleCur(sk || 'venta');
+  byId('kCart').hidden = !live.length;
+  byId('kiosk').classList.toggle('has-cart', live.length > 0);
+  if (!live.length) { byId('kCartList').innerHTML = ''; return; }
+  const groups = new Map();
+  for (const f of live) { // la lista va de la última lectura a la primera
+    const g = groups.get(f.itemId) || { f, units: 0 };
+    g.units += f.amount;
+    groups.set(f.itemId, g);
+  }
+  const name = scanMode().name;
+  byId('kCartTitle').textContent = `Esta ${name}`;
+  byId('kCartSub').innerHTML = cartPending().length ? `${icon('info', 'sm')}Todavía no se descontó nada: se descuenta al confirmar` : prefs.scanOp === 'restar' ? 'Ya descontado del stock' : prefs.scanOp === 'sumar' ? 'Ya sumado al stock' : 'Stock contado';
+  byId('kCartList').innerHTML = [...groups.values()].map(({ f, units }) => {
+    const it = S.findById(f.itemId), pr = sk ? linePrice(f, sk) : null, per = pr?.per || S.pricePerOf(it);
+    const qty = f.dz ? unitWords(units / 12, 'docenas') : unitWords(units, f.unit);
+    const edit = sk === 'venta' && feedPriceEdit === f.itemId
+      ? `<span class="feed-price-edit"><input class="input money feed-price" data-feed-price="${esc(f.itemId)}" inputmode="decimal" value="${pr ? fmt(pr.price) : ''}" placeholder="${cur === 'USD' ? 'US$' : '$'} 0" aria-label="Precio de ${esc(f.sku)} para esta venta"> <small>${S.PRICE_PER[per]}</small></span>`
+      : sk === 'venta' ? `<button type="button" class="link feed-price-btn" data-price-edit="${esc(f.itemId)}">${icon('edit', 'sm')}Cambiar precio</button>` : '';
+    return `<div class="kc-row">
+      <div class="kc-info"><div><b class="mono">${esc(f.sku)}</b> <span>${esc(it ? productName(it) : f.name)}</span></div>
+        <small>${esc(qty)}${pr ? ` · ${moneyIn(pr.price, cur)} ${S.PRICE_PER[per]}` : ''}${pr?.custom ? ' · <b class="warn">precio de esta venta</b>' : ''}</small>${edit}</div>
+      <div class="kc-amt">${pr ? moneyIn(S.lineAmount(units, pr.price, pr.per), cur) : sk ? '<span class="warn">sin precio</span>' : ''}</div>
+      <button type="button" class="icon-btn bordered" data-revert="${f.id}" title="Quitar una lectura" aria-label="Quitar una lectura de ${esc(f.sku)}">${icon('minus')}</button>
+    </div>`;
+  }).join('');
+}
 // Contadores del mostrador y botón "Terminar" (se comparten con Escanear).
 function renderKiosk() {
+  renderKioskCart();
   const live = liveFeed(), sq = sessionQty(live), m = scanMode();
   byId('kCount').textContent = fmt(live.length);
   byId('kUnits').textContent = fmt(sq.value);
@@ -2905,29 +2936,33 @@ function bindEvents() {
     feedPriceEdit = null;
     renderScanSession();
     if (v != null && base && v !== base.price) toast(`${it.sku}: ${moneyIn(v, saleCur('venta'))} ${S.PRICE_PER[base.per]} solo para esta venta`, 'info');
+    if (currentView === 'kiosco') byId('kInput').focus({ preventScroll: true }); // lista para la próxima lectura
   };
-  byId('scanFeed').addEventListener('keydown', e => {
-    const el = e.target.closest('[data-feed-price]');
-    if (!el) return;
-    if (e.key === 'Enter') { e.preventDefault(); savePriceEdit(el); }
-    if (e.key === 'Escape') { feedPriceEdit = null; renderScanSession(); }
-  });
-  byId('scanFeed').addEventListener('focusout', e => { const el = e.target.closest('[data-feed-price]'); if (el && feedPriceEdit) savePriceEdit(el); });
-  byId('scanFeed').addEventListener('click', e => {
-    const pe = e.target.closest('[data-price-edit]');
-    if (pe) {
-      feedPriceEdit = pe.dataset.priceEdit;
-      renderScanSession();
-      const el = $(`[data-feed-price="${CSS.escape(feedPriceEdit)}"]`);
-      el?.focus(); el?.select();
-      return;
-    }
-    if (e.target.closest('[data-feed-price]')) return;
-    const b = e.target.closest('[data-revert]');
-    if (b) { revertScan(b.dataset.revert); return; }
-    const row = e.target.closest('[data-move]');
-    if (row) openMove(row.dataset.move);
-  });
+  // La lista de Escanear y la del mostrador tienen las mismas acciones.
+  for (const list of [byId('scanFeed'), byId('kCartList')]) {
+    list.addEventListener('keydown', e => {
+      const el = e.target.closest('[data-feed-price]');
+      if (!el) return;
+      if (e.key === 'Enter') { e.preventDefault(); savePriceEdit(el); }
+      if (e.key === 'Escape') { feedPriceEdit = null; renderScanSession(); }
+    });
+    list.addEventListener('focusout', e => { const el = e.target.closest('[data-feed-price]'); if (el && feedPriceEdit) savePriceEdit(el); });
+    list.addEventListener('click', e => {
+      const pe = e.target.closest('[data-price-edit]');
+      if (pe) {
+        feedPriceEdit = pe.dataset.priceEdit;
+        renderScanSession();
+        const el = list.querySelector(`[data-feed-price="${CSS.escape(feedPriceEdit)}"]`);
+        el?.focus(); el?.select();
+        return;
+      }
+      if (e.target.closest('[data-feed-price]')) return;
+      const b = e.target.closest('[data-revert]');
+      if (b) { revertScan(b.dataset.revert); if (list.id === 'kCartList') byId('kInput').focus({ preventScroll: true }); return; }
+      const row = e.target.closest('[data-move]');
+      if (row) openMove(row.dataset.move);
+    });
+  }
   byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
 
   // Inventario
