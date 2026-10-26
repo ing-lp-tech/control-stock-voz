@@ -247,6 +247,7 @@
      <select id="invSort" class="input select-sm" aria-label="Ordenar">
       <option value="sku">Código A → Z</option><option value="brand">Marca A → Z</option><option value="desc">Mayor stock</option><option value="asc">Menor stock</option><option value="recent">Modificados recientemente</option><option value="price" class="price-only">Mayor precio</option>
      </select>
+     <button class="btn btn-ghost owner-only" type="button" id="invDups" title="Buscar productos cargados dos veces con códigos parecidos"><i data-i="layers"></i><span>Duplicados</span></button>
      <a href="#/cargar" class="btn btn-primary"><i data-i="plus"></i><span>Nuevo</span></a>
     </div>
     <div class="chips" id="invFilters" style="margin-bottom:14px">
@@ -258,6 +259,7 @@
      <strong id="bulkCount">0 seleccionados</strong>
      <button class="btn btn-sm" type="button" id="bulkLabels"><i data-i="tag" class="sm"></i>Etiquetas</button>
      <button class="btn btn-sm" type="button" id="bulkEdit"><i data-i="edit" class="sm"></i>Editar</button>
+     <button class="btn btn-sm owner-only" type="button" id="bulkMerge" title="Unir productos duplicados en uno solo"><i data-i="layers" class="sm"></i>Unir</button>
      <button class="btn btn-sm owner-only" type="button" id="bulkDelete"><i data-i="trash" class="sm"></i>Eliminar</button>
      <button class="icon-btn" type="button" id="bulkClear" title="Quitar selección"><i data-i="x"></i></button>
     </div>
@@ -460,6 +462,7 @@
        <li>Abrí <b>Escanear</b> y en el paso 1 elegí <b>Entrada</b>. El aviso se pone verde: <i>«se SUMA al stock»</i>.</li>
        <li>En el paso 2 elegí el <b>proveedor</b> (opcional).</li>
        <li>Escaneá cada producto. Si un código no existe, la app te pide la marca, la prenda y la cantidad para darlo de alta.</li>
+       <li>Si el código no existe pero <b>se parece a uno cargado</b> (por ejemplo escaneás <code>8008</code> y ya está <code>GT8008</code>), la app pregunta <i>«¿8008 es GT8008?»</i>. Tocá <b>Sí</b> para sumarlo a ese producto, o <b>No, es otro producto</b> para darlo de alta. En esa misma entrada no te lo vuelve a preguntar.</li>
        <li>Tocá <b>Terminar entrada</b>. Podés generar un remito de entrada o terminar sin remito.</li>
       </ol>
       <p class="small muted">También podés cargar entradas por voz o a mano desde <b>Cargar productos</b>.</p>
@@ -503,6 +506,7 @@
        <li>Si el código <b>ya existe</b>, alcanza con <i>«código N115, docenas 2»</i>: se guarda solo y te lo confirma en voz alta.</li>
        <li><b>A mano:</b> completá código, cantidad y unidad, y tocá <b>Guardar</b>. El botón ✨ genera un código nuevo si el producto no tiene.</li>
       </ol>
+      <div class="notice warn"><i data-i="alert"></i><span><b>Códigos parecidos:</b> si escribís o dictás un código que no existe pero se parece a uno cargado (<code>8008</code> y <code>GT8008</code>, <code>GT-8008</code> y <code>GT8008</code>, <code>REM12</code> y <code>REM0012</code>), debajo del código aparece la lista de productos parecidos. Tocá el que corresponde para no cargarlo dos veces. Si igual tocás Guardar, la app te pregunta antes de crear el producto nuevo.</span></div>
      </details>
 
      <details class="card manual-topic" id="m-etiquetas">
@@ -543,6 +547,23 @@
        <li>En <b>Inventario</b> buscás por código, marca o prenda. Tocá el código para editar el producto.</li>
        <li>Poné un <b>stock mínimo</b> en el producto para que aparezca en <b>Alertas</b> cuando baje.</li>
        <li><b>Conteo físico:</b> en Escanear elegí <b>Conteo</b> y escaneá todo lo que hay. La primera lectura de cada producto reinicia su stock y las siguientes suman.</li>
+      </ul>
+     </details>
+
+     <details class="card manual-topic owner-only" id="m-duplicados">
+      <summary><h3>Unir productos cargados dos veces</h3><span>Si el mismo producto quedó con dos códigos (ej. GT8008 y 8008).</span></summary>
+      <ol class="manual-steps">
+       <li>En <b>Inventario</b> tocá <b>Duplicados</b>. La app busca productos con códigos casi iguales y te los muestra en grupos.</li>
+       <li>En el grupo que corresponde tocá <b>Unir…</b>. También podés marcar vos los productos en el Inventario y tocar <b>Unir</b> en la barra de selección.</li>
+       <li>Elegí <b>qué código queda</b>. La app propone el que tiene los datos más completos.</li>
+       <li>Revisá el resumen (ej. <i>«Queda GT8008 con 8 unidades (5 + 3)»</i>) y tocá <b>Unir productos</b>.</li>
+      </ol>
+      <ul class="manual-list">
+       <li>El stock se <b>suma</b>. Si al que queda le falta la marca, la prenda o el precio, se completa con los datos del otro.</li>
+       <li>El código que se borra queda como <b>código anterior</b>: si alguien lo escanea o lo escribe, la app lo lleva al que quedó. Las etiquetas viejas se siguen leyendo.</li>
+       <li>Los movimientos de los dos se ven juntos en el historial del producto que quedó.</li>
+       <li>Solo se pueden unir productos que se controlan en la misma unidad (unidades con unidades, kg con kg).</li>
+       <li>Si te equivocaste, tocá <b>Deshacer</b> enseguida, antes de que se guarde en la nube.</li>
       </ul>
      </details>
 
@@ -694,6 +715,22 @@
    <div class="field span-2"><label for="nMin">Stock mínimo (opcional)</label><input id="nMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>
   </div>
   <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary"><i data-i="check"></i>Guardar y registrar</button></div>
+ </form>
+</dialog>
+
+<dialog class="modal" id="dupDialog">
+ <div class="modal-inner">
+  <div class="modal-head"><div><h3>Posibles productos duplicados</h3><p class="muted" id="dupSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body" id="dupBody"></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cerrar</button></div>
+ </div>
+</dialog>
+
+<dialog class="modal" id="mergeDialog">
+ <form class="modal-inner" id="mergeForm" novalidate>
+  <div class="modal-head"><div><h3>Unir productos duplicados</h3><p class="muted">Quedan como un solo producto con el stock sumado.</p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
+  <div class="modal-body stack" id="mergeBody"></div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost" data-close>Cancelar</button><button type="submit" class="btn btn-primary" id="mergeSave"><i data-i="check"></i>Unir productos</button></div>
  </form>
 </dialog>
 

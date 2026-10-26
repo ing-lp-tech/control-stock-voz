@@ -951,3 +951,26 @@ body:not(.prices-on) .price-only { display: none !important; }
   .user-row > .check { grid-area: c; align-self: start; }
   .user-row .who { grid-area: who; } .user-row .u-meta { grid-area: meta; } .user-row .u-data { grid-area: data; } .user-row .u-status { grid-area: st; } .user-row .user-actions { grid-area: act; justify-content: flex-start; }
 }
+
+/* Códigos parecidos al cargar un producto nuevo (8008 / GT8008) */
+.product-card.is-similar { align-items: flex-start; background: var(--warn-soft); }
+.product-card.is-similar .card-icon { color: var(--warn); margin-top: 2px; }
+.similar-list { display: grid; gap: 6px; margin: 8px 0; }
+.similar-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--t), background var(--t); }
+.similar-opt:hover, .similar-opt:focus-visible { border-color: var(--accent-text); }
+.similar-opt b { font-size: 14.5px; }
+.similar-opt span { flex: 1; min-width: 0; }
+.similar-opt small { color: var(--muted); font-size: 12px; }
+
+/* Productos duplicados: lista de grupos y diálogo para unir */
+.dup-list, .merge-list { display: grid; gap: 10px; }
+.dup-group { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2); }
+.dup-items { display: grid; gap: 4px; }
+.dup-items div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.dup-items span { font-size: 13px; color: var(--text-2); }
+.dup-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.dup-foot small { color: var(--muted); font-size: 12px; }
+.merge-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: border-color var(--t), background var(--t); }
+.merge-opt.active { border-color: var(--accent-text); background: var(--accent-soft); }
+.merge-opt input { accent-color: var(--accent); align-self: center; }
+.merge-opt span { flex: 1 1 200px; min-width: 0; font-size: 13px; color: var(--text-2); }

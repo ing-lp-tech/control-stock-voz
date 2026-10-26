@@ -355,9 +355,44 @@ function renderFormProduct(sku, it) {
     card.className = 'span-2 product-card';
     card.innerHTML = `<span class="card-icon">${icon('check')}</span><div class="grow"><strong>Ya cargado: ${esc(it.sku)}</strong><span>${esc(productName(it) || 'Sin marca ni prenda')} · stock ${fmt(d.value)} ${esc(d.unit)}. Solo indicá la cantidad.</span></div><button type="button" class="btn btn-ghost btn-sm" data-edit-product>${icon('edit', 'sm')}Editar datos</button>`;
   } else {
-    card.className = 'span-2 product-card is-new';
-    card.innerHTML = `<span class="card-icon">${icon('sparkles')}</span><div class="grow"><strong>Producto nuevo: ${esc(sku)}</strong><span>Completá marca y prenda: se guardan una sola vez. La próxima vez alcanza con el código y la cantidad.</span></div>`;
+    const sims = S.similarCodes(sku);
+    card.className = `span-2 product-card is-new${sims.length ? ' is-similar' : ''}`;
+    card.innerHTML = sims.length
+      ? `<span class="card-icon">${icon('alert')}</span><div class="grow"><strong>¿${esc(sku)} ya está cargado con otro código?</strong><span>Hay productos con código parecido. Si es uno de estos, tocalo para no cargarlo dos veces:</span>
+        <div class="similar-list">${sims.map(s => `<button type="button" class="similar-opt" data-use-sku="${esc(s.item.sku)}"><b class="mono">${esc(s.item.sku)}</b><span>${esc(productName(s.item) || 'Sin marca ni prenda')} · stock ${fmt(S.displayQty(s.item).value)} ${esc(S.displayQty(s.item).unit)}</span><small>${esc(s.reason)}</small></button>`).join('')}</div>
+        <span>Si es otro producto, completá marca y prenda y guardá.</span></div>`
+      : `<span class="card-icon">${icon('sparkles')}</span><div class="grow"><strong>Producto nuevo: ${esc(sku)}</strong><span>Completá marca y prenda: se guardan una sola vez. La próxima vez alcanza con el código y la cantidad.</span></div>`;
   }
+}
+
+// Cambia el código del formulario por el de un producto ya cargado (sugerencia de código parecido).
+// Se borran marca, prenda y demás datos de alta para no pisar los del producto existente.
+function useExistingCode(sku, preferProduct = true) {
+  F.sku.value = sku;
+  ['brand', 'type', 'min', 'barcode'].forEach(k => { F[k].value = ''; });
+  byId('fPrice').value = '';
+  syncUnitWithProduct(preferProduct);
+  highlight(F.sku);
+}
+
+// Antes de dar de alta un código nuevo se ofrece usar un producto con código casi igual (8008 / GT8008).
+// Devuelve el producto elegido, 'new' para crearlo igual, null si se cancela, o undefined si no hay parecidos.
+async function confirmSimilar(code, { allowNew = true } = {}) {
+  const sims = S.similarCodes(code).filter(s => s.strong);
+  if (!sims.length) return undefined;
+  sound('warn');
+  const one = sims.length === 1;
+  const v = await ask({
+    title: `¿${code} es ${one ? sims[0].item.sku : 'alguno de estos productos'}?`,
+    message: `${code} no está cargado, pero ya ${one ? 'hay un producto' : 'hay productos'} con código parecido (${sims.map(s => `${s.item.sku}: ${s.reason}`).join(' · ')}). Si es el mismo, usalo para no tenerlo dos veces en el stock.`,
+    choices: [
+      ...sims.map((s, n) => ({ label: `Sí, es ${s.item.sku}${productName(s.item) ? ` · ${productName(s.item)}` : ''}`, value: s.item.id, primary: n === 0 })),
+      ...(allowNew ? [{ label: `No, ${code} es otro producto`, value: 'new' }] : []),
+    ],
+    cancel: 'Cancelar',
+  });
+  if (v === 'new') return 'new';
+  return v ? S.findById(v) : null;
 }
 
 function updateFormNotice() {
@@ -428,6 +463,10 @@ function interpret() {
   } else if (existing && prefs.voiceAutoSave) {
     byId('productForm').requestSubmit(); // producto conocido: se guarda sin tocar nada (se puede deshacer)
     return;
+  } else if (!existing && S.similarCodes(p.sku).length) {
+    const sim = S.similarCodes(p.sku)[0].item;
+    toast(`${p.sku} no está cargado, pero se parece a ${sim.sku}. Si es el mismo, tocalo en la lista de abajo del código.`, 'warn');
+    if (prefs.voiceSpeak) say(`${spell(p.sku)} no está cargado. ¿Es ${spell(sim.sku)}?`);
   } else if (!existing) {
     if (!txt(F.brand.value)) F.brand.focus(); else byId('saveProduct').focus({ preventScroll: true });
     toast(`${p.sku} es un producto nuevo. Completá marca y prenda y tocá Guardar.`, 'info');
@@ -451,9 +490,18 @@ function say(text) {
 // "N115" se lee mejor como "N 115".
 const spell = code => String(code).replace(/([A-Z]+)(\d)/g, '$1 $2').replace(/(\d)([A-Z])/g, '$1 $2');
 
-function saveProduct(e) {
+async function saveProduct(e) {
   e.preventDefault();
   const btn = byId('saveProduct');
+  if (!S.findByCode(F.sku.value) && prefs.formOp !== 'restar' && num(F.qty.value) > 0) {
+    const code = upper(F.sku.value).replace(/\s+/g, ''), pick = await confirmSimilar(code);
+    if (pick === null) { F.sku.focus(); return; }
+    if (pick && pick !== 'new') {
+      const unit = F.unit.value;
+      useExistingCode(pick.sku, false);
+      if (F.unit.value !== unit) { toast(`${pick.sku} se controla en ${S.unitLabel(pick.unitName)}. Revisá la cantidad y guardá.`, 'warn'); F.qty.focus(); return; }
+    }
+  }
   // Precio opcional, solo para productos nuevos (los existentes se editan desde Inventario).
   const isNew = !S.findByCode(F.sku.value), priceRaw = byId('fPrice').value, price = isNew && S.pricesOn() && canManage() ? parseMoney(priceRaw) : null;
   if (isNew && S.pricesOn() && txt(priceRaw) && price == null) { toast('El precio no es un número válido. Ej.: 12500 o 12.500', 'error'); shake(btn); return; }
@@ -555,7 +603,7 @@ function speakForm() {
 // =========================================================
 // Escáner
 // =========================================================
-const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [], contactName: '' };
+const session = { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), feed: [], contactName: '' };
 let lastScan = { code: '', at: 0 };
 
 // Textos de cada modo de escaneo: el aviso de color, el botón de terminar y la lista.
@@ -676,7 +724,18 @@ async function handleScan(raw, source = 'escáner') {
   if (currentView !== 'escanear' && currentView !== 'kiosco') location.hash = '#/escanear';
 
   const op = prefs.scanOp, qty = num(prefs.scanQty) || 1;
-  const resolved = S.resolveCode(code);
+  let resolved = S.resolveCode(code);
+  // Código desconocido parecido a uno cargado (8008 / GT8008): se pregunta una vez y se recuerda en esta sesión.
+  if (!resolved) {
+    let alias = S.findById(session.aliases.get(code));
+    if (!alias) {
+      const pick = await confirmSimilar(code, { allowNew: op !== 'restar' && prefs.scanUnknown !== 'reject' });
+      focusScan();
+      if (pick === null) return scanFail(code, 'Lectura cancelada: no se registró.');
+      if (pick && pick !== 'new') { alias = pick; session.aliases.set(code, pick.id); }
+    }
+    if (alias) resolved = { item: alias, pack: null };
+  }
   const item = resolved?.item || null;
   const pack = resolved?.pack ? S.PACKS[resolved.pack] : null;
   let r;
@@ -809,7 +868,7 @@ function setInvFilter(f) {
 
 function invRows() {
   const q = inv.q.toLocaleLowerCase('es-AR');
-  let rows = state.items.filter(i => !q || [i.sku, i.barcode, i.brand, i.type].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q)));
+  let rows = state.items.filter(i => !q || [i.sku, i.barcode, i.brand, i.type, ...(i.aliases || [])].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q)));
   if (inv.filter === 'alert') rows = rows.filter(i => i.units <= 0 || S.isLow(i));
   if (inv.filter === 'zero') rows = rows.filter(i => i.units <= 0);
   const by = {
@@ -912,7 +971,7 @@ function onInventoryClick(e) {
 let editingId = null;
 function openEdit(i) {
   editingId = i.id;
-  byId('editSub').textContent = `Última modificación ${relTime(i.updatedAt)}`;
+  byId('editSub').textContent = `Última modificación ${relTime(i.updatedAt)}${i.aliases?.length ? ` · códigos anteriores: ${i.aliases.join(', ')}` : ''}`;
   byId('eSku').value = i.sku; byId('eBarcode').value = i.barcode || ''; byId('eBrand').value = i.brand; byId('eType').value = i.type;
   byId('eUnits').value = i.units; byId('eUnitName').value = i.unitName; byId('eMin').value = i.minStock || ''; byId('eStockType').value = i.stockType;
   // Los empleados pueden editar datos del producto, pero no cambiar el stock a mano.
@@ -1009,6 +1068,62 @@ async function bulkDelete() {
   S.deleteItems([...inv.selected]);
   inv.selected.clear();
   toast(`${n} productos eliminados`, { action: () => S.undo() });
+}
+
+// =========================================================
+// Productos duplicados: buscarlos y unirlos en uno
+// =========================================================
+let merge = { ids: [], keep: null, fromDups: false };
+const qtyText = i => { const d = S.displayQty(i); return `${fmt(d.value)} ${d.unit}`; };
+const noticeHtml = (tone, ic, html) => `<div class="notice ${tone}">${icon(ic)}<span>${html}</span></div>`;
+
+function openDuplicates() {
+  if (!ownerOnly('unir productos')) return;
+  renderDuplicates();
+  if (!byId('dupDialog').open) byId('dupDialog').showModal();
+}
+function renderDuplicates() {
+  const groups = S.duplicateGroups();
+  byId('dupSub').textContent = groups.length ? `${groups.length} grupo${groups.length === 1 ? '' : 's'} para revisar. Uní solo los que de verdad son el mismo producto.` : 'Revisamos todo el inventario.';
+  byId('dupBody').innerHTML = groups.length
+    ? `<div class="dup-list">${groups.map(g => `<div class="dup-group">
+        <div class="dup-items">${g.items.map(i => `<div><b class="mono">${esc(i.sku)}</b><span>${esc(productName(i) || 'Sin marca ni prenda')} · stock ${esc(qtyText(i))}</span></div>`).join('')}</div>
+        <div class="dup-foot"><small>${esc(g.reasons.join(' · '))}</small><button type="button" class="btn btn-sm btn-primary" data-merge="${esc(g.items.map(i => i.id).join(','))}">${icon('layers', 'sm')}Unir…</button></div></div>`).join('')}</div>`
+    : emptyState('check', 'No hay duplicados a la vista', 'No encontramos productos con códigos casi iguales. Si sabés de dos que son el mismo, marcalos en el Inventario y tocá Unir.');
+}
+
+function openMerge(ids, fromDups = false) {
+  if (!ownerOnly('unir productos')) return;
+  const items = ids.map(S.findById).filter(Boolean);
+  if (items.length < 2) { toast('Marcá al menos dos productos para unirlos.', 'warn'); return; }
+  merge = { ids: items.map(i => i.id), keep: items[0].id, fromDups };
+  renderMerge();
+  byId('mergeDialog').showModal();
+}
+function renderMerge() {
+  const items = merge.ids.map(S.findById).filter(Boolean), keep = S.findById(merge.keep) || items[0], rest = items.filter(i => i !== keep);
+  const mixed = new Set(items.map(i => i.unitName)).size > 1, total = items.reduce((t, i) => t + i.units, 0);
+  const codes = rest.map(i => `<b>${esc(i.sku)}</b>`).join(', ');
+  const differs = rest.filter(i => (i.brand && keep.brand && i.brand !== keep.brand) || (i.type && keep.type && i.type !== keep.type));
+  byId('mergeBody').innerHTML = `<div><p class="small" style="margin-bottom:8px"><b>¿Qué código queda?</b> ${rest.length === 1 ? 'El otro se borra' : 'Los demás se borran'} y su stock pasa a ese.</p>
+    <div class="merge-list">${items.map(i => { const n = S.movementCount(i); return `<label class="merge-opt ${i === keep ? 'active' : ''}"><input type="radio" name="mergeKeep" value="${esc(i.id)}" ${i === keep ? 'checked' : ''}><b class="mono">${esc(i.sku)}</b><span>${esc(productName(i) || 'Sin marca ni prenda')} · stock ${fmt(i.units)} ${esc(S.unitLabel(i.unitName))} · ${fmt(n)} movimiento${n === 1 ? '' : 's'}</span>${items.length > 2 && i !== keep ? `<button type="button" class="btn btn-ghost btn-sm" data-merge-drop="${esc(i.id)}" title="No unir este producto">${icon('x', 'sm')}Quitar</button>` : ''}</label>`; }).join('')}</div></div>
+    ${mixed
+      ? noticeHtml('danger', 'alert', `No se pueden unir: se controlan en unidades distintas (${esc(items.map(i => `${i.sku} en ${S.unitLabel(i.unitName)}`).join(', '))}). Primero cambiá la unidad de uno desde Editar.`)
+      : noticeHtml('success', 'check', `Queda <b>${esc(keep.sku)}</b> con <b>${fmt(total)} ${esc(S.unitLabel(keep.unitName))}</b> (${items.map(i => fmt(i.units)).join(' + ')}).`)}
+    ${differs.length ? noticeHtml('warn', 'alert', `Se mantienen la marca y la prenda de <b>${esc(keep.sku)}</b> (${esc(productName(keep))}). ${differs.map(i => `${esc(i.sku)} decía ${esc(productName(i))}`).join(' · ')}. Si no es el mismo producto, no los unas.`) : ''}
+    ${noticeHtml('info', 'info', `Si alguien escanea o escribe ${codes}, la app lo lleva a <b>${esc(keep.sku)}</b>. Las etiquetas impresas se siguen leyendo y el historial queda junto.`)}`;
+  byId('mergeSave').disabled = mixed;
+}
+function saveMerge(e) {
+  e.preventDefault();
+  const r = S.mergeItems(merge.keep, merge.ids);
+  if (!r.ok) { toast(r.error, 'error'); sound('error'); return; }
+  byId('mergeDialog').close();
+  inv.selected.clear();
+  sound('ok');
+  flashRow(r.item.id);
+  toast(`${r.merged.join(', ')} unido${r.merged.length === 1 ? '' : 's'} a ${r.item.sku}: stock ${fmt(r.before)} → ${fmt(r.after)} ${S.unitLabel(r.item.unitName)}`, { duration: 8000, action: () => { if (S.undo()) toast('Unión deshecha', 'info'); } });
+  if (merge.fromDups && S.duplicateGroups().length) openDuplicates();
 }
 
 // =========================================================
@@ -1650,7 +1765,7 @@ const feedMoves = op => session.feed.filter(f => !f.undone && f.op === op && f.e
 const liveFeed = () => session.feed.filter(f => !f.undone);
 
 function resetSession() {
-  Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), feed: [] });
+  Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), feed: [] });
   setSessionContact('');
   byId('scanLast').innerHTML = '';
   const k = byId('kResult');
@@ -1892,13 +2007,14 @@ function renderProductHistory() {
     return;
   }
   byId('pdExport').hidden = false;
-  const all = state.history.filter(h => h.sku === sku);
+  const skus = new Set([sku, ...(item?.aliases || [])]);
+  const all = state.history.filter(h => skus.has(h.sku));
   const rows = all.filter(h => kindMatches(h, pd.kind));
   const t = movementTotals(all);
   const lastIn = all.find(h => S.historyKind(h) === 'in'), lastOut = all.find(h => S.historyKind(h) === 'out');
   const d = item ? S.displayQty(item) : null;
   byId('pdTitle').textContent = `Movimientos de ${sku}`;
-  byId('pdSub').textContent = item ? (productName(item) || 'Sin marca ni prenda') : 'Este producto ya no está en el inventario';
+  byId('pdSub').textContent = item ? `${productName(item) || 'Sin marca ni prenda'}${item.aliases?.length ? ` · códigos anteriores: ${item.aliases.join(', ')}` : ''}` : 'Este producto ya no está en el inventario';
   byId('pdEdit').hidden = !item; byId('pdLabels').hidden = !item;
 
   // Estado de cada etiqueta numerada según su último movimiento.
@@ -2326,7 +2442,11 @@ function bindEvents() {
   byId('fSkuGen').onclick = () => { F.sku.value = S.generateSku(F.brand.value, F.type.value); highlight(F.sku); updateFormNotice(); };
   byId('fSkuCam').onclick = () => openCamera({ onCode: c => { F.sku.value = upper(c); highlight(F.sku); syncUnitWithProduct(true); } });
   byId('resetForm').onclick = () => { resetForm(); F.sku.focus(); };
-  byId('formProduct').addEventListener('click', e => { if (e.target.closest('[data-edit-product]')) { const it = S.findByCode(F.sku.value); if (it) openEdit(it); } });
+  byId('formProduct').addEventListener('click', e => {
+    if (e.target.closest('[data-edit-product]')) { const it = S.findByCode(F.sku.value); if (it) openEdit(it); }
+    const use = e.target.closest('[data-use-sku]');
+    if (use) { const from = upper(F.sku.value); useExistingCode(use.dataset.useSku); toast(`Usando ${use.dataset.useSku} en lugar de ${from}.`, 'success'); F.qty.focus(); }
+  });
   byId('voiceAutoSave').onchange = e => { prefs.voiceAutoSave = e.target.checked; savePrefs(); };
   byId('voiceSpeak').onchange = e => { prefs.voiceSpeak = e.target.checked; savePrefs(); };
   byId('speakForm').onclick = speakForm;
@@ -2360,6 +2480,12 @@ function bindEvents() {
   byId('bulkLabels').onclick = () => labelsFor([...inv.selected]);
   byId('bulkEdit').onclick = openBulkEdit;
   byId('bulkDelete').onclick = bulkDelete;
+  byId('bulkMerge').onclick = () => openMerge([...inv.selected]);
+  byId('invDups').onclick = openDuplicates;
+  byId('dupBody').addEventListener('click', e => { const b = e.target.closest('[data-merge]'); if (b) { byId('dupDialog').close(); openMerge(b.dataset.merge.split(','), true); } });
+  byId('mergeBody').addEventListener('change', e => { if (e.target.name === 'mergeKeep') { merge.keep = e.target.value; renderMerge(); } });
+  byId('mergeBody').addEventListener('click', e => { const b = e.target.closest('[data-merge-drop]'); if (b) { e.preventDefault(); merge.ids = merge.ids.filter(id => id !== b.dataset.mergeDrop); renderMerge(); } });
+  byId('mergeForm').addEventListener('submit', saveMerge);
   byId('bulkField').onchange = renderBulkValue;
   byId('bulkForm').addEventListener('submit', applyBulk);
   byId('editForm').addEventListener('submit', saveEdit);
@@ -2472,7 +2598,8 @@ function bindEvents() {
   byId('mPassGen').onclick = () => { byId('mPass').value = Math.random().toString(36).slice(2, 6) + Math.floor(1000 + Math.random() * 9000); };
   byId('pdBody').addEventListener('click', e => { const c = e.target.closest('[data-pk]'); if (c) { pd.kind = c.dataset.pk; renderProductHistory(); } });
   byId('pdExport').onclick = () => {
-    const rows = state.history.filter(h => h.sku === (S.findByCode(pd.sku)?.sku || pd.sku));
+    const it = S.findByCode(pd.sku), skus = new Set([it?.sku || pd.sku, ...(it?.aliases || [])]);
+    const rows = state.history.filter(h => skus.has(h.sku));
     if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${pd.sku}_${new Date().toLocaleDateString('sv-SE')}.csv`)) toast('Este código no tiene movimientos.', 'warn');
   };
   byId('pdEdit').onclick = () => { const it = S.findByCode(pd.sku); if (it) { byId('productDialog').close(); openEdit(it); } };

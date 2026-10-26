@@ -137,6 +137,8 @@ export function normalizeItem(i) {
     units: Math.max(0, round2(num(i.units ?? i.totalUnits))),
     minStock: Math.max(0, num(i.minStock)),
     serials: { D: Math.max(0, Math.floor(num(i.serials?.D))), U: Math.max(0, Math.floor(num(i.serials?.U))) },
+    // Códigos de productos duplicados que se unieron a este: escanearlos o escribirlos lleva a este producto.
+    ...(Array.isArray(i.aliases) && i.aliases.length ? { aliases: [...new Set(i.aliases.map(upper).filter(Boolean))] } : {}),
     // Precios opcionales: solo se guardan si se cargaron.
     ...(cleanPrice(i.price) ? { price: cleanPrice(i.price) } : {}),
     ...(cleanPrice(i.cost) ? { cost: cleanPrice(i.cost) } : {}),
@@ -184,9 +186,58 @@ export const findById = id => state.items.find(i => i.id === id) || null;
 export function findByCode(code) {
   const c = upper(code);
   if (!c) return null;
-  return state.items.find(i => i.sku === c) || state.items.find(i => i.barcode && i.barcode === c) || null;
+  return state.items.find(i => i.sku === c) || state.items.find(i => i.barcode && i.barcode === c) || state.items.find(i => i.aliases?.includes(c)) || null;
 }
 export const isLow = i => i.minStock > 0 && i.units <= i.minStock;
+
+// ---------- Códigos parecidos ----------
+// Para no dar de alta dos veces el mismo producto con el código escrito distinto: GT8008 / 8008 / GT-8008 / GT8080.
+// strong: casi seguro es el mismo (se pregunta antes de crear). Los demás son solo sugerencias (un carácter distinto).
+const plainCode = v => upper(v).normalize('NFD').replace(/[^A-Z0-9]/g, '');
+const digitsOf = v => v.replace(/\D/g, '').replace(/^0+/, '');
+const noZeros = v => v.replace(/(^|\D)0+(?=\d)/g, '$1'); // REM0012 = REM12
+// Distancia de edición con transposiciones (8008 / 8080 = 1).
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+function codeLikeness(c, cd, sku) {
+  const s = plainCode(sku);
+  if (!s) return null;
+  if (s === c) return { score: 0, strong: true, reason: 'mismo código con otro formato' };
+  if (noZeros(s) === noZeros(c)) return { score: 0, strong: true, reason: 'mismo código con otros ceros' };
+  if (cd.length >= 3 && digitsOf(s) === cd) {
+    // 8008 / GT8008 es casi seguro el mismo; GT8008 / PT8008 puede ser otra prenda con el mismo número.
+    const alone = !/[A-Z]/.test(c) || !/[A-Z]/.test(s);
+    return { score: alone ? 1 : 3, strong: alone, reason: alone ? 'mismo número' : 'mismo número, otras letras' };
+  }
+  const [short, long] = c.length <= s.length ? [c, s] : [s, c];
+  if (short.length >= 3 && short.length / long.length >= 0.5 && long.includes(short)) return { score: 2, strong: true, reason: `${long === s ? 'contiene' : 'está dentro de'} ${c}` };
+  if (Math.abs(c.length - s.length) > 2) return null;
+  const dist = editDistance(c, s);
+  if ((dist === 1 && short.length >= 4) || (dist === 2 && short.length >= 7)) return { score: 3 + dist, strong: false, reason: dist === 1 ? 'un carácter distinto' : 'dos caracteres distintos' };
+  return null;
+}
+// Devuelve [{ item, reason, strong }] ordenados del más parecido al menos.
+export function similarCodes(code, limit = 3) {
+  const c = plainCode(code);
+  if (c.length < 3 || findByCode(upper(code).replace(/\s+/g, ''))) return [];
+  const cd = digitsOf(c);
+  return state.items
+    .map(item => ({ item, m: codeLikeness(c, cd, item.sku) }))
+    .filter(x => x.m)
+    .sort((a, b) => a.m.score - b.m.score || b.item.updatedAt.localeCompare(a.item.updatedAt))
+    .slice(0, limit)
+    .map(({ item, m }) => ({ item, reason: m.reason, strong: m.strong }));
+}
 
 // ---------- Etiquetas numeradas ----------
 // Una etiqueta puede identificar una docena o una unidad concreta del producto, con su número de serie:
@@ -206,7 +257,7 @@ export function resolveCode(code) {
   if (item) return { item, pack: null };
   const m = c.match(/^(.+)([DU])(\d{4,})$/);
   if (!m) return null;
-  const owner = state.items.find(i => i.sku === m[1]);
+  const owner = state.items.find(i => i.sku === m[1]) || state.items.find(i => i.aliases?.includes(m[1]));
   if (!owner || !packAllowed(owner, m[2])) return null;
   return { item: owner, pack: m[2], number: Number(m[3]), serial: c };
 }
@@ -363,7 +414,7 @@ export function saveItem(id, patch) {
   const sku = upper(patch.sku).replace(/\s+/g, ''), barcode = upper(patch.barcode).replace(/\s+/g, ''), units = Number(patch.units);
   if (!sku) return fail('El código / SKU es obligatorio.');
   if (!Number.isFinite(units) || units < 0) return fail('El stock debe ser un número mayor o igual a cero.');
-  const clash = state.items.find(x => x.id !== id && (x.sku === sku || (barcode && (x.barcode === barcode || x.sku === barcode))));
+  const clash = state.items.find(x => x.id !== id && (x.sku === sku || x.aliases?.includes(sku) || (barcode && (x.barcode === barcode || x.sku === barcode))));
   if (clash) return fail(`Ese código ya lo usa ${clash.sku}.`);
   checkpoint();
   const before = i.units;
@@ -425,6 +476,68 @@ export function deleteItems(ids) {
   gone.forEach(i => log('delete', 'Eliminación', i, { before: i.units, after: 0 }));
   commit('delete');
   return gone.length;
+}
+
+// ---------- Productos duplicados ----------
+// Grupos de productos que parecen el mismo cargado dos veces: código casi igual (8008 / GT8008 / GT-8008).
+// Los códigos con un carácter distinto no se proponen: suelen ser correlativos (1015 / 1016 = otro color o talle).
+// Cada grupo viene ordenado con el que conviene conservar primero.
+export function duplicateGroups() {
+  const items = state.items, n = items.length, parent = items.map((_, k) => k);
+  const root = k => { while (parent[k] !== k) k = parent[k] = parent[parent[k]]; return k; };
+  const reasons = new Map();
+  const codes = items.map(i => plainCode(i.sku));
+  for (let a = 0; a < n; a++) {
+    if (codes[a].length < 3) continue;
+    const cd = digitsOf(codes[a]);
+    for (let b = a + 1; b < n; b++) {
+      if (codes[b].length < 3) continue;
+      const m = codeLikeness(codes[a], cd, items[b].sku);
+      if (!m?.strong) continue;
+      parent[root(b)] = root(a);
+      reasons.set(`${a}:${b}`, `${items[a].sku} y ${items[b].sku}: ${m.reason}`);
+    }
+  }
+  const groups = new Map();
+  items.forEach((_, k) => { const r = root(k); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(k); });
+  const moves = new Map();
+  for (const h of state.history) moves.set(h.sku, (moves.get(h.sku) || 0) + 1);
+  // Se conserva el que tiene los datos más completos, después el más usado y después el más viejo.
+  const rank = i => (i.brand ? 2 : 0) + (i.type ? 2 : 0) + (i.price ? 1 : 0);
+  return [...groups.values()].filter(g => g.length > 1).map(g => ({
+    items: g.map(k => items[k]).sort((x, y) => rank(y) - rank(x) || (moves.get(y.sku) || 0) - (moves.get(x.sku) || 0) || String(x.createdAt).localeCompare(String(y.createdAt))),
+    reasons: [...new Set([...reasons].filter(([key]) => g.includes(Number(key.split(':')[0]))).map(([, r]) => r))],
+  }));
+}
+export const movementCount = item => state.history.filter(h => h.sku === item.sku || item.aliases?.includes(h.sku)).length;
+
+// Une productos duplicados en uno: suma el stock, completa los datos que falten y borra los demás.
+// Los códigos borrados quedan como códigos anteriores del que queda (sus etiquetas se siguen leyendo).
+export function mergeItems(targetId, sourceIds) {
+  const target = findById(targetId), sources = [...new Set(sourceIds)].filter(id => id !== targetId).map(findById).filter(Boolean);
+  if (!target) return fail('Producto no encontrado.');
+  if (!sources.length) return fail('Elegí al menos dos productos para unir.');
+  const other = sources.find(i => i.unitName !== target.unitName);
+  if (other) return fail(`${other.sku} se controla en ${unitLabel(other.unitName)} y ${target.sku} en ${unitLabel(target.unitName)}: no se pueden unir sin mezclar medidas.`);
+  checkpoint();
+  const before = target.units, aliases = new Set(target.aliases || []);
+  for (const src of sources) {
+    for (const k of ['brand', 'type', 'barcode']) if (!target[k] && src[k]) target[k] = src[k];
+    for (const k of ['price', 'cost']) if (!target[k] && src[k]) { target[k] = src[k]; if (k === 'price' && src.pricePer) target.pricePer = src.pricePer; }
+    if (!target.minStock && src.minStock) target.minStock = src.minStock;
+    [src.sku, ...(src.aliases || []), ...(src.barcode && src.barcode !== target.barcode ? [src.barcode] : [])].forEach(c => aliases.add(c));
+    target.units = round2(target.units + src.units);
+  }
+  aliases.delete(target.sku);
+  if (target.barcode) aliases.delete(target.barcode);
+  target.aliases = [...aliases];
+  target.updatedAt = nowIso();
+  state.items = state.items.filter(i => !sources.includes(i));
+  const names = sources.map(i => `${i.sku} (${fmt(i.units)} ${unitLabel(i.unitName)})`).join(', ');
+  for (const src of sources) log('delete', 'Unión de productos', src, { before: src.units, after: 0, quantity: src.units, note: `Unido a ${target.sku}: su stock pasó a ese producto` });
+  log('edit', 'Unión de productos', target, { before, after: target.units, quantity: round2(target.units - before), note: `Se unió ${names} a ${target.sku}` });
+  commit('merge-items');
+  return { ok: true, item: target, merged: sources.map(i => i.sku), before, after: target.units };
 }
 
 export function bulkSet(ids, field, value) {
@@ -632,10 +745,12 @@ export function rebase(remote) {
       it.updatedAt = h.at > it.updatedAt ? h.at : it.updatedAt;
     }
   }
-  // Numeración de etiquetas: gana el número más alto.
+  // Numeración de etiquetas: gana el número más alto. Códigos anteriores (productos unidos): se juntan.
   for (const [sku, local] of localItems) {
     const it = items.get(sku);
-    if (it) it.serials = { D: Math.max(it.serials.D, local.serials?.D || 0), U: Math.max(it.serials.U, local.serials?.U || 0) };
+    if (!it) continue;
+    it.serials = { D: Math.max(it.serials.D, local.serials?.D || 0), U: Math.max(it.serials.U, local.serials?.U || 0) };
+    if (local.aliases) it.aliases = [...new Set([...(it.aliases || []), ...local.aliases])].filter(c => !items.has(c));
   }
   // Historial: el de la nube más lo hecho acá que todavía no se subió. Un movimiento que ya se había subido y la
   // nube no tiene fue borrado en otro dispositivo: no se recupera (salvo los viejos que la nube ya no guarda).
