@@ -210,20 +210,20 @@
        <div class="scan-step"><span class="step-num" id="scanStepScan">3</span><h3>Escaneá los productos</h3><span class="scan-status"><span class="pulse-dot"></span><span id="scanStatusText">Esperando lectura</span></span></div>
        <form id="scanForm" class="scan-input-wrap" autocomplete="off">
         <i data-i="barcode"></i>
-        <input id="scanInput" class="scan-input" placeholder="Disparale con la pistola o escribí el código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado">
-        <button type="submit" class="btn btn-primary">Registrar</button>
+        <input id="scanInput" class="scan-input" placeholder="Escaneá o escribí código, marca o prenda" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Escaneá o escribí código, marca o prenda" role="combobox" aria-controls="maResults" aria-expanded="false">
+        <button type="submit" class="btn btn-primary">Agregar</button>
+        <div id="maResults" class="ma-results" role="listbox" hidden></div>
        </form>
        <div class="row" style="margin-top:12px"><button id="scanCamera" class="btn btn-soft btn-sm" type="button"><i data-i="camera" class="sm"></i>Usar la cámara</button><a class="btn btn-ghost btn-sm" href="#/kiosco"><i data-i="zap" class="sm"></i><span class="hide-sm">Pantalla grande (mostrador)</span><span class="show-sm">Mostrador</span></a><a class="btn btn-ghost btn-sm hide-sm" href="#/ayuda?s=salida"><i data-i="info" class="sm"></i>¿Cómo se usa?</a></div>
-       <div class="manual-add" id="manualAdd">
-        <div class="manual-add-head"><i data-i="keyboard"></i><b>¿Sin pistola? Cargá a mano</b><span class="muted small">Buscá por código, marca o prenda</span></div>
+       <!-- Producto elegido escribiendo: cantidad, unidad y precio antes de agregar -->
+       <div class="manual-add" id="manualAdd" hidden>
+        <div class="manual-add-head"><p class="ma-title" id="maHint"></p><button type="button" class="icon-btn" id="maClose" title="Cancelar" aria-label="Cancelar"><i data-i="x"></i></button></div>
         <div class="manual-add-row">
-         <div class="field ma-search"><label for="maSearch">Producto</label><input id="maSearch" class="input" placeholder="Ej.: GT8008, URUS, chomba" autocomplete="off" spellcheck="false" autocapitalize="characters" role="combobox" aria-controls="maResults" aria-expanded="false"><div id="maResults" class="ma-results" role="listbox" hidden></div></div>
          <div class="field ma-qty"><label for="maQty">Cantidad</label><input id="maQty" class="input" type="number" inputmode="decimal" min="0.01" step="any" value="1"></div>
          <div class="field ma-unit"><label for="maUnit">En</label><select id="maUnit" class="input"><option value="dozen">Docenas</option><option value="unit">Unidades</option></select></div>
          <div class="field ma-price" id="maPriceField" hidden><label for="maPrice" id="maPriceLabel">Precio</label><input id="maPrice" class="input money" inputmode="decimal" autocomplete="off" enterkeyhint="done"><div class="ma-suggest" id="maSuggest"></div></div>
          <button type="button" class="btn btn-primary ma-add" id="maAdd"><i data-i="plus"></i>Agregar</button>
         </div>
-        <p class="hint" id="maHint"></p>
        </div>
        <div class="scan-last" id="scanLast"></div>
 
@@ -492,9 +492,9 @@
          <li>Etiqueta de <b>unidad</b> (ej. 1015U0012): resta 1.</li>
          <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1) en la unidad del producto: <b>1 docena</b> si está cargado en docenas, o 1 prenda si está en unidades.</li>
         </ul></li>
-       <li><b>¿Sin pistola?</b> En <b>Cargá a mano</b> (debajo del campo de la pistola) buscá el producto por código, marca o prenda, elegilo de la lista, poné la cantidad en <b>docenas</b> o <b>unidades</b> y tocá <b>Agregar</b>. Se suma a la misma salida o venta. Si escribís el código exacto, el producto queda elegido solo, y con Enter se agrega.<span class="price-only"> En una venta también ves el <b>Precio</b> del producto y el <b>Sugerido</b>, y lo podés cambiar ahí mismo.</span></li>
+       <li><b>¿Sin pistola?</b> Escribí en el <b>mismo campo</b> el código, la marca o la prenda: aparecen sugerencias. Al elegir un producto se abre una fila para poner la <b>cantidad</b> en docenas o unidades<span class="price-only"> y ver o cambiar el <b>precio</b> (con el <b>sugerido</b> al lado)</span>. Tocá <b>Agregar</b> o apretá Enter. Con el código exacto y Enter se agrega directo, igual que con la pistola.</li>
        <li class="price-only"><b>En una venta nada se descuenta hasta confirmar:</b> lo que escaneás se suma a la venta y el stock se descuenta recién cuando tocás <b>Confirmar venta</b> o <b>Enviar por WhatsApp</b> al terminar. Si descartás la venta, no se descuenta nada.</li>
-       <li class="price-only"><b>Cambiar un precio</b> (por ejemplo si un producto escasea): en <b>Cargá a mano</b> o en la lista <i>«Productos de esta venta»</i> tocá <b>Cambiar precio</b>, escribí el precio (ej. 120.000) y apretá Enter. <b>Queda fijo en el producto</b> para las próximas ventas. Al lado siempre ves el <b>precio sugerido</b> (costo + tu ganancia); con <b>Usar sugerido</b> el producto vuelve a seguirlo. Si lo cambia un empleado, vale solo para esa venta.</li>
+       <li class="price-only"><b>Cambiar un precio</b> (por ejemplo si un producto escasea): en el recuadro de la <b>última lectura</b> (debajo del campo) tocá <b>Cambiar precio</b>, escribí el precio (ej. 120.000) y apretá Enter. También lo ves y lo cambiás al elegir un producto escribiendo. <b>Queda fijo en el producto</b> para las próximas ventas. Al lado siempre ves el <b>precio sugerido</b> (costo + tu ganancia); con <b>Usar sugerido</b> el producto vuelve a seguirlo. Si lo cambia un empleado, vale solo para esa venta.</li>
        <li><b>Paso 4 · Tocá «Terminar salida».</b> Ves el resumen y elegís: <b>Enviar remito por WhatsApp</b>, <b>Descargar PDF</b> o <b>Terminar sin remito</b>. La lista queda vacía para la próxima salida.</li>
       </ol>
       <div class="notice warn"><i data-i="alert"></i><span><b>¿Te equivocaste?</b> En la lista tocá <b>Revertir</b> en esa lectura (o «Revertir la última» en el modo mostrador). Si ya terminaste la salida, pedile a la dueña que la anule desde el Historial.</span></div>

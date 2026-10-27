@@ -195,8 +195,24 @@ const priceText = (item, kind = 'venta') => {
 };
 // ¿Lo que se escanea ahora es una venta o una compra? (null = solo stock)
 const saleKind = () => (!S.pricesOn() ? null : prefs.scanOp === 'restar' && prefs.saleOut ? 'venta' : prefs.scanOp === 'sumar' && prefs.buyIn ? 'compra' : null);
+// Al prender o apagar los precios (acá o desde otro dispositivo) se redibuja todo lo que pudo quedar
+// con precios a la vista: el recuadro de la última lectura, el mostrador, la lista y los avisos de Escanear.
+let pricesWereOn = null;
+function onPricesChanged() {
+  feedPriceEdit = null;
+  slEditing = false;
+  byId('scanLast').innerHTML = '';
+  const k = byId('kResult');
+  k.className = 'kiosk-result';
+  k.innerHTML = '<p class="kiosk-hint">Listo. Disparale a la etiqueta con la pistola.</p>';
+  closeMa();
+  setScanOp(prefs.scanOp);
+}
 function applyPricesUI() {
   const on = S.pricesOn();
+  const flipped = pricesWereOn !== null && pricesWereOn !== on;
+  pricesWereOn = on;
+  if (flipped) onPricesChanged();
   document.body.classList.toggle('prices-on', on);
   byId('pricesOn').checked = on;
   byId('pricesOn').disabled = !canManage();
@@ -303,7 +319,7 @@ function sessionMoney() {
 
 // Productos que se cargan y se ven en docenas (la cuenta interna sigue en unidades).
 const isDozenItem = i => i?.unitName === 'unidades' && i.displayUnit === 'dozen';
-const stockWords = (i, units) => (isDozenItem(i) ? `${fmt(units / 12)} docenas` : `${fmt(units)} ${S.unitLabel(i.unitName)}`);
+const stockWords = (i, units) => (isDozenItem(i) ? unitWords(units / 12, 'docenas') : unitWords(units, S.unitLabel(i.unitName)));
 // Cuánto se movió en la sesión: en docenas si hay productos en docenas.
 function sessionQty(live) {
   const units = live.reduce((s, f) => s + f.amount, 0), dz = live.some(f => f.dz), value = dz ? units / 12 : units;
@@ -960,7 +976,10 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
   session.units += r.amount;
   session.products.add(r.item.id);
   const serialTag = pack ? `${pack.label} N.º ${String(resolved.number).padStart(4, '0')}` : '';
-  session.feed.unshift({ id: Date.now() + Math.random(), entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), dz: isDozenItem(r.item), at: new Date().toISOString(), undone: false, ...(r.pending ? { pending: true, qty: r.qty, unitIn: r.unitIn, note: r.note } : {}) });
+  const feedId = Date.now() + Math.random();
+  session.lastId = feedId;
+  slEditing = false;
+  session.feed.unshift({ id: feedId, entryId: r.entryId, itemId: r.item.id, sku: r.item.sku, name: serialTag || productName(r.item), serial: pack ? code : '', op, amount: r.amount, before: r.before, after: r.after, unit: S.unitLabel(r.item.unitName), dz: isDozenItem(r.item), at: new Date().toISOString(), undone: false, ...(r.pending ? { pending: true, qty: r.qty, unitIn: r.unitIn, note: r.note } : {}) });
   if (session.feed.length > 200) session.feed.length = 200;
   const sign = op === 'restar' ? '−' : op === 'establecer' ? '=' : '+';
   // Texto claro de lo que se movió: "−1 docena (12 unidades)" o "+1 unidad".
@@ -970,11 +989,52 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
     : resolved?.pack === 'D' ? `${sign}1 docena` : dz ? `${sign}${unitWords(r.amount / 12, 'docenas')}` : `${sign}${unitWords(r.amount, S.unitLabel(r.item.unitName))}`;
   const movedSub = (resolved?.pack === 'D' || dz) && op !== 'establecer' ? ` (${unitWords(r.amount, 'unidades')})` : '';
   const sk = saleKind(), pr = sk && linePrice({ itemId: r.item.id }, sk);
-  const priceInfo = !sk ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ` · <span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}: completalo al terminar</span>`;
+  const priceInfo = !sk || sk === 'venta' ? '' : pr ? ` · <b>${moneyIn(S.lineAmount(r.amount, pr.price, pr.per), saleCur(sk))}</b>` : ' · <span class="warn">sin costo: completalo al terminar</span>';
   scanFeedback(true, `<div class="scan-result ok"><span class="big">${moved}</span><div><strong class="mono">${esc(r.item.sku)}</strong>${serialTag ? ` <span class="badge badge-primary">${esc(serialTag)}</span>` : ''}${r.created ? ' <span class="badge badge-success">Nuevo</span>' : ''}<div class="small">${r.pending ? 'En la venta' : op === 'restar' ? 'Salida' : op === 'establecer' ? 'Conteo' : 'Ingreso'}${movedSub} · ${esc(productName(r.item) || 'Sin marca')} · stock ${esc(stockWords(r.item, r.after))}${r.pending ? ' al confirmar' : ''}${priceInfo}</div></div></div>`);
+  renderLastPrice();
   renderScanSession();
   focusScan();
   return true;
+}
+
+// Precio de la última lectura (en una venta): se ve y se cambia acá mismo, en el recuadro de la lectura.
+let slEditing = false;
+function renderLastPrice() {
+  const box = byId('scanLast'), f = session.feed.find(x => String(x.id) === String(session.lastId));
+  box.querySelector('.sl-price')?.remove();
+  if (!f || f.undone || saleKind() !== 'venta') return;
+  const it = S.findById(f.itemId);
+  if (!it) return;
+  const cur = saleCur('venta'), pr = linePrice(f, 'venta'), per = pr?.per || newPricePer(it), sug = S.suggestedPrice(it);
+  const amount = pr ? S.lineAmount(f.amount, pr.price, pr.per) : null;
+  const note = pr?.custom ? 'solo esta venta' : priceNote(it, pr?.price);
+  const html = slEditing
+    ? `<div class="sl-price editing"><label for="slPriceInput">Precio ${S.PRICE_PER[per]}</label>
+        <input id="slPriceInput" class="input money" inputmode="decimal" enterkeyhint="done" value="${pr ? fmt(pr.price) : ''}" placeholder="${sug ? `Sugerido ${fmt(sug.price)}` : 'Escribí el precio'}" aria-label="Precio de ${esc(it.sku)}">
+        <button type="button" class="btn btn-primary btn-sm" data-sl-save>Guardar</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-sl-cancel>Cancelar</button>
+        ${sug ? `<button type="button" class="link" data-sl-suggest>Usar sugerido ${moneyIn(sug.price, cur)}</button>` : ''}</div>`
+    : `<div class="sl-price"><span>${pr ? `Precio <b>${moneyIn(pr.price, cur)}</b> ${S.PRICE_PER[per]}${amount !== pr.price ? ` · importe <b>${moneyIn(amount, cur)}</b>` : ''}` : '<b class="warn">Sin precio</b>'}</span>
+        ${note ? `<span class="badge ${pr?.custom || S.hasFixedPrice(it) ? 'badge-warn' : ''}">${esc(note)}</span>` : ''}
+        <button type="button" class="btn btn-ghost btn-sm" data-sl-edit>${icon('edit', 'sm')}${pr ? 'Cambiar precio' : 'Poner precio'}</button></div>`;
+  box.insertAdjacentHTML('beforeend', html);
+  if (slEditing) { const el = byId('slPriceInput'); el.focus(); el.select(); }
+}
+function saveLastPrice(useSuggested = false) {
+  const f = session.feed.find(x => String(x.id) === String(session.lastId)), it = f && S.findById(f.itemId);
+  if (!it) return;
+  let how = 'same';
+  if (useSuggested) how = setSaleItemPrice(it, null);
+  else {
+    const raw = txt(byId('slPriceInput')?.value), v = parseMoney(raw), cur = linePrice(f, 'venta');
+    if (raw && v == null) { toast('Escribí el precio como número, por ejemplo 120000 o 120.000.', 'error'); byId('slPriceInput').focus(); return; }
+    if (v != null && v !== cur?.price) how = setSaleItemPrice(it, v);
+  }
+  slEditing = false;
+  renderScanSession();
+  renderLastPrice();
+  priceSavedToast(it, useSuggested && how === 'same' ? 'suggested' : how);
+  focusScan();
 }
 
 // =========================================================
@@ -1048,14 +1108,14 @@ function maMatches(q) {
     .slice(0, 8).map(x => x.i);
 }
 function renderMaResults() {
-  const q = byId('maSearch').value, box = byId('maResults');
+  const q = byId('scanInput').value, box = byId('maResults');
   if (maPick && maPick.sku !== maCode(q)) maPick = null;
   // Código exacto: el producto queda elegido solo (sin mover el cursor, por si se sigue escribiendo).
   const exact = !maPick && state.items.find(i => i.sku === maCode(q));
   if (exact) maSelect(exact, { focus: false });
   const list = maPick ? [] : maMatches(q);
-  box.hidden = !list.length;
-  byId('maSearch').setAttribute('aria-expanded', String(!box.hidden));
+  box.hidden = !list.length || document.activeElement !== byId('scanInput') && !byId('scanForm').contains(document.activeElement);
+  byId('scanInput').setAttribute('aria-expanded', String(!box.hidden));
   box.innerHTML = list.map(i => { const p = S.pricesOn() ? priceText(i) : ''; return `<button type="button" class="ma-opt" role="option" data-ma="${esc(i.id)}"><b class="mono">${esc(i.sku)}</b><span>${esc(productName(i) || 'Sin marca ni prenda')}</span><small>stock ${esc(qtyText(i))}${p ? ` · ${esc(p)}` : ''}</small></button>`; }).join('');
   renderMaHint();
 }
@@ -1076,6 +1136,7 @@ function fillMaPrice() {
 function renderMaHint() {
   fillMaPrice();
   const it = maPick, qty = num(byId('maQty').value), unit = byId('maUnit').value;
+  byId('manualAdd').hidden = !it;
   if (!it) { byId('maHint').textContent = ''; return; }
   const units = qty * (unit === 'dozen' && it.unitName === 'unidades' ? 12 : 1), sk = saleKind(), base = sk && salePrice(it, sk);
   const typed = sk === 'venta' ? parseMoney(byId('maPrice').value) : null, per = base?.per || newPricePer(it);
@@ -1087,10 +1148,12 @@ function renderMaHint() {
   byId('maSuggest').innerHTML = sug ? `Sugerido <b>${moneyIn(sug.price, saleCur(sk))}</b>${shown !== sug.price ? ` <button type="button" class="link" data-ma-suggest>Usar sugerido</button>` : ''}` : '';
 }
 function maSelect(item, { focus = true } = {}) {
+  // Producto nuevo: la cantidad arranca en la "Cantidad por lectura" (1 docena si el producto va en docenas).
+  if (maPick?.id !== item.id) byId('maQty').value = num(prefs.scanQty) || 1;
   maPick = item;
-  byId('maSearch').value = item.sku;
+  byId('scanInput').value = item.sku;
   byId('maResults').hidden = true;
-  byId('maSearch').setAttribute('aria-expanded', 'false');
+  byId('scanInput').setAttribute('aria-expanded', 'false');
   byId('maUnit').disabled = item.unitName !== 'unidades';
   byId('maUnit').value = item.unitName === 'unidades' && item.displayUnit === 'dozen' ? 'dozen' : 'unit';
   delete byId('maPriceField').dataset.item;
@@ -1099,28 +1162,30 @@ function maSelect(item, { focus = true } = {}) {
   byId('maQty').focus();
   byId('maQty').select();
 }
-async function maAdd() {
-  const raw = txt(byId('maSearch').value), qty = num(byId('maQty').value);
-  if (!raw) { toast('Escribí o elegí un producto.', 'warn'); byId('maSearch').focus(); return; }
+// Cierra la fila del producto elegido (y las sugerencias).
+function closeMa() {
+  maPick = null;
+  byId('maResults').hidden = true;
+  byId('maUnit').disabled = false;
+  delete byId('maPriceField').dataset.item;
+  renderMaHint();
+}
+// source: 'escáner' si se confirmó con Enter en el campo (pistola o código escrito), 'manual' si con la fila.
+async function maAdd(source = 'manual') {
+  const raw = txt(byId('scanInput').value), qty = num(byId('maQty').value);
+  if (!raw) { toast('Escribí o elegí un producto.', 'warn'); byId('scanInput').focus(); return; }
   if (!(qty > 0)) { toast('La cantidad tiene que ser mayor que cero.', 'warn'); byId('maQty').focus(); return; }
   const list = maMatches(raw), item = maPick || S.findByCode(raw) || (list.length === 1 ? list[0] : null);
-  if (!item && list.length > 1) { toast('Hay varios productos que coinciden: elegí uno de la lista.', 'warn'); renderMaResults(); byId('maSearch').focus(); return; }
+  if (!item && list.length > 1) { toast('Hay varios productos que coinciden: elegí uno de la lista.', 'warn'); renderMaResults(); byId('scanInput').focus(); return; }
   // Precio escrito en el campo: queda fijo en el producto (un empleado: solo esta venta).
   if (item && !byId('maPriceField').hidden) {
     const raw = txt(byId('maPrice').value), v = parseMoney(raw), cur = linePrice({ itemId: item.id }, 'venta');
     if (raw && v == null) { toast('Escribí el precio como número, por ejemplo 120000 o 120.000.', 'error'); byId('maPrice').focus(); return; }
     if (v != null && v !== cur?.price) priceSavedToast(item, setSaleItemPrice(item, v));
   }
-  const ok = await handleScan(item ? item.sku : raw, 'manual', { qty, unit: item?.unitName === 'unidades' || !item ? byId('maUnit').value : 'unit' });
-  if (ok) {
-    maPick = null;
-    byId('maSearch').value = '';
-    byId('maQty').value = 1;
-    byId('maUnit').disabled = false;
-    delete byId('maPriceField').dataset.item;
-    renderMaResults();
-  }
-  byId('maSearch').focus();
+  const ok = await handleScan(item ? item.sku : raw, source, { qty, unit: item?.unitName === 'unidades' || !item ? byId('maUnit').value : 'unit' });
+  if (ok) { byId('scanInput').value = ''; closeMa(); }
+  byId('scanInput').focus();
 }
 
 function renderScanSession() {
@@ -1142,7 +1207,7 @@ function renderScanSession() {
     if (sk === 'venta' && feedPriceEdit === f.itemId) return `<div class="feed-money"><span class="feed-price-edit"><input class="input money feed-price" data-feed-price="${esc(f.itemId)}" inputmode="decimal" value="${pr ? fmt(pr.price) : ''}" placeholder="${sug ? `Sugerido ${fmt(sug.price)}` : `${cur === 'USD' ? 'US$' : '$'} 0`}" aria-label="Precio de ${esc(f.sku)}"> <small>${S.PRICE_PER[per]} · Enter para guardar</small></span>${sug ? ` <button type="button" class="link" data-use-suggest="${esc(f.itemId)}">Usar sugerido ${moneyIn(sug.price, cur)}</button>` : ''}</div>`;
     const amount = pr ? `<b>${moneyIn(S.lineAmount(f.amount, pr.price, pr.per), cur)}</b>` : `<span class="warn">sin ${sk === 'venta' ? 'precio' : 'costo'}</span>`;
     const note = sk === 'venta' && it ? (pr?.custom ? 'precio solo de esta venta' : priceNote(it, pr?.price)) : '';
-    return `<div class="feed-money">${amount}${pr ? ` <small>(${moneyIn(pr.price, cur)} ${S.PRICE_PER[per]})</small>` : ''}${note ? ` <span class="badge ${pr?.custom || S.hasFixedPrice(it) ? 'badge-warn' : ''}">${esc(note)}</span>` : ''}${sk === 'venta' ? ` <button type="button" class="link feed-price-btn" data-price-edit="${esc(f.itemId)}">${icon('edit', 'sm')}Cambiar precio</button>` : ''}</div>`;
+    return `<div class="feed-money">${amount}${pr ? ` <small>(${moneyIn(pr.price, cur)} ${S.PRICE_PER[per]})</small>` : ''}${note ? ` <span class="badge ${pr?.custom || S.hasFixedPrice(it) ? 'badge-warn' : ''}">${esc(note)}</span>` : ''}</div>`;
   };
   byId('scanFeed').innerHTML = session.feed.length
     ? session.feed.map(f => `<div class="feed-item tl-${f.op === 'restar' ? 'out' : f.op === 'establecer' ? 'count' : 'in'} ${f.undone ? 'undone' : ''}" ${f.entryId ? `data-move="${esc(f.entryId)}"` : ''}>
@@ -3024,28 +3089,34 @@ function bindEvents() {
   byId('speakForm').onclick = speakForm;
 
   // Escanear
-  byId('scanForm').addEventListener('submit', e => { e.preventDefault(); const v = byId('scanInput').value; byId('scanInput').value = ''; handleScan(v, 'escáner'); });
-  // Carga a mano
-  byId('maSearch').addEventListener('input', renderMaResults);
-  byId('maSearch').addEventListener('focus', renderMaResults);
-  byId('maSearch').addEventListener('keydown', e => {
+  // Un solo campo: la pistola (o un código exacto + Enter) agrega al instante; escribiendo aparecen sugerencias
+  // y al elegir un producto se abre la fila de cantidad y precio.
+  byId('scanForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const v = byId('scanInput').value;
+    if (!txt(v)) return;
+    if (maPick && maPick.sku === maCode(v)) { maAdd('escáner'); return; }
+    const list = maMatches(v);
+    if (S.resolveCode(maCode(v)) || !list.length) { byId('scanInput').value = ''; closeMa(); handleScan(v, 'escáner'); return; }
+    if (list.length === 1) { maSelect(list[0]); return; }
+    $('#maResults .ma-opt')?.focus();
+  });
+  byId('scanInput').addEventListener('input', renderMaResults);
+  byId('scanInput').addEventListener('focus', renderMaResults);
+  byId('scanInput').addEventListener('keydown', e => {
     const opts = $$('#maResults .ma-opt');
     if (e.key === 'ArrowDown' && opts.length) { e.preventDefault(); opts[0].focus(); }
-    else if (e.key === 'Escape') byId('maResults').hidden = true;
-    else if (e.key === 'Enter') {
-      e.preventDefault();
-      const list = maMatches(byId('maSearch').value), exact = S.findByCode(byId('maSearch').value);
-      if (maPick) byId('maQty').focus(); else if (exact || list.length === 1) maSelect(exact || list[0]); else if (list.length) opts[0]?.focus();
-    }
+    else if (e.key === 'Escape') { byId('scanInput').value = ''; closeMa(); }
   });
+  byId('maClose').onclick = () => { byId('scanInput').value = ''; closeMa(); byId('scanInput').focus(); };
   byId('maResults').addEventListener('keydown', e => {
     const opts = $$('#maResults .ma-opt'), i = opts.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); opts[Math.min(i + 1, opts.length - 1)]?.focus(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? byId('maSearch') : opts[i - 1]).focus(); }
-    if (e.key === 'Escape') { byId('maResults').hidden = true; byId('maSearch').focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? byId('scanInput') : opts[i - 1]).focus(); }
+    if (e.key === 'Escape') { byId('maResults').hidden = true; byId('scanInput').focus(); }
   });
   byId('maResults').addEventListener('click', e => { const b = e.target.closest('[data-ma]'); if (b) maSelect(S.findById(b.dataset.ma)); });
-  byId('manualAdd').addEventListener('focusout', () => setTimeout(() => { if (!byId('manualAdd').contains(document.activeElement)) byId('maResults').hidden = true; }, 120));
+  byId('scanForm').addEventListener('focusout', () => setTimeout(() => { if (!byId('scanForm').contains(document.activeElement)) byId('maResults').hidden = true; }, 120));
   ['maQty', 'maUnit', 'maPrice'].forEach(id => byId(id).addEventListener('input', renderMaHint));
   byId('maPrice').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
   byId('maSuggest').addEventListener('click', e => { if (!e.target.closest('[data-ma-suggest]')) return; const s = maPick && S.suggestedPrice(maPick); if (s) { byId('maPrice').value = fmt(s.price); renderMaHint(); byId('maPrice').focus(); } });
@@ -3112,6 +3183,18 @@ function bindEvents() {
     });
   }
   byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
+  // Precio de la última lectura
+  byId('scanLast').addEventListener('click', e => {
+    if (e.target.closest('[data-sl-edit]')) { slEditing = true; renderLastPrice(); }
+    else if (e.target.closest('[data-sl-save]')) saveLastPrice();
+    else if (e.target.closest('[data-sl-suggest]')) saveLastPrice(true);
+    else if (e.target.closest('[data-sl-cancel]')) { slEditing = false; renderLastPrice(); focusScan(); }
+  });
+  byId('scanLast').addEventListener('keydown', e => {
+    if (e.target.id !== 'slPriceInput') return;
+    if (e.key === 'Enter') { e.preventDefault(); saveLastPrice(); }
+    if (e.key === 'Escape') { slEditing = false; renderLastPrice(); focusScan(); }
+  });
 
   // Inventario
   byId('invSearch').addEventListener('input', debounce(e => { inv.q = e.target.value; inv.limit = 150; renderInventory(); }, 120));
@@ -3404,8 +3487,15 @@ function bindExtras() {
   byId('kUndo').onclick = () => { const last = session.feed.find(f => !f.undone); if (last) revertScan(last.id); byId('kInput').focus(); };
   byId('kiosk').addEventListener('click', e => { if (!e.target.closest('button, input, a, .segmented')) byId('kInput').focus(); });
   // Precios y ventas (ajuste del negocio)
-  byId('pricesOn').onchange = e => {
+  byId('pricesOn').onchange = async e => {
     if (!ownerOnly('activar o desactivar los precios')) { e.target.checked = S.pricesOn(); return; }
+    // Una venta sin confirmar no puede quedar a medias: apagando los precios se descarta (no se descontó nada).
+    const n = cartPending().length;
+    if (!e.target.checked && n) {
+      const ok = await ask({ title: 'Tenés una venta sin confirmar', message: `Hay ${n} lectura${n === 1 ? '' : 's'} en la venta (todavía no se descontó nada del stock). Si apagás los precios, la venta se descarta.`, confirm: 'Apagar y descartar la venta', cancel: 'Dejar los precios', danger: true });
+      if (!ok) { e.target.checked = true; return; }
+      resetSession();
+    }
     S.setPricesEnabled(e.target.checked);
     toast(e.target.checked ? 'Precios y ventas activados. Cargá precios en Inventario y usá "Es una venta" al escanear salidas.' : 'Precios ocultos. Los que cargaste quedan guardados por si los volvés a activar.', 'info');
   };
