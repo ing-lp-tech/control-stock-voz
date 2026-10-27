@@ -8,7 +8,7 @@ async function ensureXLSX() { if (!window.XLSX) await loadScript(XLSX_URL); retu
 
 export function inventoryRows(items = state.items) {
   // Columnas de precios solo si se usan (con la app como control de stock el archivo queda igual que antes).
-  const withPrices = pricesOn() || items.some(i => i.price || i.cost);
+  const withPrices = pricesOn(); // usando la app solo para stock, el Excel no lleva precios
   const withCost = items.some(i => i.cost);
   return items.map(i => {
     const d = displayQty(i);

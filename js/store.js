@@ -130,6 +130,35 @@ export function arsPriceFor(item) {
   const rate = fxRate();
   return item.price > 0 && rate ? { price: roundArs(item.price * rate), per, fixed: false } : null;
 }
+// Precio sugerido: costo + ganancia general (en pesos, por el dólar blue y redondeado, si se cobra en pesos).
+export function suggestedPrice(item) {
+  const usd = autoPrice(item);
+  if (!usd) return null;
+  const per = pricePerOf(item);
+  if (!chargeArs()) return { price: usd, per };
+  const r = fxRate();
+  return r ? { price: roundArs(usd * r), per } : null;
+}
+// ¿El precio de venta está fijado a mano (no sigue al sugerido)?
+export const hasFixedPrice = i => !!i && (i.priceArs > 0 || !!i.priceManual);
+// Fija el precio de venta de un producto en la moneda en que se cobra (con dólar blue: precio fijo en pesos).
+// value null: vuelve al precio sugerido. per: unidad del precio si el producto todavía no tiene ninguno.
+export function setSalePrice(id, value, per) {
+  const i = findById(id);
+  if (!i) return fail('Producto no encontrado.');
+  const v = value == null ? null : cleanPrice(value);
+  if (value != null && !v) return fail('El precio tiene que ser mayor que cero.');
+  checkpoint();
+  const noPrices = !(i.price > 0) && !(i.priceArs > 0) && !(i.cost > 0);
+  const patch = { ...(per && noPrices ? { pricePer: per } : {}), ...(v == null ? { priceArs: null, priceAuto: true } : chargeArs() ? { priceArs: v } : { price: v }) };
+  const note = applyPrices(i, patch);
+  if (!note) { undoStack.pop(); return { ok: true, item: i, changed: false }; }
+  i.updatedAt = nowIso();
+  log('edit', 'Cambio de precio', i, { note: `Precios: ${note}` });
+  commit('prices');
+  return { ok: true, item: i, changed: true };
+}
+
 // Comprobantes: moneda en que se cobró (los anteriores a esta versión están en pesos) y conversión para reportes.
 export const remitoCurrency = r => (r?.currency === 'USD' ? 'USD' : 'ARS');
 export const reportCurrency = () => (chargeArs() ? 'ARS' : currency());
@@ -271,6 +300,8 @@ export function normalizeItem(i) {
     ...(i.pricePer === 'dozen' ? { pricePer: 'dozen' } : {}),
     ...(i.priceManual ? { priceManual: true } : {}), // precio de venta escrito a mano: no sigue el margen general
     ...(cleanPrice(i.priceArs) ? { priceArs: cleanPrice(i.priceArs) } : {}), // precio fijo en pesos: no sigue al dólar
+    // Último precio de venta puesto a mano: se conserva aunque el producto vuelva al precio configurado.
+    ...(cleanPrice(i.lastManual?.price) ? { lastManual: { price: cleanPrice(i.lastManual.price), cur: i.lastManual.cur === 'USD' ? 'USD' : 'ARS', per: i.lastManual.per === 'dozen' ? 'dozen' : 'unit', at: String(i.lastManual.at || ''), ...(i.lastManual.by ? { by: String(i.lastManual.by) } : {}) } } : {}),
     updatedAt: i.updatedAt || nowIso(),
     createdAt: i.createdAt || i.updatedAt || nowIso(),
   };
@@ -587,6 +618,10 @@ function applyPrices(i, patch) {
     const v = i[k] || null;
     if (before[k] !== v) changes.push(`${label} ${before[k] ? `${currencySign()} ${fmt(before[k])}` : '—'} → ${v ? `${currencySign()} ${fmt(v)}` : '—'}`);
   }
+  // Se recuerda el último precio puesto a mano (para consultarlo aunque después se vuelva al configurado).
+  const manual = i.priceArs && i.priceArs !== beforeArs ? { price: i.priceArs, cur: 'ARS' }
+    : 'price' in patch && i.priceManual && i.price && i.price !== before.price ? { price: i.price, cur: currency() } : null;
+  if (manual) i.lastManual = { ...manual, per: pricePerOf(i), at: nowIso(), ...(actor ? { by: actor } : {}) };
   return changes.join(', ');
 }
 // Guarda precios de varios productos (p. ej. los que se escribieron al cerrar una venta). field: 'price' | 'cost' | 'priceArs'.
@@ -877,7 +912,7 @@ export function rebase(remote) {
     } else if (local && local.updatedAt > it.updatedAt) {
       // Datos del producto (marca, prenda, mínimo…) editados acá: se conservan. El stock se recalcula abajo.
       Object.assign(it, { brand: local.brand, type: local.type, barcode: local.barcode, minStock: local.minStock, stockType: local.stockType, unitName: local.unitName, displayUnit: local.displayUnit });
-      for (const k of ['price', 'cost', 'pricePer', 'priceManual', 'priceArs']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
+      for (const k of ['price', 'cost', 'pricePer', 'priceManual', 'priceArs', 'lastManual']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
     }
     if (h.before != null && h.after != null) {
       it.units = round2(Math.max(0, k === 'count' || h.abs ? h.after : it.units + (h.after - h.before)));

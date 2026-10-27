@@ -34,6 +34,7 @@
    <a class="nav-item" href="#/cargar" data-nav="cargar"><i data-i="mic"></i><span>Cargar productos</span></a>
    <a class="nav-item" href="#/escanear" data-nav="escanear"><i data-i="scan"></i><span>Escanear</span><kbd>F2</kbd></a>
    <a class="nav-item" href="#/inventario" data-nav="inventario"><i data-i="box"></i><span>Inventario</span><span class="nav-count" id="navCount">0</span></a>
+   <a class="nav-item price-only" href="#/precios" data-nav="precios"><i data-i="cash"></i><span>Consultar precio</span></a>
    <a class="nav-item" href="#/etiquetas" data-nav="etiquetas"><i data-i="tag"></i><span>Etiquetas</span></a>
    <a class="nav-item" href="#/clientes" data-nav="clientes"><i data-i="users"></i><span>Clientes y proveedores</span></a>
    <a class="nav-item" href="#/kiosco" data-nav="kiosco"><i data-i="zap"></i><span>Modo mostrador</span></a>
@@ -71,7 +72,7 @@
      <div>
       <p class="eyebrow" id="todayLabel"></p>
       <h2 id="greeting">¡Hola!</h2>
-      <p>Elegí la tarea de hoy y empezá a cargar por voz, con la pistola lectora o a mano.</p>
+      <p class="hero-text">Elegí la tarea de hoy y empezá a cargar por voz, con la pistola lectora o a mano.</p>
      </div>
      <div class="task-picker field">
       <label for="taskPanel">Tarea actual</label>
@@ -93,10 +94,11 @@
     <div class="quick">
      <a class="quick-tile" href="#/escanear?op=restar"><span class="qt-icon"><i data-i="arrow-out"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar salida</strong><small>Escaneá lo que se va y mandá el remito.</small></a>
      <a class="quick-tile" href="#/escanear?op=sumar"><span class="qt-icon"><i data-i="arrow-in"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Registrar entrada</strong><small>Escaneá la mercadería que llega.</small></a>
+     <a class="quick-tile qt-price price-only" href="#/precios"><span class="qt-icon"><i data-i="cash"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Consultar precio</strong><small>Escaneá o buscá un producto y mirá cuánto sale.</small></a>
      <a class="quick-tile" href="#/cargar?voz=1"><span class="qt-icon"><i data-i="mic"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Dictar por voz</strong><small>Marca, prenda, código y “docenas 18”.</small></a>
      <a class="quick-tile" href="#/kiosco"><span class="qt-icon"><i data-i="zap"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Modo mostrador</strong><small>Pantalla grande y simple para escanear entradas y salidas.</small></a>
-     <a class="quick-tile" href="#/etiquetas"><span class="qt-icon"><i data-i="tag"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Etiquetas</strong><small>Códigos de barras y QR para imprimir.</small></a>
-     <a class="quick-tile" href="#/ayuda"><span class="qt-icon"><i data-i="info"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>¿Cómo se usa?</strong><small>Manual paso a paso de toda la app.</small></a>
+     <a class="quick-tile qt-extra" href="#/etiquetas"><span class="qt-icon"><i data-i="tag"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>Etiquetas</strong><small>Códigos de barras y QR para imprimir.</small></a>
+     <a class="quick-tile qt-extra" href="#/ayuda"><span class="qt-icon"><i data-i="info"></i></span><span class="qt-arrow"><i data-i="chevron-right"></i></span><strong>¿Cómo se usa?</strong><small>Manual paso a paso de toda la app.</small></a>
     </div>
 
     <div class="grid-2">
@@ -140,7 +142,7 @@
      <form id="productForm" class="card" novalidate autocomplete="off">
       <div class="card-head"><div class="card-title"><span class="card-icon"><i data-i="box"></i></span><div><h3>Datos del producto</h3><p>Revisá y guardá el movimiento</p></div></div><span id="formBadge" class="badge" hidden></span></div>
       <div class="stack">
-       <div class="field"><label for="taskForm">Tarea</label><select id="taskForm" class="input task-select" data-options="stockTypes"></select></div>
+       <div class="field task-field"><label for="taskForm">Tarea</label><select id="taskForm" class="input task-select" data-options="stockTypes"></select></div>
        <div class="field"><span class="label">Operación</span>
         <div class="segmented lg" id="opSeg" role="group" aria-label="Operación">
          <button type="button" data-v="sumar"><i data-i="plus"></i>Sumar</button>
@@ -211,13 +213,14 @@
         <input id="scanInput" class="scan-input" placeholder="Disparale con la pistola o escribí el código" spellcheck="false" autocapitalize="characters" enterkeyhint="go" aria-label="Código escaneado">
         <button type="submit" class="btn btn-primary">Registrar</button>
        </form>
-       <div class="row" style="margin-top:12px"><button id="scanCamera" class="btn btn-soft btn-sm" type="button"><i data-i="camera" class="sm"></i>Usar la cámara</button><a class="btn btn-ghost btn-sm" href="#/kiosco"><i data-i="zap" class="sm"></i>Pantalla grande (mostrador)</a><a class="btn btn-ghost btn-sm" href="#/ayuda?s=salida"><i data-i="info" class="sm"></i>¿Cómo se usa?</a></div>
+       <div class="row" style="margin-top:12px"><button id="scanCamera" class="btn btn-soft btn-sm" type="button"><i data-i="camera" class="sm"></i>Usar la cámara</button><a class="btn btn-ghost btn-sm" href="#/kiosco"><i data-i="zap" class="sm"></i><span class="hide-sm">Pantalla grande (mostrador)</span><span class="show-sm">Mostrador</span></a><a class="btn btn-ghost btn-sm hide-sm" href="#/ayuda?s=salida"><i data-i="info" class="sm"></i>¿Cómo se usa?</a></div>
        <div class="manual-add" id="manualAdd">
         <div class="manual-add-head"><i data-i="keyboard"></i><b>¿Sin pistola? Cargá a mano</b><span class="muted small">Buscá por código, marca o prenda</span></div>
         <div class="manual-add-row">
          <div class="field ma-search"><label for="maSearch">Producto</label><input id="maSearch" class="input" placeholder="Ej.: GT8008, URUS, chomba" autocomplete="off" spellcheck="false" autocapitalize="characters" role="combobox" aria-controls="maResults" aria-expanded="false"><div id="maResults" class="ma-results" role="listbox" hidden></div></div>
          <div class="field ma-qty"><label for="maQty">Cantidad</label><input id="maQty" class="input" type="number" inputmode="decimal" min="0.01" step="any" value="1"></div>
          <div class="field ma-unit"><label for="maUnit">En</label><select id="maUnit" class="input"><option value="dozen">Docenas</option><option value="unit">Unidades</option></select></div>
+         <div class="field ma-price" id="maPriceField" hidden><label for="maPrice" id="maPriceLabel">Precio</label><input id="maPrice" class="input money" inputmode="decimal" autocomplete="off" enterkeyhint="done"><div class="ma-suggest" id="maSuggest"></div></div>
          <button type="button" class="btn btn-primary ma-add" id="maAdd"><i data-i="plus"></i>Agregar</button>
         </div>
         <p class="hint" id="maHint"></p>
@@ -228,14 +231,15 @@
        <button class="btn btn-lg btn-block finish-btn" type="button" id="scanRemito" disabled><i data-i="check"></i><span id="scanFinishLabel">Terminar salida</span></button>
        <p class="hint" id="scanFinishHint">Te muestra el resumen y podés mandar el remito por WhatsApp.</p>
       </div>
-      <div class="card">
+      <div class="card scan-session" id="scanSession">
        <div class="card-head"><div><h3 id="sessionTitle">Productos de esta salida</h3><p>Tocá una lectura para ver el detalle o revertila si fue un error</p></div><button id="scanNewSession" class="btn btn-ghost btn-sm" type="button"><i data-i="refresh" class="sm"></i>Empezar de nuevo</button></div>
        <div class="mini-stats"><div><strong id="ssReads">0</strong><span>lecturas</span></div><div><strong id="ssUnits">0</strong><span>unidades</span></div><div><strong id="ssProducts">0</strong><span>productos</span></div><div class="price-only money-stat" id="ssMoneyBox" hidden><strong id="ssMoney">$ 0</strong><span>total</span></div></div>
        <div id="scanFeed" class="feed"></div>
       </div>
      </div>
-     <div class="card stack">
-      <div class="card-head" style="margin:0"><div class="card-title"><span class="card-icon"><i data-i="settings"></i></span><div><h3>Opciones</h3><p>Normalmente no hace falta cambiarlas</p></div></div></div>
+     <details class="card scan-options" id="scanOptions" open>
+      <summary class="card-head" style="margin:0"><div class="card-title"><span class="card-icon"><i data-i="settings"></i></span><div><h3>Opciones</h3><p>Normalmente no hace falta cambiarlas</p></div></div><i data-i="chevron-down" class="so-chevron"></i></summary>
+      <div class="stack">
       <div class="field"><label for="taskScan">Tarea</label><select id="taskScan" class="input task-select" data-options="stockTypes"></select></div>
       <div class="field"><label for="scanQty">Cantidad por lectura</label>
        <div class="stepper"><button type="button" data-step="-1" aria-label="Menos"><i data-i="minus"></i></button><input id="scanQty" type="number" inputmode="decimal" min="0.01" step="any" value="1"><button type="button" data-step="1" aria-label="Más"><i data-i="plus"></i></button></div>
@@ -247,8 +251,27 @@
       <label class="switch"><input type="checkbox" id="scanSound"><span class="track"></span>Sonido y vibración al leer</label>
       <p class="hint" id="scanOpHint" hidden></p>
       <div class="notice info"><i data-i="info"></i><span>La pistola tiene que estar en modo teclado (HID) con Enter al final. Es el modo de fábrica de casi todas.</span></div>
-     </div>
+      </div>
+     </details>
     </div>
+    <!-- Celular: total y "Terminar" siempre a mano mientras hay lecturas -->
+    <div class="scan-bar" id="scanBar" hidden>
+     <div class="sb-info"><strong id="sbTotal"></strong><span id="sbSub"></span></div>
+     <button class="btn finish-btn" type="button" id="sbFinish"><i data-i="check"></i><span id="sbLabel">Terminar</span></button>
+    </div>
+   </section>
+
+   <!-- ===== CONSULTAR PRECIO (solo con precios activados) ===== -->
+   <section class="view" data-view="precios">
+    <div class="card pl-card">
+     <form id="plForm" class="scan-input-wrap pl-search" autocomplete="off" role="search">
+      <i data-i="search"></i>
+      <input id="plInput" class="scan-input" placeholder="Escaneá o escribí código, marca o prenda" spellcheck="false" autocapitalize="characters" enterkeyhint="search" aria-label="Buscar precio">
+      <button type="button" class="btn btn-soft" id="plCamera" title="Leer el código con la cámara" aria-label="Leer el código con la cámara"><i data-i="camera"></i></button>
+     </form>
+     <p class="hint pl-hint" id="plHint"></p>
+    </div>
+    <div id="plResults" class="pl-results" aria-live="polite"></div>
    </section>
 
    <!-- ===== INVENTARIO ===== -->
@@ -258,7 +281,7 @@
      <select id="invSort" class="input select-sm" aria-label="Ordenar">
       <option value="sku">Código A → Z</option><option value="brand">Marca A → Z</option><option value="desc">Mayor stock</option><option value="asc">Menor stock</option><option value="recent">Modificados recientemente</option><option value="price" class="price-only">Mayor precio</option>
      </select>
-     <button class="btn btn-ghost owner-only" type="button" id="invDups" title="Buscar productos cargados dos veces con códigos parecidos"><i data-i="layers"></i><span>Duplicados</span></button>
+     <button class="btn btn-ghost owner-only" type="button" id="invDups" title="Buscar productos cargados dos veces con códigos parecidos" aria-label="Duplicados"><i data-i="layers"></i><span class="hide-sm">Duplicados</span></button>
      <a href="#/cargar" class="btn btn-primary"><i data-i="plus"></i><span>Nuevo</span></a>
     </div>
     <div class="chips" id="invFilters" style="margin-bottom:14px">
@@ -469,9 +492,9 @@
          <li>Etiqueta de <b>unidad</b> (ej. 1015U0012): resta 1.</li>
          <li>Etiqueta del <b>producto</b> (ej. 1015): resta lo que diga «Cantidad por lectura» (normalmente 1) en la unidad del producto: <b>1 docena</b> si está cargado en docenas, o 1 prenda si está en unidades.</li>
         </ul></li>
-       <li><b>¿Sin pistola?</b> En <b>Cargá a mano</b> (debajo del campo de la pistola) buscá el producto por código, marca o prenda, elegilo de la lista, poné la cantidad en <b>docenas</b> o <b>unidades</b> y tocá <b>Agregar</b>. Se suma a la misma salida o venta, con su precio.</li>
-       <li><b>En una venta nada se descuenta hasta confirmar:</b> lo que escaneás se suma a la venta y el stock se descuenta recién cuando tocás <b>Confirmar venta</b> o <b>Enviar por WhatsApp</b> al terminar. Si descartás la venta, no se descuenta nada.</li>
-       <li><b>Cambiar un precio solo para esta venta</b> (por ejemplo si un producto escasea): en la lista <i>«Productos de esta venta»</i> tocá <b>Cambiar precio</b> en ese producto, escribí el precio (ej. 120.000) y apretá Enter. También lo podés cambiar en la tabla al terminar. El precio del producto no cambia, salvo que marques <b>Guardar los precios cambiados</b>.</li>
+       <li><b>¿Sin pistola?</b> En <b>Cargá a mano</b> (debajo del campo de la pistola) buscá el producto por código, marca o prenda, elegilo de la lista, poné la cantidad en <b>docenas</b> o <b>unidades</b> y tocá <b>Agregar</b>. Se suma a la misma salida o venta. Si escribís el código exacto, el producto queda elegido solo, y con Enter se agrega.<span class="price-only"> En una venta también ves el <b>Precio</b> del producto y el <b>Sugerido</b>, y lo podés cambiar ahí mismo.</span></li>
+       <li class="price-only"><b>En una venta nada se descuenta hasta confirmar:</b> lo que escaneás se suma a la venta y el stock se descuenta recién cuando tocás <b>Confirmar venta</b> o <b>Enviar por WhatsApp</b> al terminar. Si descartás la venta, no se descuenta nada.</li>
+       <li class="price-only"><b>Cambiar un precio</b> (por ejemplo si un producto escasea): en <b>Cargá a mano</b> o en la lista <i>«Productos de esta venta»</i> tocá <b>Cambiar precio</b>, escribí el precio (ej. 120.000) y apretá Enter. <b>Queda fijo en el producto</b> para las próximas ventas. Al lado siempre ves el <b>precio sugerido</b> (costo + tu ganancia); con <b>Usar sugerido</b> el producto vuelve a seguirlo. Si lo cambia un empleado, vale solo para esa venta.</li>
        <li><b>Paso 4 · Tocá «Terminar salida».</b> Ves el resumen y elegís: <b>Enviar remito por WhatsApp</b>, <b>Descargar PDF</b> o <b>Terminar sin remito</b>. La lista queda vacía para la próxima salida.</li>
       </ol>
       <div class="notice warn"><i data-i="alert"></i><span><b>¿Te equivocaste?</b> En la lista tocá <b>Revertir</b> en esa lectura (o «Revertir la última» en el modo mostrador). Si ya terminaste la salida, pedile a la dueña que la anule desde el Historial.</span></div>
@@ -490,7 +513,7 @@
       <p class="small muted">También podés cargar entradas por voz o a mano desde <b>Cargar productos</b>.</p>
      </details>
 
-     <details class="card manual-topic" id="m-ventas">
+     <details class="card manual-topic price-only" id="m-ventas">
       <summary><h3>Precios y ventas (opcional)</h3><span>Si además de controlar el stock querés registrar cuánto vendiste.</span></summary>
       <p class="small muted">Si usás la app solo para el stock, no hace falta nada de esto: los precios nunca son obligatorios.</p>
       <ol class="manual-steps">
@@ -510,7 +533,7 @@
       </ul>
      </details>
 
-     <details class="card manual-topic owner-only" id="m-costos">
+     <details class="card manual-topic owner-only price-only" id="m-costos">
       <summary><h3>Costos, ganancia general y precio de venta</h3><span>Cargar todos los costos de una vez y que el precio de venta se calcule solo.</span></summary>
       <ol class="manual-steps">
        <li><b>Elegí la moneda:</b> en <b>Cuenta y nube → Precios y ventas</b>, en <b>Moneda de los precios</b>, elegí <b>Dólares (US$)</b> o <b>Pesos ($)</b>. Solo cambia cómo se muestran: no convierte los importes ya cargados.</li>
@@ -534,10 +557,21 @@
        <li>Al <b>terminar la venta</b> podés cambiar cualquier precio en pesos ahí mismo. Si marcás <b>Guardar los precios nuevos</b>, ese producto queda con ese <b>precio fijo en pesos</b> para la próxima.</li>
       </ol>
       <ul class="manual-list">
-       <li><b>Precio en pesos que no te gusta cómo cerró:</b> en <b>Inventario</b> tocá el producto y escribí el <b>Precio de venta en pesos</b>. Queda <b>fijo</b> y no cambia con el dólar. Borralo para volver al cálculo.</li>
+       <li><b>Precio en pesos que no te gusta cómo cerró:</b> escribilo en <b>Cambiar precio</b> durante la venta, o en <b>Inventario</b> tocá el producto y completá el <b>Precio de venta en pesos</b>. Queda <b>fijo</b> y no cambia con el dólar. El <b>precio sugerido</b> (costo + ganancia × dólar blue) se sigue mostrando al lado; con <b>Usar el sugerido</b> vuelve a seguirlo.</li>
        <li>Si no hay internet se usa la última cotización guardada. También podés escribir una <b>cotización fija</b>: se usa esa en lugar del blue hasta que la borres.</li>
        <li>Cada venta guarda la cotización con la que se cobró. Los <b>Reportes</b> muestran todo en pesos.</li>
       </ul>
+     </details>
+
+     <details class="card manual-topic price-only" id="m-precios">
+      <summary><h3>Consultar un precio rápido</h3><span>Cuando un cliente pregunta «¿cuánto sale?».</span></summary>
+      <ol class="manual-steps">
+       <li>Abrí <b>Consultar precio</b> (en el Panel, en el menú o en <b>Más → Precios</b>).</li>
+       <li>Escaneá la etiqueta con la pistola o la cámara, o escribí parte del código, la marca o la prenda.</li>
+       <li>Ves en grande el <b>precio que se cobra</b> (por docena y por unidad, en pesos y en dólares) y el stock.</li>
+       <li>Debajo, las dos referencias: el <b>Configurado</b> (costo + la ganancia general que puso la dueña) y el <b>Último a mano</b> (el último precio que se escribió para ese producto, con la fecha y quién lo cambió). La que se está cobrando aparece marcada.</li>
+      </ol>
+      <p class="small muted">Es solo una consulta: no registra ninguna venta ni toca el stock.</p>
      </details>
 
      <details class="card manual-topic" id="m-mostrador">
@@ -546,7 +580,7 @@
        <li>Abrilo desde <b>Escanear → Pantalla grande</b>, desde el Panel o desde <b>Más → Mostrador</b>.</li>
        <li>Arriba elegí <b>Salida</b> o <b>Entrada</b> y el cliente.</li>
        <li>Escaneá (o escribí el código): el resultado aparece grande (ej. <i>−1 docena</i>) con borde verde si salió bien o rojo si hubo un problema.</li>
-       <li>A la derecha (abajo en el celular) está la lista <b>Esta venta</b>, agrupada por producto: cantidad, importe, <b>Cambiar precio</b> (solo para esta venta) y <b>−</b> para quitar una lectura. En una venta nada se descuenta del stock hasta que la confirmás.</li>
+       <li>A la derecha (abajo en el celular) está la lista de lo escaneado, agrupada por producto, con <b>−</b> para quitar una lectura.<span class="price-only"> En una venta también ves el importe, el precio sugerido y <b>Cambiar precio</b>, y nada se descuenta del stock hasta que la confirmás.</span></li>
        <li>Al terminar tocá <b>Terminar salida</b>. Para volver a la app normal, tocá <b>Salir</b>.</li>
       </ol>
      </details>
@@ -612,7 +646,7 @@
        <li>Revisá el resumen (ej. <i>«Queda GT8008 con 8 unidades (5 + 3)»</i>) y tocá <b>Unir productos</b>.</li>
       </ol>
       <ul class="manual-list">
-       <li>El stock se <b>suma</b>. Si al que queda le falta la marca, la prenda o el precio, se completa con los datos del otro.</li>
+       <li>El stock se <b>suma</b>. Si al que queda le falta la marca o la prenda<span class="price-only"> (o el costo o el precio)</span>, se completa con los datos del otro.</li>
        <li>El código que se borra queda como <b>código anterior</b>: si alguien lo escanea o lo escribe, la app lo lleva al que quedó. Las etiquetas viejas se siguen leyendo.</li>
        <li>Los movimientos de los dos se ven juntos en el historial del producto que quedó.</li>
        <li>Solo se pueden unir productos que se controlan en la misma unidad (unidades con unidades, kg con kg).</li>
@@ -734,6 +768,7 @@
 <div class="sheet" id="moreSheet" aria-label="Más opciones">
  <div class="sheet-handle"></div>
  <div class="sheet-grid">
+  <a href="#/precios" class="sheet-item price-only"><i data-i="cash"></i>Precios</a>
   <a href="#/etiquetas" class="sheet-item"><i data-i="tag"></i>Etiquetas</a>
   <a href="#/clientes" class="sheet-item"><i data-i="users"></i>Clientes</a>
   <a href="#/kiosco" class="sheet-item"><i data-i="zap"></i>Mostrador</a>

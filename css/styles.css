@@ -957,7 +957,7 @@ body:not(.prices-on) .price-only { display: none !important; }
 .product-card.is-similar .card-icon { color: var(--warn); margin-top: 2px; }
 .similar-list { display: grid; gap: 6px; margin: 8px 0; }
 .similar-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--t), background var(--t); }
-.similar-opt:hover, .similar-opt:focus-visible { border-color: var(--accent-text); }
+.similar-opt:focus-visible { border-color: var(--accent-text); }
 .similar-opt b { font-size: 14.5px; }
 .similar-opt span { flex: 1; min-width: 0; }
 .similar-opt small { color: var(--muted); font-size: 12px; }
@@ -1015,7 +1015,7 @@ body:not(.prices-on) .price-only { display: none !important; }
 .ma-search { position: relative; }
 .ma-results { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 2px; max-height: 300px; overflow: auto; padding: 4px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); box-shadow: 0 12px 32px rgba(0, 0, 0, .22); }
 .ma-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: calc(var(--r) - 4px); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.ma-opt:hover, .ma-opt:focus-visible { background: var(--hover); outline: none; }
+.ma-opt:focus-visible { background: var(--hover); outline: none; }
 .ma-opt span { flex: 1; min-width: 0; font-size: 13.5px; }
 .ma-opt small { width: 100%; color: var(--muted); font-size: 12px; }
 .manual-add .hint { margin: 8px 0 0; }
@@ -1071,3 +1071,128 @@ body.kiosk-mode .content { max-width: 1240px; }
   #kUndo { flex: 0 0 auto; }
 }
 @media (max-width: 560px) { .kiosk.has-cart .kiosk-foot .kiosk-num:not(.kiosk-total) { display: none; } .kiosk-foot { gap: 8px; padding-block: 8px; } }
+
+/* ===== Celular: menos cosas a la vez y lo importante a mano ===== */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"], summary, .chip, .segmented button { touch-action: manipulation; }
+.show-sm { display: none; }
+@media (max-width: 560px) { .show-sm { display: inline; } }
+
+/* Opciones de Escanear plegables (en la computadora quedan abiertas) */
+.scan-options > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.scan-options > summary::-webkit-details-marker { display: none; }
+.scan-options .so-chevron { color: var(--muted); transition: transform var(--t) var(--ease-out); }
+.scan-options[open] .so-chevron { transform: rotate(180deg); }
+.scan-options > .stack { margin-top: 16px; }
+
+/* Barra fija del celular en Escanear */
+.scan-bar { display: none; }
+@media (max-width: 960px) {
+  .scan-bar:not([hidden]) { position: fixed; z-index: 35; left: 12px; right: 12px; bottom: calc(var(--bottomnav) + var(--safe-b) + 10px); display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-radius: var(--r-xl); background: var(--surface-3); box-shadow: var(--float-shadow); animation: viewIn var(--t) var(--ease-out); }
+  .sb-info { flex: 1; min-width: 0; display: grid; }
+  .sb-info strong { font-size: 19px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-info span { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan-bar .finish-btn { flex: none; min-height: 48px; padding: 0 18px; font-size: 15px; }
+  .scan-bar.danger .finish-btn { --b-bg: var(--danger); --b-fg: var(--on-tone); }
+  .scan-bar.success .finish-btn { --b-bg: var(--success); --b-fg: var(--on-tone); }
+  .scan-bar.info .finish-btn { --b-bg: var(--info); --b-fg: var(--on-tone); }
+  /* Con la barra fija abajo, los contadores de la lista sobran */
+  .scan-session .mini-stats { display: none; }
+  /* El paso 4 lo reemplaza la barra fija */
+  .scan-hero .scan-step:has(#scanStepFinish), #scanRemito, #scanFinishHint { display: none; }
+  body:has(.view.active #scanBar:not([hidden])) .main .legal { padding-bottom: calc(var(--bottomnav) + 110px + var(--safe-b)); }
+  body:has(.view.active #scanBar:not([hidden])) .toasts { bottom: calc(var(--bottomnav) + 92px + var(--safe-b)); }
+}
+
+@media (max-width: 560px) {
+  /* Panel: saludo corto, 4 accesos compactos y sin el bloque del creador (sigue en Cuenta) */
+  .hero { padding: 18px; margin-bottom: 12px; }
+  .hero .hero-text, .hero .task-picker { display: none; }
+  .quick { gap: 10px; }
+  .quick-tile { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 14px; }
+  .quick-tile .qt-icon { margin: 0; }
+  .quick-tile small, .quick-tile .qt-arrow { display: none; }
+  .quick-tile strong { font-size: 14px; line-height: 1.25; }
+  .quick-tile.qt-extra { display: none; }
+  .quick-tile.qt-price { grid-column: 1 / -1; }
+  #panelCreator { display: none; }
+
+  /* Escanear: un solo renglón para el lector, sin pasos de más */
+  .scan-hero { padding: 18px 14px; }
+  .scan-input-wrap { flex-direction: row; }
+  .scan-input-wrap > .i { top: 50%; }
+  .scan-input { flex: 1; width: auto; height: 52px; font-size: 18px; padding-left: 44px; }
+  .scan-input-wrap .btn { width: auto; height: 52px; padding: 0 16px; }
+  .scan-hero .mode-banner { font-size: 14px; padding: 10px 12px; }
+  .scan-session.is-empty .mini-stats { display: none; }
+  .scan-step .scan-status { display: none; }
+  .feed-item .fd-extra { display: none; }
+  .feed-item [data-revert] { padding: 0 12px; }
+  .scan-last:empty { display: none; }
+  .scan-last { margin-top: 12px; min-height: 0; }
+  .scan-session .card-head p { display: none; }
+  .scan-session .feed .empty { padding: 14px 0; }
+  #scanFinishHint { display: none; }
+
+  /* Inventario: barra en dos renglones y productos sin datos repetidos */
+  .toolbar { gap: 8px; padding: 10px; }
+  .toolbar .search { flex-basis: 100%; }
+  .toolbar .input.select-sm { min-width: 0; }
+  .inv-meta { white-space: normal; }
+  .inv-tags:not(:has(.badge-danger, .badge-warn)) { display: none; }
+  .inv-actions .stepper, .inv-actions [data-act="label"] { display: none; }
+  .inv-value { padding: 12px; gap: 8px; }
+  .inv-value > .i { display: none; }
+  .inv-value-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .inv-value-actions .btn { min-width: 0; padding: 0 10px; font-size: 13px; }
+
+  /* Cargar: la tarea se elige en Opciones de Escanear */
+  .task-field { display: none; }
+
+  .legal { font-size: 11px; }
+}
+@media (hover: hover) and (pointer: fine) { .similar-opt:hover { border-color: var(--accent-text); } .ma-opt:hover { background: var(--hover); } }
+
+/* Carga a mano: con precio en una venta (cantidad · unidad · precio · agregar) */
+.manual-add-row:has(#maPriceField:not([hidden])) { grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; }
+@media (max-width: 560px) {
+  .manual-add-row:has(#maPriceField:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .manual-add-row .ma-add { grid-column: 1 / -1; }
+}
+
+/* Precio sugerido debajo del campo de precio */
+.ma-suggest { margin-top: 4px; font-size: 12.5px; color: var(--muted); min-height: 1em; }
+.ma-suggest .link { font-size: 12.5px; margin-left: 4px; padding: 0; border: 0; background: none; cursor: pointer; }
+.feed-money .badge { font-weight: 600; }
+.feed-price-edit + .link, .kc-info .link[data-use-suggest] { padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; cursor: pointer; }
+
+/* Consultar precio */
+.pl-card { padding: 16px; margin-bottom: 14px; }
+.pl-search { max-width: none; }
+.pl-search .btn { height: 56px; width: 56px; padding: 0; }
+.pl-hint { margin: 10px 0 0; text-align: center; }
+.pl-results { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.pl-results .empty { grid-column: 1 / -1; }
+.pl-item { display: grid; gap: 6px; padding: 16px 18px; border-radius: var(--r-xl); background: var(--surface); }
+.pl-item.big { grid-column: 1 / -1; padding: 22px; box-shadow: inset 0 0 0 1.5px var(--accent-text); }
+.pl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; font-size: 14.5px; }
+.pl-head span { color: var(--text-2); }
+.pl-stock { font-size: 13px; color: var(--muted) !important; white-space: nowrap; }
+.pl-stock.is-zero { color: var(--danger) !important; font-weight: 600; }
+.pl-price { font-size: 26px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--accent-text); line-height: 1.15; }
+.pl-item.big .pl-price { font-size: clamp(34px, 7vw, 52px); }
+.pl-price small { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
+.pl-none { color: var(--muted); font-size: 20px; }
+.pl-sub { font-size: 14.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.pl-sug { font-size: 13px; color: var(--muted); }
+@media (max-width: 560px) { .pl-results { grid-template-columns: minmax(0, 1fr); } .pl-search .btn { width: 52px; height: 52px; } }
+
+/* Consultar precio: precio configurado y último a mano */
+.pl-source { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.pl-refs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.pl-ref { display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+.pl-ref span { font-size: 12px; color: var(--muted); }
+.pl-ref span b { color: var(--accent-text); font-weight: 700; }
+.pl-ref > b { font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.pl-ref small { font-size: 12px; color: var(--text-2); }
+.pl-ref.active { box-shadow: inset 0 0 0 1.5px var(--accent-text); }
