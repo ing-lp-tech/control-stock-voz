@@ -257,6 +257,15 @@ export function commit(reason, { sync = true } = {}) {
   listeners.forEach(fn => fn(reason));
 }
 
+// Otra pestaña de la app guardó cambios: se cargan acá también, para no mostrar datos viejos ni pisarlos al sincronizar.
+export function watchOtherTabs() {
+  addEventListener('storage', e => {
+    if (e.key !== KEY || !e.newValue || !load().ok) return;
+    undoStack.length = 0; // lo que había para deshacer era de los datos anteriores
+    listeners.forEach(fn => fn('tab'));
+  });
+}
+
 // ---------- Deshacer ----------
 const undoStack = [];
 function checkpoint() {
@@ -481,7 +490,8 @@ export function generateSku(brand = '', type = '') {
 
 function log(kind, action, item, d = {}) {
   const entry = {
-    id: uid(), at: nowIso(), kind, action,
+    // Con fecha elegida (p. ej. una venta de ayer), "at" es esa fecha y "recordedAt" cuándo se cargó de verdad.
+    id: uid(), at: d.at || nowIso(), ...(d.at ? { recordedAt: nowIso() } : {}), kind, action,
     sku: item?.sku || d.sku || '', brand: item?.brand || '', type: item?.type || '',
     stockType: item?.stockType || d.stockType || 'inventario', unit: item ? unitLabel(item.unitName) : '',
     before: d.before ?? null, after: d.after ?? null, quantity: d.quantity ?? null, note: d.note || '',
@@ -494,7 +504,8 @@ function log(kind, action, item, d = {}) {
     ...(d.prices ? { prices: d.prices } : {}),   // cambios de precio de muchos productos: { sku: { cost, price, … } }
     ...(actor ? { by: actor } : {}),
   };
-  state.history.unshift(entry);
+  const pos = d.at ? state.history.findIndex(h => String(h.at) <= entry.at) : 0; // el historial va del más nuevo al más viejo
+  state.history.splice(pos < 0 ? state.history.length : pos, 0, entry);
   if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
   state.cloud.pending.push(entry.id);
   if (state.cloud.pending.length > 5000) state.cloud.pending.splice(0, state.cloud.pending.length - 5000);
@@ -533,12 +544,13 @@ export function applyMovement(v) {
   if (cleanPrice(v.price)) applyPrices(item, { price: v.price, pricePer: v.pricePer || pricePerOf(item) });
   item.units = round2(op === 'establecer' ? amount : op === 'restar' ? before - amount : before + amount);
   item.stockType = stockType;
-  if (!v.keepDisplay || !existing) item.displayUnit = v.unit || item.displayUnit;
+  // Un producto en docenas no pasa a unidades por cargar unidades sueltas: eso se cambia a mano al editarlo.
+  if (existing && !v.keepDisplay && v.unit && !(v.unit === 'unit' && item.displayUnit === 'dozen')) item.displayUnit = v.unit;
   item.updatedAt = nowIso();
   const kind = op === 'establecer' ? 'count' : op === 'restar' ? 'out' : 'in';
   const shown = `${fmt(qty)} ${u.short}`;
   const source = String(v.source || 'manual').split(' · ')[0];
-  const entry = log(kind, OPERATIONS[op], item, { before, after: item.units, quantity: amount, serial: v.serial, entered: { qty, unit: u.short }, source, contact: v.contact ? { id: v.contact.id, name: v.contact.name, kind: v.contact.kind } : undefined, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
+  const entry = log(kind, OPERATIONS[op], item, { at: v.at, before, after: item.units, quantity: amount, serial: v.serial, entered: { qty, unit: u.short }, source, contact: v.contact ? { id: v.contact.id, name: v.contact.name, kind: v.contact.kind } : undefined, note: `${v.source || 'manual'} · ${shown} · ${stockTypeLabel(stockType)}` });
   commit('movement');
   return { ok: true, item, before, after: item.units, amount, op, created: !existing, entryId: entry.id };
 }
@@ -576,19 +588,22 @@ export function saveItem(id, patch) {
   const clash = state.items.find(x => x.id !== id && (x.sku === sku || x.aliases?.includes(sku) || (barcode && (x.barcode === barcode || x.sku === barcode))));
   if (clash) return fail(`Ese código ya lo usa ${clash.sku}.`);
   checkpoint();
-  const before = i.units;
+  const before = i.units, dozenBefore = i.displayUnit === 'dozen';
   Object.assign(i, {
     sku, barcode, brand: cleanText(patch.brand), type: cleanText(patch.type),
     stockType: STOCK_TYPES[patch.stockType] ? patch.stockType : i.stockType,
     unitName: STOCK_UNITS[patch.unitName] ? patch.unitName : i.unitName,
     units: round2(units), minStock: Math.max(0, num(patch.minStock)), updatedAt: nowIso(),
   });
+  // En prendas: si se vende por docena (cada lectura descuenta 12) o por unidad.
   if (i.unitName !== 'unidades') i.displayUnit = inputUnitFor(i);
+  else if (patch.displayUnit === 'dozen' || patch.displayUnit === 'unit') i.displayUnit = patch.displayUnit;
+  const unitNote = i.unitName === 'unidades' && dozenBefore !== (i.displayUnit === 'dozen') ? `se vende ${i.displayUnit === 'dozen' ? 'por docena' : 'por unidad'}` : '';
   const priceNote = applyPrices(i, patch);
   // Solo si cambió el stock se registra el valor (al combinar con otros usuarios, fija el stock a ese número).
   log('edit', 'Edición', i, before !== i.units
-    ? { before, after: i.units, abs: true, note: ['Edición manual del stock', priceNote && `precios: ${priceNote}`].filter(Boolean).join(' · ') }
-    : { note: priceNote ? `Precios: ${priceNote}` : 'Edición de datos del producto' });
+    ? { before, after: i.units, abs: true, note: ['Edición manual del stock', unitNote, priceNote && `precios: ${priceNote}`].filter(Boolean).join(' · ') }
+    : { note: [unitNote, priceNote && `precios: ${priceNote}`].filter(Boolean).join(' · ') || 'Edición de datos del producto' });
   commit('edit');
   return { ok: true, item: i };
 }
@@ -727,19 +742,19 @@ export function bulkSet(ids, field, value) {
     commit('bulk');
     return targets.length;
   }
-  const allowed = { brand: cleanText, type: cleanText, stockType: v => (STOCK_TYPES[v] ? v : null), unitName: v => (STOCK_UNITS[v] ? v : null), minStock: v => Math.max(0, num(v)) };
+  const allowed = { brand: cleanText, type: cleanText, stockType: v => (STOCK_TYPES[v] ? v : null), unitName: v => (STOCK_UNITS[v] ? v : null), minStock: v => Math.max(0, num(v)), displayUnit: v => (v === 'dozen' || v === 'unit' ? v : null) };
   const conv = allowed[field];
   if (!conv) return 0;
   const val = conv(value);
   if (val === null) return 0;
-  const set = new Set(ids), targets = state.items.filter(i => set.has(i.id));
+  const set = new Set(ids), targets = state.items.filter(i => set.has(i.id) && (field !== 'displayUnit' || i.unitName === 'unidades'));
   if (!targets.length) return 0;
   checkpoint();
   for (const i of targets) {
     const before = i[field];
     i[field] = val; i.updatedAt = nowIso();
     if (field === 'unitName' && val !== 'unidades') i.displayUnit = inputUnitFor(i);
-    log('edit', 'Edición múltiple', i, { note: `${field}: ${before || '—'} → ${val || '—'}` });
+    log('edit', 'Edición múltiple', i, { note: field === 'displayUnit' ? `se vende ${val === 'dozen' ? 'por docena' : 'por unidad'}` : `${field}: ${before || '—'} → ${val || '—'}` });
   }
   commit('bulk');
   return targets.length;
@@ -897,7 +912,9 @@ export function rebase(remote) {
   const remoteIds = new Set(remoteHistory.map(h => h.id));
   const items = new Map((remote.items || []).filter(i => i && i.sku).map(normalizeItem).map(i => [i.sku, i]));
   const localItems = new Map(state.items.map(i => [i.sku, i]));
-  const mine = state.history.filter(h => pending.has(h.id) && !remoteIds.has(h.id)).reverse(); // del más viejo al más nuevo
+  // Del más viejo al más nuevo según cuándo se cargó (una venta con fecha de ayer se aplica cuando se registró).
+  const loggedAt = h => String(h.recordedAt || h.at);
+  const mine = state.history.filter(h => pending.has(h.id) && !remoteIds.has(h.id)).sort((a, b) => loggedAt(a).localeCompare(loggedAt(b)));
 
   for (const h of mine) {
     if (h.prices) { for (const [sku, p] of Object.entries(h.prices)) { const it = items.get(sku); if (it) applyPricePatch(it, p); } continue; }
@@ -909,8 +926,9 @@ export function rebase(remote) {
       if (!local) continue;
       it = normalizeItem({ ...local, units: 0 });
       items.set(h.sku, it);
-    } else if (local && local.updatedAt > it.updatedAt) {
-      // Datos del producto (marca, prenda, mínimo…) editados acá: se conservan. El stock se recalcula abajo.
+    } else if (local && k === 'edit' && local.updatedAt > it.updatedAt) {
+      // Datos del producto (marca, prenda, mínimo, docena/unidad…) editados acá: se conservan. El stock se recalcula abajo.
+      // Solo con una edición: una lectura también cambia la fecha del producto, pero no debe pisar lo editado en otro lado.
       Object.assign(it, { brand: local.brand, type: local.type, barcode: local.barcode, minStock: local.minStock, stockType: local.stockType, unitName: local.unitName, displayUnit: local.displayUnit });
       for (const k of ['price', 'cost', 'pricePer', 'priceManual', 'priceArs', 'lastManual']) { if (local[k] !== undefined) it[k] = local[k]; else delete it[k]; }
     }
@@ -1004,12 +1022,14 @@ export function deleteContact(id) {
 // lines: [{ sku, name, qty, unit, units, serials: [], price?, per? }] · kind: 'salida' | 'entrada'
 // sale (opcional): { discount, payment } → queda como venta (salida) o compra (entrada), con importes y total.
 // currency: moneda en que se cobra · fx: cotización usada si se cobró en pesos con precios en dólares.
-export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [], sale = null, currency: cur = 'ARS', fx = null }) {
+// at: fecha de la venta si no es hoy. phone: WhatsApp al que se manda (opcional).
+export function createRemito({ kind = 'salida', contact = null, lines = [], note = '', entryIds = [], sale = null, currency: cur = 'ARS', fx = null, at = null, phone = '' }) {
   if (!lines.length) return fail('El remito no tiene productos.');
   const number = state.extra.remitoSeq + 1;
   const remito = {
-    id: uid(), number, at: nowIso(), kind, note: txt(note), by: actor || '',
+    id: uid(), number, at: at || nowIso(), ...(at ? { recordedAt: nowIso() } : {}), kind, note: txt(note), by: actor || '',
     contact: contact ? { id: contact.id, name: contact.name, phone: contact.phone || '', doc: contact.doc || '', address: contact.address || '' } : null,
+    ...(txt(phone) ? { phone: txt(phone).replace(/[^\d+]/g, '') } : {}),
     lines, entryIds,
   };
   if (sale) {
@@ -1023,7 +1043,8 @@ export function createRemito({ kind = 'salida', contact = null, lines = [], note
     if (fx?.rate > 0) remito.fx = { rate: fx.rate, source: fx.source || '' };
   }
   state.extra.remitoSeq = number;
-  state.extra.remitos.unshift(remito);
+  const pos = at ? state.extra.remitos.findIndex(r => String(r.at) <= remito.at) : 0;
+  state.extra.remitos.splice(pos < 0 ? state.extra.remitos.length : pos, 0, remito);
   if (state.extra.remitos.length > REMITOS_MAX) state.extra.remitos.length = REMITOS_MAX;
   commit('remito');
   return { ok: true, remito };

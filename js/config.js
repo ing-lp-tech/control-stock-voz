@@ -3,7 +3,7 @@
 // Editá estos valores, guardá y volvé a publicar (git push → Vercel).
 // =========================================================
 export const CONFIG = {
-  VERSION: '6.5.7',
+  VERSION: '6.6.3',
 
   // Supabase → Project Settings → API.
   // URL: "Project URL" (https://xxxx.supabase.co)

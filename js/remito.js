@@ -130,19 +130,42 @@ export async function buildRemitoPDF(remito, { business = '', owner = '' } = {})
 
 export const remitoFileName = r => `${r.priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : 'Remito'}_${remitoCode(r)}${r.contact?.name ? '_' + r.contact.name.replace(/[^\w]+/g, '_').slice(0, 30) : ''}.pdf`;
 
-// Compartir: en el celular abre el menú para compartir con WhatsApp (adjunta el PDF).
-// En la computadora descarga el PDF y abre WhatsApp con el mensaje, para adjuntarlo.
+// Detalle del comprobante como mensaje de WhatsApp: cada producto, cantidades, precios y total.
+export function remitoText(remito, { business = '' } = {}) {
+  const fmtM = n => fmtMoney(remito, n), d = new Date(remito.at);
+  const kind = remito.priced ? (remito.kind === 'entrada' ? 'Compra' : 'Comprobante de venta') : remito.kind === 'entrada' ? 'Remito de entrada' : 'Remito';
+  const units = remito.lines.reduce((s, l) => s + (Number(l.units) || 0), 0);
+  const out = [
+    `Hola${remito.contact?.name ? ' ' + remito.contact.name : ''}, te envío el detalle${business ? ` de ${business}` : ''}:`, '',
+    `*${kind} ${remitoCode(remito)}*`, `Fecha: ${d.toLocaleDateString('es-AR')}`, '',
+    ...remito.lines.map(l => `• ${l.sku}${l.name ? ` ${l.name}` : ''}: ${fmtN(l.qty)} ${l.unit}${remito.priced && l.price ? ` × ${fmtM(l.price)} ${PRICE_PER[l.per] || ''} = ${fmtM(l.amount)}` : ''}`),
+    '', `${fmtN(units)} unidad${units === 1 ? '' : 'es'} (${fmtN(units / 12)} docena${units === 12 ? '' : 's'})`,
+  ];
+  if (remito.priced) {
+    if (remito.discount) out.push(`Subtotal: ${fmtM(remito.subtotal)}`, `Descuento ${fmtN(remito.discount)} %: -${fmtM(remito.subtotal - remito.total)}`);
+    out.push(`*Total: ${fmtM(remito.total)}*`);
+    if (remito.payment) out.push(`Forma de pago: ${PAYMENTS[remito.payment] || ''}`);
+  }
+  if (remito.note) out.push(`Observaciones: ${remito.note}`);
+  return out.join('\n');
+}
+
+// Compartir. Con un número de WhatsApp: abre ese chat con el detalle escrito (en la computadora también
+// descarga el PDF para adjuntarlo). Sin número: en el celular abre el menú para compartir el PDF; en la
+// computadora descarga el PDF y abre WhatsApp con el mensaje.
 export async function shareRemito(remito, opts) {
+  const phone = waNumber(remito.phone || remito.contact?.phone), mobile = matchMedia('(pointer: coarse)').matches;
+  // Se abre antes de generar el PDF para que el navegador no lo bloquee como ventana emergente.
+  if (phone && mobile) { window.open(waLink(phone, remitoText(remito, opts)), '_blank', 'noopener'); return 'chat'; }
   const blob = await buildRemitoPDF(remito, opts), fmtM = n => fmtMoney(remito, n);
   const file = new File([blob], remitoFileName(remito), { type: 'application/pdf' });
   const text = `Hola${remito.contact?.name ? ' ' + remito.contact.name : ''}, te envío ${remito.priced ? 'el comprobante' : 'el remito'} ${remitoCode(remito)} (${remito.lines.length} artículo${remito.lines.length === 1 ? '' : 's'}${remito.priced ? `, total ${fmtM(remito.total)}` : ''}).`;
-  if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
+  if (!phone && mobile && navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: remitoCode(remito), text }); return 'shared'; }
     catch (e) { if (e?.name === 'AbortError') return 'cancelled'; }
   }
   download(blob, file.name);
-  const phone = waNumber(remito.contact?.phone);
-  window.open(phone ? waLink(phone, text) : `https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  window.open(phone ? waLink(phone, remitoText(remito, opts)) : `https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
   return 'downloaded';
 }
 export async function downloadRemito(remito, opts) {

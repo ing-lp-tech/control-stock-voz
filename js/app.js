@@ -782,7 +782,7 @@ const SCAN_MODES = {
 };
 // Con precios activados, una salida puede ser una venta y una entrada una compra.
 const SALE_TEXT = {
-  venta: { short: 'Escaneá los productos: se suman a la venta. <b>El stock se descuenta al confirmar.</b>', banner: 'Cada código que escanees <b>se suma a la venta</b> con su precio. El stock se descuenta <b>recién cuando confirmás</b> la venta al terminar.', hint: 'Te muestra el total; podés cambiar precios, poner descuento y forma de pago. Al confirmar se descuenta del stock.' },
+  venta: { short: 'Escaneá los productos: se suman a la venta. <b>El stock se descuenta al confirmar.</b>', banner: 'Cada código que escanees <b>se suma a la venta</b> con su precio. El stock se descuenta <b>recién cuando confirmás</b> la venta al terminar.', hint: 'Te muestra el total; podés cambiar precios, poner descuento, forma de pago, la fecha (si la venta fue otro día) y un WhatsApp para mandarle el detalle. Al confirmar se descuenta del stock.' },
   compra: { short: 'Se <b>suma</b> al stock y registra el <b>costo</b>.', banner: 'Cada código que escanees se <b>SUMA</b> al stock y registra su <b>costo</b>.', hint: 'Te muestra el total de la compra y podés guardar el remito de entrada.' },
 };
 const scanMode = () => { const base = SCAN_MODES[prefs.scanOp], k = saleKind(); return k ? { ...base, name: k, ...SALE_TEXT[k] } : base; };
@@ -932,7 +932,9 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
       if (!data) return scanFail(code, 'Lectura cancelada.');
     }
     scanUnit = data.unit;
-    r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta`, contact: sessionContact() });
+    const at = scanAt();
+    if (at === false) return scanFail(code, 'Revisá la fecha: no puede ser futura.');
+    r = S.applyMovement({ ...data, sku: code, stockType: prefs.task, operation: op, source: `${source} · alta`, contact: sessionContact(), at: at || undefined });
   } else {
     // Cada lectura mueve la cantidad en la unidad en que se carga el producto: si está en docenas, 1 = una docena.
     // A mano se puede elegir docenas o unidades.
@@ -940,7 +942,8 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
     if (pack) {
       // Etiqueta numerada: mueve exactamente una docena o una unidad, y no se puede registrar dos veces por error.
       amount = 1;
-      if (resolved.pack === 'D') unit = 'dozen';
+      // La etiqueta manda: la de docena mueve 12 y la de unidad 1, sin importar cómo se vende el producto.
+      unit = resolved.pack === 'D' ? 'dozen' : item.unitName === 'unidades' ? 'unit' : S.inputUnitFor(item);
       const label = `${pack.label.toLowerCase()} N.º ${String(resolved.number).padStart(4, '0')}`;
       note = `${source} · ${label}`;
       if (op === 'establecer' && session.serials.has(code)) return scanFail(code, `Esta ${label} ya se contó en esta sesión.`);
@@ -967,7 +970,11 @@ async function handleScan(raw, source = 'escáner', opts = {}) {
       if (free < units) return scanFail(code, `Stock insuficiente de ${item.sku}: ${reserved ? `quedan ${stockWords(item, free)} (ya hay ${stockWords(item, reserved)} en esta venta)` : `hay ${stockWords(item, item.units)}`}.`);
       r = { ok: true, item, before: free, after: round2(free - units), amount: units, entryId: null, created: false, pending: true, qty: amount, unitIn: unit, note };
       if (pack) session.serials.add(code);
-    } else r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact() });
+    } else {
+      const at = scanAt();
+      if (at === false) return scanFail(code, 'Revisá la fecha: no puede ser futura.');
+      r = S.applyMovement({ sku: item.sku, qty: amount, unit, stockType: prefs.task, operation, source: note, keepDisplay: true, serial: pack ? code : undefined, contact: sessionContact(), at: at || undefined });
+    }
   }
   if (!r.ok) return scanFail(code, r.error);
 
@@ -1014,7 +1021,7 @@ function renderLastPrice() {
         <button type="button" class="btn btn-primary btn-sm" data-sl-save>Guardar</button>
         <button type="button" class="btn btn-ghost btn-sm" data-sl-cancel>Cancelar</button>
         ${sug ? `<button type="button" class="link" data-sl-suggest>Usar sugerido ${moneyIn(sug.price, cur)}</button>` : ''}</div>`
-    : `<div class="sl-price"><span>${pr ? `Precio <b>${moneyIn(pr.price, cur)}</b> ${S.PRICE_PER[per]}${amount !== pr.price ? ` · importe <b>${moneyIn(amount, cur)}</b>` : ''}` : '<b class="warn">Sin precio</b>'}</span>
+    : `<div class="sl-price"><span>${pr ? `Precio <b>${moneyIn(pr.price, cur)}</b> ${S.PRICE_PER[per]}${amount !== pr.price ? ` · importe <b>${moneyIn(amount, cur)}</b>${priceMath(f.amount, pr, cur)}` : ''}` : '<b class="warn">Sin precio</b>'}</span>
         ${note ? `<span class="badge ${pr?.custom || S.hasFixedPrice(it) ? 'badge-warn' : ''}">${esc(note)}</span>` : ''}
         <button type="button" class="btn btn-ghost btn-sm" data-sl-edit>${icon('edit', 'sm')}${pr ? 'Cambiar precio' : 'Poner precio'}</button></div>`;
   box.insertAdjacentHTML('beforeend', html);
@@ -1097,6 +1104,9 @@ function priceLookup(code) {
 // Carga a mano en Escanear (sin pistola): buscar el producto, cantidad y docenas o unidades
 // =========================================================
 let maPick = null;
+// La unidad de la fila arranca en la del producto (docenas o unidades); si se cambia a mano, vale solo para esta carga.
+let maUnitTouched = false;
+const maDefaultUnit = it => (it.unitName === 'unidades' && it.displayUnit === 'dozen' ? 'dozen' : 'unit');
 const maCode = v => upper(v).replace(/\s+/g, '');
 function maMatches(q) {
   const code = maCode(q), words = txt(q).toLocaleLowerCase('es-AR').split(/\s+/).filter(Boolean);
@@ -1133,29 +1143,42 @@ function fillMaPrice() {
   byId('maPriceLabel').textContent = `Precio ${S.PRICE_PER[per]} (${cur === 'USD' ? 'US$' : '$'})`;
 }
 // Lo que se va a registrar: producto, stock y, en una venta, el importe con el precio que se ve en el campo.
+// Cuenta del importe cuando la cantidad no va en la misma unidad que el precio: "(125.000 ÷ 12 × 3 unidades)".
+function priceMath(units, pr, cur) {
+  if (pr.per !== 'dozen' || units % 12 === 0) return '';
+  return ` <span class="muted">(${moneyIn(pr.price, cur)} c/docena ÷ 12 × ${unitWords(units, 'unidades')})</span>`;
+}
 function renderMaHint() {
+  // Siempre el producto actual: si se editó o llegó una versión nueva de la nube, la fila no queda con datos viejos.
+  if (maPick) maPick = S.findById(maPick.id) || S.findByCode(maPick.sku) || null;
   fillMaPrice();
-  const it = maPick, qty = num(byId('maQty').value), unit = byId('maUnit').value;
+  const it = maPick, qty = num(byId('maQty').value);
   byId('manualAdd').hidden = !it;
   if (!it) { byId('maHint').textContent = ''; return; }
+  // Si se cambió cómo se vende el producto (Inventario → Editar), la fila lo sigue mientras no se haya tocado.
+  if (!maUnitTouched && it.unitName === 'unidades') byId('maUnit').value = maDefaultUnit(it);
+  const unit = byId('maUnit').value, verb = prefs.scanOp === 'sumar' ? 'entra' : prefs.scanOp === 'establecer' ? 'se cuenta' : 'sale';
+  byId('maUnitLabel').textContent = `${cap(verb)} en`;
+  const other = it.unitName === 'unidades' && unit !== maDefaultUnit(it)
+    ? ` · <b class="warn">${verb} ${unit === 'unit' ? 'por unidad suelta' : 'por docena'} (el producto va ${maDefaultUnit(it) === 'dozen' ? 'por docena' : 'por unidad'})</b>` : '';
   const units = qty * (unit === 'dozen' && it.unitName === 'unidades' ? 12 : 1), sk = saleKind(), base = sk && salePrice(it, sk);
   const typed = sk === 'venta' ? parseMoney(byId('maPrice').value) : null, per = base?.per || newPricePer(it);
   const pr = typed != null ? { price: typed, per } : linePrice({ itemId: it.id }, sk);
   const changed = sk === 'venta' && typed != null && (!base || typed !== base.price);
-  byId('maHint').innerHTML = `<b class="mono">${esc(it.sku)}</b> · ${esc(productName(it) || 'Sin marca ni prenda')} · stock ${esc(qtyText(it))}${qty > 0 && pr ? ` · importe <b>${moneyIn(S.lineAmount(units, pr.price, pr.per), saleCur(sk))}</b>` : ''}${changed ? ` · <b class="warn">${canManage() ? 'queda como precio fijo del producto' : 'precio solo de esta venta'}</b>` : ''}`;
+  byId('maHint').innerHTML = `<b class="mono">${esc(it.sku)}</b> · ${esc(productName(it) || 'Sin marca ni prenda')} · stock ${esc(qtyText(it))}${qty > 0 && pr ? ` · importe <b>${moneyIn(S.lineAmount(units, pr.price, pr.per), saleCur(sk))}</b>${priceMath(units, pr, saleCur(sk))}` : ''}${changed ? ` · <b class="warn">${canManage() ? 'queda como precio fijo del producto' : 'precio solo de esta venta'}</b>` : ''}${other}${dozenMismatch(it) && canManage() ? `<br><span class="warn">Tiene precio por docena pero se vende por unidad.</span> <button type="button" class="link" data-ma-dozen>Pasar el producto a docenas</button>` : ''}`;
   // Precio sugerido (costo + ganancia) siempre a la vista, con "Usar sugerido".
   const sug = sk === 'venta' && S.suggestedPrice(it), shown = typed ?? base?.price;
   byId('maSuggest').innerHTML = sug ? `Sugerido <b>${moneyIn(sug.price, saleCur(sk))}</b>${shown !== sug.price ? ` <button type="button" class="link" data-ma-suggest>Usar sugerido</button>` : ''}` : '';
 }
 function maSelect(item, { focus = true } = {}) {
   // Producto nuevo: la cantidad arranca en la "Cantidad por lectura" (1 docena si el producto va en docenas).
-  if (maPick?.id !== item.id) byId('maQty').value = num(prefs.scanQty) || 1;
+  if (maPick?.id !== item.id) { byId('maQty').value = num(prefs.scanQty) || 1; maUnitTouched = false; }
   maPick = item;
   byId('scanInput').value = item.sku;
   byId('maResults').hidden = true;
   byId('scanInput').setAttribute('aria-expanded', 'false');
   byId('maUnit').disabled = item.unitName !== 'unidades';
-  byId('maUnit').value = item.unitName === 'unidades' && item.displayUnit === 'dozen' ? 'dozen' : 'unit';
+  if (!maUnitTouched) byId('maUnit').value = maDefaultUnit(item);
   delete byId('maPriceField').dataset.item;
   renderMaHint();
   if (!focus) return;
@@ -1165,6 +1188,7 @@ function maSelect(item, { focus = true } = {}) {
 // Cierra la fila del producto elegido (y las sugerencias).
 function closeMa() {
   maPick = null;
+  maUnitTouched = false;
   byId('maResults').hidden = true;
   byId('maUnit').disabled = false;
   delete byId('maPriceField').dataset.item;
@@ -1271,8 +1295,10 @@ function closeCamera() {
 // =========================================================
 const inv = { q: '', filter: 'all', sort: 'sku', selected: new Set(), limit: 150 };
 
+// Productos con precio por docena que se venden por unidad: casi siempre quedaron así por error al cargarlos.
+const dozenMismatch = i => i.unitName === 'unidades' && i.displayUnit !== 'dozen' && i.pricePer === 'dozen';
 function setInvFilter(f) {
-  inv.filter = ['all', 'alert', 'zero'].includes(f) ? f : 'all';
+  inv.filter = ['all', 'alert', 'zero', 'dozen'].includes(f) ? f : 'all';
   $$('#invFilters .chip').forEach(c => c.classList.toggle('active', c.dataset.f === inv.filter));
 }
 
@@ -1281,6 +1307,7 @@ function invRows() {
   let rows = state.items.filter(i => !q || [i.sku, i.barcode, i.brand, i.type, ...(i.aliases || [])].some(v => String(v || '').toLocaleLowerCase('es-AR').includes(q)));
   if (inv.filter === 'alert') rows = rows.filter(i => i.units <= 0 || S.isLow(i));
   if (inv.filter === 'zero') rows = rows.filter(i => i.units <= 0);
+  if (inv.filter === 'dozen') rows = rows.filter(dozenMismatch);
   const by = {
     sku: (a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true }),
     brand: (a, b) => a.brand.localeCompare(b.brand, 'es') || a.sku.localeCompare(b.sku, 'es', { numeric: true }),
@@ -1312,6 +1339,9 @@ function renderInventory() {
   byId('cntAll').textContent = all.length;
   byId('cntAlert').textContent = all.filter(i => i.units <= 0 || S.isLow(i)).length;
   byId('cntZero').textContent = all.filter(i => i.units <= 0).length;
+  const mismatch = all.filter(dozenMismatch).length;
+  byId('cntDozen').textContent = mismatch;
+  byId('chipDozen').hidden = !mismatch && inv.filter !== 'dozen';
   for (const id of inv.selected) if (!S.findById(id)) inv.selected.delete(id);
   if (currentView !== 'inventario') { renderBulkBar(); return; }
 
@@ -1319,13 +1349,16 @@ function renderInventory() {
   const rows = invRows(), shown = rows.slice(0, inv.limit);
   const allSel = rows.length > 0 && rows.every(i => inv.selected.has(i.id));
   const someSel = rows.some(i => inv.selected.has(i.id));
-  byId('invList').innerHTML = !all.length
+  const dozenNote = inv.filter === 'dozen' && rows.length
+    ? `<div class="notice warn" style="margin-bottom:12px;flex-wrap:wrap;align-items:center">${icon('alert')}<span class="grow" style="flex:1 1 220px">Estos productos tienen el <b>precio por docena</b> pero se venden <b>por unidad</b>: al escanearlos se descuenta 1 unidad en vez de 1 docena. ${canManage() ? 'Pasalos a docenas (el stock no cambia) o editá cada uno.' : 'Pedile al dueño que los pase a docenas.'}</span>${canManage() ? `<button class="btn btn-primary btn-sm" type="button" data-act="fix-dozens">Pasar ${rows.length === 1 ? 'a docenas' : `los ${fmt(rows.length)} a docenas`}</button>` : ''}</div>`
+    : '';
+  byId('invList').innerHTML = dozenNote + (!all.length
     ? `<div class="card">${emptyState('box', 'Tu inventario está vacío', 'Cargá tu primer producto por voz, con la pistola lectora o a mano.', `<div class="row center" style="margin-top:8px"><a class="btn btn-primary" href="#/cargar">${icon('plus')}Cargar producto</a><a class="btn btn-ghost" href="#/escanear">${icon('scan')}Escanear</a></div>`)}</div>`
     : !rows.length
       ? `<div class="card">${emptyState('search', 'Sin resultados', 'Probá con otra búsqueda o filtro.')}</div>`
       : `<div class="inv-list"><div class="inv-head"><label class="check" title="Seleccionar todos"><input type="checkbox" data-act="select-all" ${allSel ? 'checked' : ''} aria-label="Seleccionar todos"><span></span></label><span>Producto</span><span>Stock</span><span>Estado</span><span style="text-align:right">Acciones</span></div>
         ${shown.map(itemRow).join('')}</div>
-        ${rows.length > shown.length ? `<div class="list-more"><button class="btn btn-ghost" type="button" data-act="more">Mostrar más (${rows.length - shown.length} restantes)</button></div>` : ''}`;
+        ${rows.length > shown.length ? `<div class="list-more"><button class="btn btn-ghost" type="button" data-act="more">Mostrar más (${rows.length - shown.length} restantes)</button></div>` : ''}`);
   const head = $('#invList [data-act="select-all"]');
   if (head) head.indeterminate = someSel && !allSel;
   renderBulkBar();
@@ -1362,6 +1395,13 @@ function onInventoryClick(e) {
   if (!el) return;
   const act = el.dataset.act;
   if (act === 'more') { inv.limit += 150; renderInventory(); return; }
+  if (act === 'fix-dozens') {
+    if (!ownerOnly('cambiar cómo se venden los productos')) return;
+    const n = S.bulkSet(invRows().map(i => i.id), 'displayUnit', 'dozen');
+    setInvFilter('all'); renderInventory();
+    toast(`${fmt(n)} producto${n === 1 ? '' : 's'} pasado${n === 1 ? '' : 's'} a docenas: cada lectura descuenta 1 docena`, { action: () => S.undo() });
+    return;
+  }
   if (act === 'select-all') {
     const rows = invRows();
     if (el.checked) rows.forEach(i => inv.selected.add(i.id)); else rows.forEach(i => inv.selected.delete(i.id));
@@ -1392,8 +1432,10 @@ function openEdit(i) {
   byId('eSku').value = i.sku; byId('eBarcode').value = i.barcode || ''; byId('eBrand').value = i.brand; byId('eType').value = i.type;
   byId('eUnits').value = i.units; byId('eUnitName').value = i.unitName; byId('eMin').value = i.minStock || ''; byId('eStockType').value = i.stockType;
   // Los empleados pueden editar datos del producto, pero no cambiar el stock a mano.
-  byId('eUnits').disabled = !canManage(); byId('eUnitName').disabled = !canManage();
+  byId('eUnits').disabled = !canManage(); byId('eUnitName').disabled = !canManage(); byId('eDisplay').disabled = !canManage();
   byId('eUnits').title = canManage() ? '' : 'Solo el dueño puede cambiar el stock a mano';
+  byId('eDisplay').value = i.displayUnit === 'dozen' ? 'dozen' : 'unit';
+  renderEditUnits();
   // Precios: el empleado ve el de venta pero no lo cambia; el de costo es solo del dueño.
   byId('ePrice').value = i.price ? fmt(i.price) : '';
   byId('eCost').value = i.cost ? fmt(i.cost) : '';
@@ -1407,6 +1449,13 @@ function openEdit(i) {
   $('label[for="eCost"]').textContent = `Precio de costo (${sign})`;
   renderMargin();
   byId('editDialog').showModal();
+}
+// Prendas: elegir si se venden por docena o por unidad, y ver el stock en docenas.
+function renderEditUnits() {
+  const pieces = byId('eUnitName').value === 'unidades', dozen = pieces && byId('eDisplay').value === 'dozen', u = num(byId('eUnits').value);
+  byId('eDisplayField').hidden = !pieces;
+  byId('eUnitsLabel').textContent = pieces ? 'Stock actual (en unidades)' : 'Stock actual';
+  byId('eUnitsHint').textContent = dozen ? `= ${unitWords(u / 12, 'docenas')}${u % 12 ? ' (no es un número exacto de docenas)' : ''}` : '';
 }
 // Ganancia por unidad o docena según precio de venta y costo.
 function renderMargin(e) {
@@ -1447,6 +1496,7 @@ function saveEdit(e) {
   const r = S.saveItem(editingId, {
     sku: byId('eSku').value, barcode: byId('eBarcode').value, brand: byId('eBrand').value, type: byId('eType').value,
     units: canManage() ? byId('eUnits').value : item?.units, unitName: canManage() ? byId('eUnitName').value : item?.unitName,
+    displayUnit: canManage() ? byId('eDisplay').value : item?.displayUnit,
     minStock: byId('eMin').value, stockType: byId('eStockType').value, ...prices,
   });
   if (!r.ok) { toast(r.error, 'error'); shake(byId('eSave')); return; }
@@ -1465,7 +1515,7 @@ async function deleteEditing() {
 }
 
 // Acciones masivas
-const BULK_FIELDS = { brand: 'Marca', type: 'Prenda / tipo', stockType: 'Tipo de stock', minStock: 'Stock mínimo', unitName: 'Unidad de stock' };
+const BULK_FIELDS = { brand: 'Marca', type: 'Prenda / tipo', stockType: 'Tipo de stock', minStock: 'Stock mínimo', unitName: 'Unidad de stock', displayUnit: 'Se vende por docena o por unidad' };
 function openBulkEdit() {
   byId('bulkSub').textContent = `${inv.selected.size} productos seleccionados`;
   const fields = { ...BULK_FIELDS, ...(S.pricesOn() && canManage() ? { price: 'Precio de venta', cost: 'Precio de costo', pricePer: 'Precio por unidad o por docena' } : {}) };
@@ -1480,6 +1530,10 @@ function renderBulkValue() {
   const opts = f === 'stockType' ? 'stockTypes' : f === 'unitName' ? 'stockUnits' : null;
   if (f === 'price' || f === 'cost') {
     byId('bulkValueWrap').innerHTML = `<label for="bulkValue">Nuevo ${f === 'price' ? 'precio de venta' : 'precio de costo'}</label><input id="bulkValue" class="input money" inputmode="decimal" placeholder="Vacío = quitar el precio"><p class="hint">Se aplica por unidad o por docena según cómo esté cargado cada producto.</p>`;
+    return;
+  }
+  if (f === 'displayUnit') {
+    byId('bulkValueWrap').innerHTML = `<label for="bulkValue">Se carga y se vende</label><select id="bulkValue" class="input"><option value="dozen">Por docena (cada lectura descuenta 12)</option><option value="unit">Por unidad (cada lectura descuenta 1)</option></select><p class="hint">No cambia el stock: 192 unidades siguen siendo 192 (= 16 docenas). Solo aplica a productos que se controlan en unidades.</p>`;
     return;
   }
   if (f === 'pricePer') {
@@ -1701,7 +1755,7 @@ function labelsFor(ids) {
 }
 
 const LBL_MODE_HINTS = {
-  product: 'Todas las etiquetas del producto llevan el mismo código (ej. 1015). Al escanear se mueve la cantidad configurada en Escanear.',
+  product: 'Todas las etiquetas del producto llevan el mismo código (ej. 1015). Al escanearla se descuenta según cómo se vende el producto (Inventario → Editar → "Se carga y se vende"): 1 docena o 1 unidad.',
   D: 'Cada docena lleva su propio número: 1015D0001, 1015D0002… Al escanearla se mueven 12 unidades, y la app avisa si esa docena ya se registró.',
   U: 'Cada unidad lleva su propio número: 1015U0001, 1015U0002… Al escanearla se mueve 1 unidad, y la app avisa si esa unidad ya se registró.',
 };
@@ -2166,6 +2220,7 @@ function openMove(id) {
       ${row('Cómo', esc(S.sourceOf(h)))}
       ${row('Tarea', h.stockType ? esc(S.stockTypeLabel(h.stockType)) : '')}
       ${row('Fecha y hora', full(h.at))}
+      ${row('Cargado', h.recordedAt ? `${full(h.recordedAt)} <span class="muted">(con otra fecha)</span>` : '')}
       ${row('Nota', h.note && k !== 'fix' ? esc(h.note) : '')}
       ${row('Corrige a', target ? `<a href="#" class="link" data-goto-move="${esc(target.id)}">${esc(target.action)} del ${esc(dateTimeOf(target.at))}</a>` : '')}
       ${row('Motivo', k === 'fix' && h.note ? esc(h.note.replace(/^.*?:\s(?=[^:]*$)/, '')) : '')}
@@ -2190,7 +2245,8 @@ function openRemitoView(id) {
     <dl class="detail-kv" style="margin-bottom:14px">
       <dt>${r.kind === 'entrada' ? 'Proveedor' : 'Cliente'}</dt><dd>${esc(r.contact?.name || 'Sin cliente')}</dd>
       ${r.contact?.doc ? `<dt>CUIT / DNI</dt><dd>${esc(r.contact.doc)}</dd>` : ''}
-      ${r.contact?.phone ? `<dt>WhatsApp</dt><dd>${esc(r.contact.phone)}</dd>` : ''}
+      ${r.phone || r.contact?.phone ? `<dt>WhatsApp</dt><dd>${esc(r.phone || r.contact.phone)}</dd>` : ''}
+      ${r.recordedAt ? `<dt>Cargada</dt><dd>${esc(dateTimeOf(r.recordedAt))} <span class="muted">(con fecha del ${esc(new Date(r.at).toLocaleDateString('es-AR'))})</span></dd>` : ''}
       ${r.contact?.address ? `<dt>Dirección</dt><dd>${esc(r.contact.address)}</dd>` : ''}
       <dt>${priced ? 'Mercadería' : 'Total'}</dt><dd>${fmt(units)} unidades (${fmt(units / 12)} docenas)</dd>
       ${priced ? `<dt>Subtotal</dt><dd>${remMoney(r, r.subtotal)}</dd>${r.discount ? `<dt>Descuento</dt><dd>${fmt(r.discount)} % (−${remMoney(r, r.subtotal - r.total)})</dd>` : ''}<dt>Total</dt><dd><b>${remMoney(r, r.total)}</b>${r.fx?.rate ? ` <span class="muted">(${moneyIn(r.total / r.fx.rate, 'USD')})</span>` : ''}</dd>${r.fx?.rate ? `<dt>Cotización</dt><dd>${moneyIn(r.fx.rate, 'ARS')} por dólar${r.fx.source ? ` · ${esc(r.fx.source)}` : ''}</dd>` : ''}${r.payment ? `<dt>Forma de pago</dt><dd>${esc(S.PAYMENTS[r.payment] || r.payment)}</dd>` : ''}` : ''}
@@ -2334,6 +2390,8 @@ function resetSession() {
   Object.assign(session, { reads: 0, units: 0, products: new Set(), counted: new Set(), serials: new Set(), aliases: new Map(), prices: new Map(), feed: [] });
   feedPriceEdit = null;
   setSessionContact('');
+  byId('scanDate').value = todayKey(); // la próxima vuelve a hoy, para no cargar otro día sin querer
+  renderScanDate();
   byId('scanLast').innerHTML = '';
   const k = byId('kResult');
   k.className = 'kiosk-result';
@@ -2383,10 +2441,54 @@ function openRemito({ kind, moves, contactName = '', finish = null, priced = nul
   byId('rmContactLabel').textContent = kind === 'entrada' ? 'Proveedor' : 'Cliente';
   byId('rmContact').value = contactName;
   byId('rmNote').value = '';
+  byId('rmPhone').value = '';
+  delete byId('rmPhone').dataset.auto;
+  fillRemitoPhone();
+  // Fecha: se puede cambiar solo en una venta que todavía no descontó el stock (así la venta y sus salidas quedan
+  // en ese día). Si el stock ya se movió, el comprobante lleva la fecha elegida en Escanear.
+  byId('rmDateField').hidden = !pendingRemito.cart;
+  byId('rmDate').max = todayKey();
+  byId('rmDate').value = (finish && byId('scanDate').value) || todayKey();
+  if (finish && !pendingRemito.cart) pendingRemito.at = scanAt() || null;
+  renderRemitoDate();
   byId('rmPriced').checked = pendingRemito.priced;
   byId('rmPricedLabel').textContent = kind === 'entrada' ? 'Es una compra: registrar costos' : 'Es una venta: precios y total';
   renderRemitoLines();
   byId('remitoDialog').showModal();
+}
+// WhatsApp del cliente elegido: se completa solo, salvo que ya se haya escrito otro número.
+function fillRemitoPhone() {
+  const f = byId('rmPhone'), name = txt(byId('rmContact').value), c = name && (S.findContactByName(name, kindForOp(pendingRemito?.kind === 'entrada' ? 'sumar' : 'restar')) || S.findContactByName(name));
+  if (txt(f.value) && !f.dataset.auto) return;
+  f.value = c?.phone || '';
+  if (f.value) f.dataset.auto = '1'; else delete f.dataset.auto;
+}
+const todayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// Fecha elegida para la venta: null = ahora (hoy); false si no es válida.
+// Fecha de un campo (AAAA-MM-DD) como momento del movimiento: null = hoy (ahora); false si es futura.
+// Otro día: esa fecha con la hora actual, para que el orden dentro del día se mantenga.
+function dateAt(input) {
+  const v = input.value;
+  if (!v || v === todayKey()) return null;
+  if (v > todayKey()) { toast('La fecha no puede ser futura.', 'error'); input.focus(); return false; }
+  const [y, m, d] = v.split('-').map(Number), now = new Date();
+  return new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+}
+const dayName = v => new Date(`${v}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'numeric' });
+const saleAt = () => (byId('rmDateField').hidden ? null : dateAt(byId('rmDate')));
+function renderRemitoDate() {
+  const v = byId('rmDate').value, past = !byId('rmDateField').hidden && v && v < todayKey();
+  byId('rmDateHint').textContent = past ? `Queda como venta del ${dayName(v)}. En el historial se ve que la cargaste hoy.` : '';
+  const at = past ? new Date(`${v}T12:00:00`) : pendingRemito?.at ? new Date(pendingRemito.at) : new Date();
+  byId('rmSub').textContent = `Comprobante ${S.remitoCode({ number: state.extra.remitoSeq + 1 })} · ${at.toLocaleDateString('es-AR')}`;
+}
+// Fecha de Escanear (paso 2): por defecto hoy. Si se elige otro día, las salidas/entradas quedan con esa fecha.
+const scanAt = () => (prefs.scanOp === 'establecer' ? null : dateAt(byId('scanDate')));
+function renderScanDate() {
+  const f = byId('scanDate'), v = f.value, past = v && v < todayKey();
+  f.max = todayKey();
+  byId('scanDateWrap').classList.toggle('past', !!past);
+  byId('scanDateHint').innerHTML = past ? `${icon('alert', 'sm')}Se registra con fecha del <b>${esc(dayName(v))}</b>` : '';
 }
 function renderRemitoLines() {
   const r = pendingRemito, priced = r.priced && S.pricesOn(), units = r.lines.reduce((s, l) => s + l.units, 0);
@@ -2444,6 +2546,8 @@ function updateRemitoTotals() {
 function commitCart(pr) {
   const list = cartPending();
   if (!list.length) return true;
+  const at = saleAt();
+  if (at === false) return false;
   const need = new Map();
   for (const f of list) need.set(f.itemId, (need.get(f.itemId) || 0) + f.amount);
   for (const [id, units] of need) {
@@ -2454,22 +2558,28 @@ function commitCart(pr) {
   const contact = resolveContact(byId('rmContact').value, 'restar');
   for (const f of [...list].reverse()) { // en el orden en que se escanearon
     const it = S.findById(f.itemId);
-    const r = S.applyMovement({ sku: it.sku, qty: f.qty, unit: f.unitIn, stockType: prefs.task, operation: 'restar', source: f.note, keepDisplay: true, serial: f.serial || undefined, contact });
+    const r = S.applyMovement({ sku: it.sku, qty: f.qty, unit: f.unitIn, stockType: prefs.task, operation: 'restar', source: f.note, keepDisplay: true, serial: f.serial || undefined, contact, at: at || undefined });
     if (!r.ok) { toast(r.error, 'error'); return false; }
     Object.assign(f, { pending: false, entryId: r.entryId, before: r.before, after: r.after });
   }
   pr.entryIds = feedMoves('restar').reverse().map(m => m.entryId).filter(Boolean);
   pr.cart = false;
+  pr.at = at; // el comprobante lleva la misma fecha que las salidas
   return true;
 }
 function ensureRemito() {
   if (pendingRemito.created) return pendingRemito.created;
   const pr = pendingRemito, op = pr.kind === 'entrada' ? 'sumar' : 'restar';
+  const phone = txt(byId('rmPhone').value);
+  if (phone && !waNumber(phone)) { toast('Revisá el WhatsApp: escribilo con característica, por ejemplo 11 2345 6789.', 'error'); byId('rmPhone').focus(); return null; }
   if (pr.cart && !commitCart(pr)) return null;
   // Venta/compra solo si hay precios activados y al menos un precio; si no, es un remito común.
   const sale = pr.priced && S.pricesOn() && pr.lines.some(l => l.price) ? { discount: pr.discount, payment: pr.payment } : null;
   const lines = pr.lines.map(({ stored, price, per, ...l }) => (sale ? { ...l, price, per } : l));
-  const r = S.createRemito({ kind: pr.kind, contact: resolveContact(byId('rmContact').value, op), lines, note: byId('rmNote').value, entryIds: pr.entryIds, sale, currency: pr.cur, fx: pr.fx });
+  const contact = resolveContact(byId('rmContact').value, op);
+  // El número escrito queda guardado en el cliente si todavía no tenía uno.
+  if (phone && contact && !contact.phone) S.saveContact({ ...contact, phone });
+  const r = S.createRemito({ kind: pr.kind, contact, lines, note: byId('rmNote').value, entryIds: pr.entryIds, sale, currency: pr.cur, fx: pr.fx, at: pr.at || null, phone });
   if (!r.ok) { toast(r.error, 'error'); return null; }
   pr.created = r.remito;
   if (sale && canManage() && byId('rmSavePrices')?.checked && !byId('rmSavePricesWrap').hidden) {
@@ -2528,7 +2638,7 @@ async function sendRemito(e, mode) {
       const how = await shareRemito(remito, remitoOpts());
       // Si se canceló el envío, el diálogo queda abierto para reintentar (el remito ya está numerado).
       if (how === 'cancelled') { toast('Envío cancelado. Podés reintentar o descargar el PDF.', 'info'); return; }
-      toast(how === 'downloaded' ? `${S.remitoCode(remito)} descargado. Adjuntalo en el chat de WhatsApp que se abrió.` : `${S.remitoCode(remito)} compartido`);
+      toast(how === 'chat' ? `${S.remitoCode(remito)}: se abrió el chat de WhatsApp con el detalle` : how === 'downloaded' ? `${S.remitoCode(remito)} descargado. Adjuntalo en el chat de WhatsApp que se abrió.` : `${S.remitoCode(remito)} compartido`);
     }
     endScanSession(remito);
     byId('remitoDialog').close();
@@ -3044,6 +3154,7 @@ function renderAll() {
   if (currentView === 'reportes') renderReports();
   renderDatalists();
   if (byId('productDialog').open) renderProductHistory();
+  if (maPick) renderMaHint(); // fila del producto elegido en Escanear: con los datos actuales (stock, docena/unidad)
   // Si cambió el ajuste de precios (p. ej. lo cambió el dueño en otro dispositivo), se actualizan los textos de Escanear.
   if (renderAll.prices !== S.pricesOn()) { renderAll.prices = S.pricesOn(); setScanOp(prefs.scanOp); }
 }
@@ -3117,8 +3228,17 @@ function bindEvents() {
   });
   byId('maResults').addEventListener('click', e => { const b = e.target.closest('[data-ma]'); if (b) maSelect(S.findById(b.dataset.ma)); });
   byId('scanForm').addEventListener('focusout', () => setTimeout(() => { if (!byId('scanForm').contains(document.activeElement)) byId('maResults').hidden = true; }, 120));
+  byId('maUnit').addEventListener('input', () => { maUnitTouched = true; }); // antes de redibujar, para que no vuelva a la del producto
   ['maQty', 'maUnit', 'maPrice'].forEach(id => byId(id).addEventListener('input', renderMaHint));
   byId('maPrice').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
+  byId('maHint').addEventListener('click', e => {
+    if (!e.target.closest('[data-ma-dozen]') || !maPick || !ownerOnly('cambiar cómo se vende el producto')) return;
+    S.bulkSet([maPick.id], 'displayUnit', 'dozen');
+    maUnitTouched = false;
+    renderMaHint();
+    toast(`${maPick.sku} ahora se vende por docena: cada lectura descuenta 12 unidades`, { action: () => S.undo() });
+    byId('maQty').focus();
+  });
   byId('maSuggest').addEventListener('click', e => { if (!e.target.closest('[data-ma-suggest]')) return; const s = maPick && S.suggestedPrice(maPick); if (s) { byId('maPrice').value = fmt(s.price); renderMaHint(); byId('maPrice').focus(); } });
   byId('maUnit').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
   byId('maQty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
@@ -3182,7 +3302,8 @@ function bindEvents() {
       if (row) openMove(row.dataset.move);
     });
   }
-  byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input')) focusScan(); });
+  // Clic en un espacio vacío: el cursor vuelve al campo de la pistola (no en campos ni listas, que si no se cierran).
+  byId('scanHero').addEventListener('click', e => { if (!e.target.closest('button, input, select, textarea, label, a')) focusScan(); });
   // Precio de la última lectura
   byId('scanLast').addEventListener('click', e => {
     if (e.target.closest('[data-sl-edit]')) { slEditing = true; renderLastPrice(); }
@@ -3243,6 +3364,7 @@ function bindEvents() {
   byId('bulkForm').addEventListener('submit', applyBulk);
   byId('editForm').addEventListener('submit', saveEdit);
   ['ePrice', 'eCost', 'ePer', 'ePriceArs'].forEach(id => byId(id).addEventListener('input', renderMargin));
+  ['eUnits', 'eUnitName', 'eDisplay'].forEach(id => byId(id).addEventListener('input', renderEditUnits));
   byId('eDelete').onclick = deleteEditing;
   byId('eLabel').onclick = () => { byId('editDialog').close(); labelsFor([editingId]); };
   byId('eBarcodeCam').onclick = () => openCamera({ onCode: c => { byId('eBarcode').value = upper(c); } });
@@ -3407,6 +3529,9 @@ function bindExtras() {
   byId('fContactNew').onclick = async () => { const c = await openContact(null, kindForOp(prefs.formOp), byId('fContact').value); if (c) byId('fContact').value = c.name; };
   byId('scanContactNew').onclick = async () => { const c = await openContact(null, kindForOp(prefs.scanOp), byId('scanContact').value); if (c) setSessionContact(c.name); focusScan(); };
   byId('scanContact').addEventListener('change', e => setSessionContact(txt(e.target.value), 'scan'));
+  byId('scanDate').value = todayKey();
+  byId('scanDate').addEventListener('input', renderScanDate);
+  renderScanDate();
   byId('kContact').addEventListener('change', e => { setSessionContact(txt(e.target.value), 'kiosk'); byId('kInput').focus(); });
   byId('contactForm').addEventListener('submit', saveContactForm);
   onSegment(byId('ctdKind'), v => { segmented(byId('ctdKind'), v); byId('ctdKind').dataset.value = v; });
@@ -3456,6 +3581,9 @@ function bindExtras() {
   byId('kRemito').onclick = finishScan;
   byId('rmFinish').onclick = finishWithoutSending;
   byId('rmPriced').onchange = e => { pendingRemito.priced = e.target.checked; renderRemitoLines(); };
+  byId('rmContact').addEventListener('input', fillRemitoPhone);
+  byId('rmPhone').addEventListener('input', e => { delete e.target.dataset.auto; });
+  byId('rmDate').addEventListener('input', renderRemitoDate);
   byId('rmLines').addEventListener('input', e => {
     const inp = e.target.closest('.rm-price');
     if (!inp || pendingRemito.created) return;
@@ -3577,7 +3705,9 @@ function init() {
   bindExtras();
   initHardwareScanner(code => (currentView === 'precios' ? priceLookup(code) : handleScan(code, 'pistola')));
 
-  S.subscribe(() => { renderAll(); cloud.schedulePush(); });
+  // Cambios de otra pestaña: solo se muestran (esa pestaña ya los sube a la nube).
+  S.subscribe(reason => { renderAll(); if (reason !== 'tab') cloud.schedulePush(); });
+  S.watchOtherTabs();
   cloud.setHooks({
     conflict: askConflict,
     sessionLost: () => { toast('Tu sesión venció o tu cuenta fue deshabilitada. Ingresá de nuevo.', 'warn'); rerenderAuth(); },

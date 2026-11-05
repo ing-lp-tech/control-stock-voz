@@ -1,6 +1,6 @@
 // Service worker de StockVoz: la app abre sin internet después de la primera visita.
 // Al publicar cambios, subí VERSION para que los usuarios reciban la actualización.
-const VERSION = 'stockvoz-v6.5.7';
+const VERSION = 'stockvoz-v6.6.3';
 const CORE = [
   './', './index.html', './admin.html', './manifest.webmanifest', './css/styles.css',
   './js/app.js', './js/admin.js', './js/config.js', './js/utils.js', './js/store.js', './js/cloud.js',
@@ -65,9 +65,10 @@ self.addEventListener('fetch', event => {
   if (url.origin !== location.origin) return;
 
   // Archivos de la app: primero red (los cambios publicados se ven al instante); sin conexión, la copia guardada.
+  // 'no-cache' obliga a consultar al servidor: sin eso el navegador puede seguir usando un app.js viejo de su caché.
   event.respondWith((async () => {
     try {
-      const res = await fetch(req);
+      const res = await fetch(req, req.mode === 'navigate' ? undefined : { cache: 'no-cache' });
       if (res.ok) { const c = await caches.open(VERSION); c.put(req, await clean(res.clone())).catch(() => {}); }
       return res;
     } catch {

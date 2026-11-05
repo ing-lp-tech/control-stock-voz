@@ -205,6 +205,7 @@
        <div id="scanContactField">
         <div class="scan-step"><span class="step-num">2</span><h3 id="scanContactLabel">¿Para qué cliente es?</h3><span class="muted small">Opcional</span></div>
         <div class="input-group"><input id="scanContact" class="input" list="contactList" placeholder="Escribí o elegí el cliente" autocomplete="off"><button type="button" class="icon-btn bordered" id="scanContactNew" title="Nuevo cliente o proveedor"><i data-i="plus"></i></button></div>
+        <div class="scan-date" id="scanDateWrap"><label for="scanDate">Fecha</label><input id="scanDate" class="input" type="date"><span class="scan-date-hint" id="scanDateHint"></span></div>
        </div>
 
        <div class="scan-step"><span class="step-num" id="scanStepScan">3</span><h3>Escaneá los productos</h3><span class="scan-status"><span class="pulse-dot"></span><span id="scanStatusText">Esperando lectura</span></span></div>
@@ -220,7 +221,7 @@
         <div class="manual-add-head"><p class="ma-title" id="maHint"></p><button type="button" class="icon-btn" id="maClose" title="Cancelar" aria-label="Cancelar"><i data-i="x"></i></button></div>
         <div class="manual-add-row">
          <div class="field ma-qty"><label for="maQty">Cantidad</label><input id="maQty" class="input" type="number" inputmode="decimal" min="0.01" step="any" value="1"></div>
-         <div class="field ma-unit"><label for="maUnit">En</label><select id="maUnit" class="input"><option value="dozen">Docenas</option><option value="unit">Unidades</option></select></div>
+         <div class="field ma-unit"><label for="maUnit" id="maUnitLabel">Sale en</label><select id="maUnit" class="input"><option value="dozen">Docenas</option><option value="unit">Unidades</option></select></div>
          <div class="field ma-price" id="maPriceField" hidden><label for="maPrice" id="maPriceLabel">Precio</label><input id="maPrice" class="input money" inputmode="decimal" autocomplete="off" enterkeyhint="done"><div class="ma-suggest" id="maSuggest"></div></div>
          <button type="button" class="btn btn-primary ma-add" id="maAdd"><i data-i="plus"></i>Agregar</button>
         </div>
@@ -288,6 +289,7 @@
      <button class="chip" type="button" data-f="all">Todos <span class="count" id="cntAll">0</span></button>
      <button class="chip" type="button" data-f="alert">Alertas <span class="count" id="cntAlert">0</span></button>
      <button class="chip" type="button" data-f="zero">Sin stock <span class="count" id="cntZero">0</span></button>
+     <button class="chip" type="button" data-f="dozen" id="chipDozen" hidden title="Precio por docena pero se venden por unidad">Revisar docenas <span class="count" id="cntDozen">0</span></button>
     </div>
     <div class="bulk-bar" id="bulkBar" hidden>
      <strong id="bulkCount">0 seleccionados</strong>
@@ -791,8 +793,9 @@
    <div class="field"><label for="eBarcode">Código del fabricante</label><div class="input-group"><input id="eBarcode" class="input mono" placeholder="Opcional"><button type="button" class="icon-btn bordered" id="eBarcodeCam" title="Leer con la cámara"><i data-i="camera"></i></button></div></div>
    <div class="field"><label for="eBrand">Marca</label><input id="eBrand" class="input" list="brandList"></div>
    <div class="field"><label for="eType">Prenda / tipo</label><input id="eType" class="input" list="typeList"></div>
-   <div class="field"><label for="eUnits">Stock actual</label><input id="eUnits" class="input" type="number" min="0" step="any" inputmode="decimal"></div>
+   <div class="field"><label for="eUnits" id="eUnitsLabel">Stock actual</label><input id="eUnits" class="input" type="number" min="0" step="any" inputmode="decimal"><p class="hint" id="eUnitsHint"></p></div>
    <div class="field"><label for="eUnitName">Unidad de stock</label><select id="eUnitName" class="input" data-options="stockUnits"></select></div>
+   <div class="field span-2" id="eDisplayField"><label for="eDisplay">Se carga y se vende</label><select id="eDisplay" class="input"><option value="dozen">Por docena (cada lectura descuenta 12 unidades)</option><option value="unit">Por unidad (cada lectura descuenta 1)</option></select></div>
    <div class="field"><label for="eMin">Stock mínimo (alerta)</label><input id="eMin" class="input" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = sin alerta"></div>
    <div class="field"><label for="eStockType">Tipo de stock</label><select id="eStockType" class="input" data-options="stockTypes"></select></div>
    <div class="field price-only"><label for="ePrice">Precio de venta</label><input id="ePrice" class="input money" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
@@ -971,6 +974,8 @@
    <label class="switch price-only" id="rmPricedWrap"><input type="checkbox" id="rmPriced"><span class="track"></span><span id="rmPricedLabel">Con precios</span></label>
    <div class="form-grid">
     <div class="field"><label for="rmContact" id="rmContactLabel">Cliente</label><input id="rmContact" class="input" list="contactList" placeholder="Elegí un cliente" autocomplete="off"></div>
+    <div class="field"><label for="rmPhone">WhatsApp para enviar el detalle</label><input id="rmPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="Opcional · ej.: 11 2345 6789"></div>
+    <div class="field" id="rmDateField" hidden><label for="rmDate">Fecha de la venta</label><input id="rmDate" class="input" type="date"><p class="hint" id="rmDateHint"></p></div>
     <div class="field"><label for="rmNote">Observaciones</label><input id="rmNote" class="input" maxlength="160" placeholder="Opcional"></div>
    </div>
    <div id="rmLines"></div>
