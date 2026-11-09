@@ -996,8 +996,15 @@
 <dialog class="modal" id="remitoView">
  <div class="modal-inner">
   <div class="modal-head"><div><h3 id="rvTitle">Remito</h3><p class="muted" id="rvSub"></p></div><button type="button" class="icon-btn" data-close aria-label="Cerrar"><i data-i="x"></i></button></div>
-  <div class="modal-body" id="rvBody"></div>
-  <div class="modal-actions"><button type="button" class="btn btn-ghost danger-text owner-only" id="rvVoid"><i data-i="x"></i>Anular</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rvPdf"><i data-i="download"></i>PDF</button><button type="button" class="btn btn-primary" id="rvWa"><i data-i="whatsapp"></i>WhatsApp</button></div>
+  <div class="modal-body">
+   <div id="rvBody"></div>
+   <form class="rv-send" id="rvSendForm" novalidate>
+    <label for="rvPhone">Enviar por WhatsApp</label>
+    <div class="rv-send-row"><input id="rvPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="Número · ej.: 11 2345 6789"><button type="submit" class="btn btn-primary" id="rvWa"><i data-i="whatsapp"></i>Enviar</button></div>
+    <p class="hint" id="rvSendHint"></p>
+   </form>
+  </div>
+  <div class="modal-actions"><button type="button" class="btn btn-ghost danger-text owner-only" id="rvVoid"><i data-i="x"></i>Anular</button><span class="grow"></span><button type="button" class="btn btn-ghost" id="rvShare" hidden><i data-i="send"></i>Compartir<span class="hide-sm">&nbsp;PDF</span></button><button type="button" class="btn btn-ghost" id="rvPdf"><i data-i="download"></i>Descargar PDF</button></div>
  </div>
 </dialog>
 

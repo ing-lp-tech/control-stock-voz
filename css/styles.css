@@ -371,6 +371,27 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 38px; 
 .delta-sub { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tl-in .delta { color: var(--success); } .tl-out .delta { color: var(--danger); } .tl-count .delta { color: var(--info); }
 .tl-item.is-voided .tl-title strong, .tl-item.is-voided .delta { text-decoration: line-through; opacity: .55; }
+/* Una venta (comprobante) como una sola fila: cliente, artículos y total */
+.tl-item[data-remito-row] { cursor: pointer; transition: background-color var(--t-fast) ease; }
+@media (hover: hover) and (pointer: fine) { .tl-item[data-remito-row]:hover { background: var(--hover); box-shadow: none; } .tl-item[data-remito-row]:hover + .tl-item { box-shadow: none; } }
+.tl-item[data-remito-row]:focus-visible { background: var(--hover); }
+.tl-sale .tl-title strong { font-family: inherit; font-weight: 700; }
+.tl-sale .tl-side .delta-sub { color: var(--text-2); font-weight: 600; }
+/* Vista de la venta: productos que se pueden tocar y envío a cualquier número */
+.rv-lines tr[data-rv-move] { cursor: pointer; }
+.rv-lines tr[data-rv-move]:focus-visible, .rv-lines tr[data-rv-move]:active { background: var(--hover); }
+@media (hover: hover) and (pointer: fine) { .rv-lines tr[data-rv-move]:hover { background: var(--hover); } }
+.rv-send { margin-top: 18px; padding-top: 16px; box-shadow: 0 -1px 0 var(--border); }
+.rv-send label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.rv-send-row { display: flex; gap: 8px; }
+.rv-send-row .input { flex: 1; }
+.rv-send-row .btn { flex-shrink: 0; }
+@media (max-width: 560px) {
+  #remitoView .modal-actions .grow { display: none; }
+  #remitoView .modal-actions .btn:not([hidden]) { flex: 1 1 0; min-width: 0; justify-content: center; }
+  #remitoView #rvVoid { flex-basis: 100%; order: 2; }
+  .rv-lines.rm-priced td:nth-child(4) { justify-content: flex-end; }
+}
 /* Selección de varios movimientos (Historial) */
 .timeline.selecting .tl-item { cursor: pointer; user-select: none; }
 .timeline.selecting .tl-item.selected { background: var(--accent-soft); }

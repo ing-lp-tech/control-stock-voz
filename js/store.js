@@ -456,7 +456,9 @@ export function enteredOf(h) {
   return h.quantity != null ? { qty: h.quantity, unit: h.unit || 'unidades' } : null;
 }
 // Origen del movimiento: pistola, cámara, voz, manual…
-export const sourceOf = h => h.source || (h.kind === 'fix' ? 'corrección' : String(h.note || '').split(' · ')[0] || '');
+// Los movimientos cargados con el botón "Agregar" de la carga manual quedaron con "[object PointerEvent]".
+export const cleanSource = s => String(s ?? '').replace(/\[object \w+\]/g, 'manual');
+export const sourceOf = h => cleanSource(h.source || (h.kind === 'fix' ? 'corrección' : String(h.note || '').split(' · ')[0] || ''));
 // Número de etiqueta numerada de un movimiento: { pack: 'D'|'U', number }.
 export function serialInfo(serial) {
   const m = String(serial || '').match(/([DU])(\d{4,})$/);

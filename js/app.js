@@ -346,20 +346,46 @@ function historyRow(h, opts = {}) {
   const check = opts.select ? `<span class="check tl-check" aria-hidden="true"><input type="checkbox" tabindex="-1" ${sel ? 'checked' : ''}><span></span></span>` : '';
   return `<div class="tl-item tl-${k} ${h.voided ? 'is-voided' : ''} ${sel ? 'selected' : ''}" data-move="${esc(h.id)}" ${h.sku ? `data-sku="${esc(h.sku)}"` : ''} tabindex="0" ${opts.select ? `role="checkbox" aria-checked="${sel ? 'true' : 'false'}" title="Tocá para elegirlo"` : 'title="Ver el detalle"'}>${check}<span class="tl-icon">${icon(KIND_ICON[k] || 'edit')}</span>
     <div class="tl-body"><div class="tl-title"><strong class="mono">${esc(h.sku) || '—'}</strong> <span>${esc(h.action)}</span>${si ? ` <span class="badge badge-primary">${icon('tag')}${esc(si.label)}</span>` : ''}${h.voided ? ' <span class="badge badge-danger">Anulado</span>' : h.corrected ? ' <span class="badge badge-warn">Corregido</span>' : ''}</div>
-    <div class="tl-sub">${sub || esc(h.note || '')}</div>${fixNote ? `<div class="tl-note">${icon('info', 'sm')} ${fixNote}</div>` : ''}${k === 'fix' && h.note ? `<div class="tl-note">${esc(h.note)}</div>` : ''}</div>
+    <div class="tl-sub">${sub || esc(S.cleanSource(h.note))}</div>${fixNote ? `<div class="tl-note">${icon('info', 'sm')} ${fixNote}</div>` : ''}${k === 'fix' && h.note ? `<div class="tl-note">${esc(h.note)}</div>` : ''}</div>
     <div class="tl-side">${q ? `<strong class="delta">${q.main}</strong>${q.sub ? `<span class="delta-sub">${q.sub}</span>` : ''}` : ''}<span class="tl-side-row">${fixBtn}<span class="tl-time" title="${esc(dateTimeOf(h.at))}">${opts.time ? timeOf(h.at) : relTime(h.at)}</span></span></div></div>`;
 }
+// Una venta, compra o remito como una sola fila: el cliente, cuánto se llevó y el total.
+function remitoRow(r, opts = {}) {
+  const isIn = r.kind === 'entrada', priced = r.priced && S.pricesOn();
+  const kind = r.priced ? (isIn ? 'Compra' : 'Venta') : isIn ? 'Remito de entrada' : 'Remito';
+  const units = r.lines.reduce((s, l) => s + num(l.units), 0), dz = r.lines.every(l => /^docena/.test(l.unit));
+  const sign = isIn ? '+' : '−', main = `${sign}${dz ? unitWords(units / 12, 'docenas') : unitWords(units, 'unidades')}`;
+  const side = priced ? remMoney(r, r.total) : dz ? unitWords(units, 'unidades') : '';
+  const skus = r.lines.map(l => l.sku), list = skus.slice(0, 4).join(', ') + (skus.length > 4 ? ` y ${skus.length - 4} más` : '');
+  const sub = [`${r.lines.length} artículo${r.lines.length === 1 ? '' : 's'}: ${esc(list)}`, r.by && `@${esc(r.by)}`].filter(Boolean).join(' · ');
+  return `<div class="tl-item tl-sale tl-${isIn ? 'in' : 'out'} ${r.voided ? 'is-voided' : ''}" data-remito-row="${esc(r.id)}" tabindex="0" title="Ver todo lo que se llevó">
+    <span class="tl-icon">${icon('file')}</span>
+    <div class="tl-body"><div class="tl-title"><strong>${esc(r.contact?.name || (isIn ? 'Sin proveedor' : 'Sin cliente'))}</strong> <span>${kind} ${esc(S.remitoCode(r))}</span>${r.voided ? ' <span class="badge badge-danger">Anulado</span>' : ''}</div>
+    <div class="tl-sub">${sub}</div></div>
+    <div class="tl-side"><strong class="delta">${main}</strong>${side ? `<span class="delta-sub">${side}</span>` : ''}<span class="tl-side-row"><span class="tl-time" title="${esc(dateTimeOf(r.at))}">${opts.time ? timeOf(r.at) : relTime(r.at)}</span></span></div></div>`;
+}
+// Comprobante de cada movimiento (para agrupar las lecturas de una misma venta).
+function remitoIndex() {
+  const m = new Map();
+  for (const r of state.extra.remitos) for (const id of r.entryIds || []) if (!m.has(id)) m.set(id, r);
+  return m;
+}
 // Agrupa movimientos por día, con la hora de cada uno. opts.select: con casillas para elegir varios.
+// opts.group: los movimientos de una misma venta (comprobante) se muestran juntos en una sola fila.
 function historyByDay(rows, opts = {}) {
   let html = '', day = '';
+  const rem = opts.group && !opts.select ? remitoIndex() : null, done = new Set();
   for (const h of rows) {
+    const r = rem?.get(h.id);
+    if (r && done.has(r.id)) continue;
     const date = new Date(h.at), d = date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     if (d !== day) {
       const key = date.toDateString(), all = opts.select && rows.filter(x => new Date(x.at).toDateString() === key).every(x => opts.selected.has(x.id));
       html += `<div class="tl-day">${opts.select ? `<span>${esc(d.charAt(0).toUpperCase() + d.slice(1))}</span>` : esc(d)}${opts.select ? `<button type="button" class="link tl-day-sel" data-hsel-day="${esc(key)}">${all ? 'Quitar el día' : 'Elegir todo el día'}</button>` : ''}</div>`;
       day = d;
     }
-    html += historyRow(h, { time: true, ...opts });
+    if (r) { done.add(r.id); html += remitoRow(r, { time: true }); }
+    else html += historyRow(h, { time: true, ...opts });
   }
   return html;
 }
@@ -2009,7 +2035,8 @@ function renderHistory() {
   const ids = new Set(state.history.map(h => h.id));
   for (const id of hist.selected) if (!ids.has(id)) hist.selected.delete(id);
   byId('histList').classList.toggle('selecting', hist.select);
-  byId('histList').innerHTML = historyByDay(shown, hist.select ? { select: true, selected: hist.selected } : {}) || emptyState('history', 'Sin movimientos', filtered ? 'No hay resultados para estos filtros.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
+  // Buscando un código se ve cada movimiento suelto; si no, cada venta es una sola fila con su cliente.
+  byId('histList').innerHTML = historyByDay(shown, hist.select ? { select: true, selected: hist.selected } : { group: !hist.code }) || emptyState('history', 'Sin movimientos', filtered ? 'No hay resultados para estos filtros.' : 'Cuando cargues productos, vas a ver cada movimiento acá.');
   byId('histMore').hidden = rows.length <= shown.length;
   byId('histMore').textContent = `Ver más (${rows.length - shown.length})`;
   renderHistBulk(rows);
@@ -2221,7 +2248,7 @@ function openMove(id) {
       ${row('Tarea', h.stockType ? esc(S.stockTypeLabel(h.stockType)) : '')}
       ${row('Fecha y hora', full(h.at))}
       ${row('Cargado', h.recordedAt ? `${full(h.recordedAt)} <span class="muted">(con otra fecha)</span>` : '')}
-      ${row('Nota', h.note && k !== 'fix' ? esc(h.note) : '')}
+      ${row('Nota', h.note && k !== 'fix' ? esc(S.cleanSource(h.note)) : '')}
       ${row('Corrige a', target ? `<a href="#" class="link" data-goto-move="${esc(target.id)}">${esc(target.action)} del ${esc(dateTimeOf(target.at))}</a>` : '')}
       ${row('Motivo', k === 'fix' && h.note ? esc(h.note.replace(/^.*?:\s(?=[^:]*$)/, '')) : '')}
     </dl>
@@ -2238,6 +2265,9 @@ function openRemitoView(id) {
   if (!r) return;
   viewingRemito = id;
   const units = r.lines.reduce((s, l) => s + num(l.units), 0), priced = r.priced && S.pricesOn();
+  // Movimientos de la venta: tocando un producto se abre el suyo (para verlo o corregirlo).
+  const entries = new Set(r.entryIds || []), mine = state.history.filter(h => entries.has(h.id));
+  const moveOf = sku => mine.find(h => h.sku === sku)?.id;
   byId('rvTitle').textContent = `${S.remitoCode(r)} · ${priced ? (r.kind === 'entrada' ? 'Compra' : 'Venta') : r.kind === 'entrada' ? 'Entrada' : 'Salida'}`;
   byId('rvVoid').hidden = !!r.voided || !canManage();
   byId('rvSub').textContent = `${r.contact?.name || 'Sin cliente'} · ${dateTimeOf(r.at)}`;
@@ -2254,10 +2284,39 @@ function openRemitoView(id) {
       ${r.note ? `<dt>Observaciones</dt><dd>${esc(r.note)}</dd>` : ''}
     </dl>
     ${r.voided ? `<div class="notice danger" style="margin-bottom:14px">${icon('x')}<span><b>Anulado</b>${r.voided.by ? ` por @${esc(r.voided.by)}` : ''} el ${esc(dateTimeOf(r.voided.at))}<br>Motivo: ${esc(r.voided.reason)}</span></div>` : ''}
-    <div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th>${priced ? '<th class="num">Precio</th><th class="num">Importe</th>' : ''}</tr></thead><tbody>
-      ${r.lines.map(l => `<tr><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td>${priced ? `<td class="num">${l.price ? `${remMoney(r, l.price)}<div class="small muted">${S.PRICE_PER[l.per] || ''}</div>` : '—'}</td><td class="num">${remMoney(r, l.amount)}</td>` : ''}</tr>`).join('')}
-    </tbody></table></div>`;
+    <div class="table-wrap"><table class="table rv-lines${priced ? ' rm-priced' : ''}"><thead><tr><th>Código</th><th>Producto</th><th class="num">Cantidad</th>${priced ? '<th class="num">Precio</th><th class="num">Importe</th>' : ''}</tr></thead><tbody>
+      ${r.lines.map(l => `<tr ${moveOf(l.sku) ? `data-rv-move="${esc(moveOf(l.sku))}" tabindex="0" title="Ver o corregir este movimiento"` : ''}><td><b class="code">${esc(l.sku)}</b></td><td style="white-space:normal">${esc(l.name || '—')}${l.serials?.length ? `<div class="small muted">${l.serials.length} etiqueta${l.serials.length === 1 ? '' : 's'} numerada${l.serials.length === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt(l.qty)} ${esc(l.unit)}<div class="small muted">${fmt(l.units)} u.</div></td>${priced ? `<td class="num">${l.price ? `${remMoney(r, l.price)}<div class="small muted">${S.PRICE_PER[l.per] || ''}</div>` : '—'}</td><td class="num">${remMoney(r, l.amount)}</td>` : ''}</tr>`).join('')}
+    </tbody></table></div>
+    ${mine.length ? '<p class="hint" style="margin-top:8px">Tocá un producto para ver o corregir su movimiento.</p>' : ''}`;
+  // El número se puede cambiar para mandarlo a otra persona; arranca con el del cliente.
+  byId('rvPhone').value = r.phone || r.contact?.phone || '';
+  const share = canSharePdf();
+  byId('rvSendHint').textContent = !matchMedia('(pointer: coarse)').matches ? 'Se abre el chat con el detalle de la venta y se descarga el PDF para adjuntarlo.'
+    : share ? 'Se abre el chat con el detalle de la venta. Para mandar el PDF tocá "Compartir" y elegí WhatsApp.'
+    : 'Se abre el chat con el detalle de la venta. El PDF lo podés descargar abajo.';
+  byId('rvShare').hidden = !share;
   byId('remitoView').showModal();
+}
+// En el celular se puede mandar el archivo PDF con el menú de compartir del teléfono.
+const canSharePdf = () => { try { return matchMedia('(pointer: coarse)').matches && !!navigator.canShare?.({ files: [new File([''], 'x.pdf', { type: 'application/pdf' })] }); } catch { return false; } };
+// Manda el comprobante al número escrito (puede ser otro distinto al del cliente).
+async function sendRemitoTo(e) {
+  e?.preventDefault();
+  const r = state.extra.remitos.find(x => x.id === viewingRemito);
+  if (!r) return;
+  const raw = txt(byId('rvPhone').value), phone = waNumber(raw);
+  if (!raw) { toast('Escribí el número de WhatsApp al que querés mandarlo.', 'warn'); byId('rvPhone').focus(); return; }
+  if (!phone) { toast('Revisá el número: escribilo con característica, por ejemplo 11 2345 6789.', 'error'); byId('rvPhone').focus(); shake(byId('rvWa')); return; }
+  // Si el cliente no tenía número, queda guardado para la próxima.
+  const c = r.contact?.id && S.findContact(r.contact.id);
+  if (c && !c.phone) S.saveContact({ ...c, phone: raw });
+  const btn = byId('rvWa');
+  busy(btn, true);
+  try {
+    const how = await shareRemito({ ...r, phone }, remitoOpts());
+    toast(how === 'chat' ? 'Se abrió el chat de WhatsApp con el detalle' : how === 'downloaded' ? 'PDF descargado. Adjuntalo en el chat de WhatsApp que se abrió.' : 'Enviado', 'info');
+  } catch (er) { toast(er.message || 'No se pudo generar el PDF.', 'error'); }
+  finally { busy(btn, false); }
 }
 
 // =========================================================
@@ -3242,7 +3301,7 @@ function bindEvents() {
   byId('maSuggest').addEventListener('click', e => { if (!e.target.closest('[data-ma-suggest]')) return; const s = maPick && S.suggestedPrice(maPick); if (s) { byId('maPrice').value = fmt(s.price); renderMaHint(); byId('maPrice').focus(); } });
   byId('maUnit').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
   byId('maQty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); maAdd(); } });
-  byId('maAdd').onclick = maAdd;
+  byId('maAdd').onclick = () => maAdd(); // sin pasar el evento del clic como "origen"
   // Consultar precio
   byId('plInput').addEventListener('input', debounce(renderPriceLookup, 120));
   byId('plForm').addEventListener('submit', e => { e.preventDefault(); renderPriceLookup(); byId('plInput').select(); });
@@ -3441,6 +3500,12 @@ function bindEvents() {
       renderHistory();
       return;
     }
+    const sale = e.target.closest('.tl-item[data-remito-row]');
+    if (sale) {
+      if (e.type === 'keydown' && e.key !== 'Enter') return;
+      openRemitoView(sale.dataset.remitoRow);
+      return;
+    }
     const row = e.target.closest('.tl-item[data-move]');
     if (!row) return;
     if (hist.select && row.closest('#histList')) {
@@ -3558,8 +3623,27 @@ function bindExtras() {
     const b = e.target.closest('[data-rm]');
     if (b) remitoAction(row.dataset.remito, b.dataset.rm); else openRemitoView(row.dataset.remito);
   });
-  byId('rvPdf').onclick = () => remitoAction(viewingRemito, 'pdf');
-  byId('rvWa').onclick = () => remitoAction(viewingRemito, 'wa');
+  byId('rvPdf').onclick = async () => {
+    busy(byId('rvPdf'), true);
+    await remitoAction(viewingRemito, 'pdf');
+    busy(byId('rvPdf'), false);
+  };
+  // Compartir el PDF (celular): sin número, para elegir el chat en el menú del teléfono.
+  byId('rvShare').onclick = async () => {
+    const r = state.extra.remitos.find(x => x.id === viewingRemito);
+    if (!r) return;
+    try { await shareRemito({ ...r, phone: '', contact: r.contact && { ...r.contact, phone: '' } }, remitoOpts()); }
+    catch (er) { toast(er.message || 'No se pudo generar el PDF.', 'error'); }
+  };
+  byId('rvSendForm').addEventListener('submit', sendRemitoTo);
+  const rvMove = e => {
+    const tr = e.target.closest('[data-rv-move]');
+    if (!tr || (e.type === 'keydown' && e.key !== 'Enter')) return;
+    byId('remitoView').close();
+    setTimeout(() => openMove(tr.dataset.rvMove), 150);
+  };
+  byId('rvBody').addEventListener('click', rvMove);
+  byId('rvBody').addEventListener('keydown', rvMove);
   byId('mvFix').onclick = () => { const id = viewingMove; byId('moveDialog').close(); setTimeout(() => openFix(id), 150); };
   byId('mvProduct').onclick = () => {
     const h = state.history.find(x => x.id === viewingMove);
