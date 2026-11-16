@@ -2716,13 +2716,18 @@ async function remitoAction(id, action) {
 // =========================================================
 // Reportes (solo la dueña)
 // =========================================================
-const rp = { days: 30, user: '' };
+// period: hoy | ayer | 7 | 30 | 90 | mes | mes-ant | rango | 0 (todo) · from/to: "AAAA-MM-DD" si se eligen fechas
+// group: cómo se agrupan las ventas (auto | day | month)
+const rp = { period: '30', from: '', to: '', user: '', group: 'auto' };
+const rpOpts = () => ({ ...R.periodRange(rp), user: rp.user, group: rp.group });
 function renderReports() {
   if (currentView !== 'reportes' || !canManage()) return;
-  segmented(byId('rpPeriod'), String(rp.days));
+  byId('rpPeriod').value = rp.period;
+  byId('rpRange').hidden = rp.period !== 'rango';
+  if (rp.period === 'rango') { const { from, to } = R.periodRange(rp); byId('rpFrom').value = R.isoDay(from); byId('rpTo').value = R.isoDay(to - 1); }
   const users = [...new Set(state.history.map(h => h.by).filter(Boolean))].sort();
   byId('rpUser').innerHTML = `<option value="">Todo el equipo</option>${users.map(u => `<option value="${esc(u)}" ${u === rp.user ? 'selected' : ''}>@${esc(u)}</option>`).join('')}`;
-  const r = R.computeReport(state, { ...rp, prices: S.pricesOn() });
+  const r = R.computeReport(state, { ...rpOpts(), prices: S.pricesOn() });
   byId('rpBody').innerHTML = state.history.length ? R.renderReport(r) : `<div class="card">${emptyState('layers', 'Todavía no hay datos', 'Los reportes se arman con los movimientos que registres.')}</div>`;
 }
 
@@ -3687,10 +3692,19 @@ function bindExtras() {
   byId('remitoForm').addEventListener('submit', e => sendRemito(e, 'wa'));
   byId('rmDownload').onclick = e => sendRemito(e, 'download');
   // Reportes
-  onSegment(byId('rpPeriod'), v => { rp.days = Number(v); renderReports(); });
+  byId('rpPeriod').onchange = e => {
+    rp.period = e.target.value;
+    // Al elegir fechas se arranca con las del período que se estaba viendo (o este mes).
+    if (rp.period === 'rango' && !rp.from) { rp.from = R.isoDay(R.periodRange({ period: 'mes' }).from); rp.to = R.isoDay(Date.now()); }
+    renderReports();
+  };
+  const setRange = () => { rp.from = byId('rpFrom').value; rp.to = byId('rpTo').value; renderReports(); };
+  byId('rpFrom').onchange = setRange;
+  byId('rpTo').onchange = setRange;
   byId('rpUser').onchange = e => { rp.user = e.target.value; renderReports(); };
-  byId('rpExportSales').onclick = () => { if (!IO.exportSalesCSV(R.periodRemitos(state.extra.remitos, rp))) toast('No hay ventas ni compras con precio en el período.', 'warn'); };
-  byId('rpExport').onclick = () => { const rows = R.periodRows(state.history, rp); if (!IO.exportHistoryCSV(rows, `StockVoz_movimientos_${rp.days || 'todo'}dias.csv`)) toast('No hay movimientos en el período.', 'warn'); };
+  byId('rpBody').addEventListener('click', e => { const b = e.target.closest('[data-rp-group] [data-v]'); if (b) { rp.group = b.dataset.v; renderReports(); } });
+  byId('rpExportSales').onclick = () => { const o = rpOpts(); if (!IO.exportSalesCSV(R.periodRemitos(state.extra.remitos, o), `StockVoz_ventas_${R.rangeTag(o)}.csv`)) toast('No hay ventas ni compras con precio en el período.', 'warn'); };
+  byId('rpExport').onclick = () => { const o = rpOpts(); if (!IO.exportHistoryCSV(R.periodRows(state.history, o), `StockVoz_movimientos_${R.rangeTag(o)}.csv`)) toast('No hay movimientos en el período.', 'warn'); };
   R.bindChart(byId('rpBody'));
   // Modo mostrador
   onSegment(byId('kOp'), chooseScanOp);

@@ -1035,13 +1035,15 @@ export function createRemito({ kind = 'salida', contact = null, lines = [], note
     lines, entryIds,
   };
   if (sale) {
+    // En las ventas se guarda el costo que tenía cada producto en ese momento (para el margen en los reportes).
     remito.lines = lines.map(l => {
       const price = cleanPrice(l.price), per = l.per === 'dozen' ? 'dozen' : 'unit';
-      return { ...l, price: price || 0, per, amount: price ? lineAmount(l.units, price, per) : 0 };
+      const item = kind === 'entrada' ? null : findByCode(l.sku), cost = cleanPrice(item?.cost);
+      return { ...l, price: price || 0, per, amount: price ? lineAmount(l.units, price, per) : 0, ...(cost ? { cost, costPer: pricePerOf(item) } : {}) };
     });
     const subtotal = round2(remito.lines.reduce((s, l) => s + l.amount, 0));
     const discount = Math.min(100, Math.max(0, round2(num(sale.discount))));
-    Object.assign(remito, { priced: true, subtotal, discount, total: round2(subtotal * (1 - discount / 100)), payment: PAYMENTS[sale.payment] ? sale.payment : '', currency: cur === 'USD' ? 'USD' : 'ARS' });
+    Object.assign(remito, { priced: true, subtotal, discount, total: round2(subtotal * (1 - discount / 100)), payment: PAYMENTS[sale.payment] ? sale.payment : '', currency: cur === 'USD' ? 'USD' : 'ARS', costCurrency: currency() });
     if (fx?.rate > 0) remito.fx = { rate: fx.rate, source: fx.source || '' };
   }
   state.extra.remitoSeq = number;

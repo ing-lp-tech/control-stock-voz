@@ -1,5 +1,5 @@
 // Exportar e importar: Excel (XLSX), CSV y copia de seguridad JSON.
-import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES, enteredOf, sourceOf, serialInfo, historyKind, pricesOn, pricePerOf, remitoCode, PAYMENTS, PRICE_PER } from './store.js';
+import { state, stockTypeLabel, displayQty, normalizeItem, STOCK_TYPES, enteredOf, sourceOf, serialInfo, historyKind, pricesOn, pricePerOf, remitoCode, PAYMENTS, PRICE_PER, findByCode, lineAmount, convert, remitoCurrency, currency } from './store.js';
 import { loadScript, download, dateStamp, upper, num, round2, parseMoney } from './utils.js';
 import { CONFIG } from './config.js';
 
@@ -44,19 +44,30 @@ export function csvDownload(rows, filename) {
   return true;
 }
 // Ventas y compras con precio: una fila por producto de cada comprobante (fácil de sumar en Excel).
-export function exportSalesCSV(remitos) {
+// Costo de una línea vendida, en la moneda del comprobante: el que tenía el producto al venderse o, si la venta
+// es anterior a que se guardara, el costo actual. Vacío si no hay costo.
+function lineCost(r, l) {
+  if (r.kind === 'entrada') return '';
+  const item = l.cost > 0 ? null : findByCode(l.sku);
+  const c = l.cost > 0 ? { v: l.cost, per: l.costPer, cur: r.costCurrency || currency() } : item?.cost > 0 ? { v: item.cost, per: pricePerOf(item), cur: currency() } : null;
+  if (!c) return '';
+  return convert(lineAmount(l.units, c.v, c.per), c.cur, remitoCurrency(r), r.fx?.rate) ?? '';
+}
+export function exportSalesCSV(remitos, name = `StockVoz_ventas_${dateStamp()}.csv`) {
   const rows = [];
   for (const r of remitos.filter(x => x.priced)) {
-    const d = new Date(r.at);
-    for (const l of r.lines) rows.push({
+    const d = new Date(r.at), k = r.subtotal ? r.total / r.subtotal : 1;
+    for (const l of r.lines) { const cost = lineCost(r, l), net = round2((l.amount || 0) * k); rows.push({
       'FECHA': d.toLocaleDateString('es-AR'), 'HORA': d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
       'COMPROBANTE': remitoCode(r), 'TIPO': r.kind === 'entrada' ? 'Compra' : 'Venta', 'ESTADO': r.voided ? `Anulado: ${r.voided.reason}` : 'Válido',
       'CLIENTE / PROVEEDOR': r.contact?.name || '', 'CÓDIGO': l.sku, 'PRODUCTO': l.name || '', 'CANTIDAD': `${l.qty} ${l.unit}`, 'UNIDADES': l.units,
       'PRECIO': l.price || 0, 'PRECIO POR': PRICE_PER[l.per] || '', 'IMPORTE': l.amount || 0,
-      'DESCUENTO %': r.discount || 0, 'TOTAL DEL COMPROBANTE': r.total, 'FORMA DE PAGO': PAYMENTS[r.payment] || '', 'USUARIO': r.by || '',
-    });
+      'IMPORTE CON DESCUENTO': net, 'COSTO': cost === '' ? '' : round2(cost), 'GANANCIA': cost === '' ? '' : round2(net - cost),
+      'MARGEN %': cost === '' || !net ? '' : round2(((net - cost) / net) * 100),
+      'DESCUENTO %': r.discount || 0, 'TOTAL DEL COMPROBANTE': r.total, 'MONEDA': remitoCurrency(r), 'FORMA DE PAGO': PAYMENTS[r.payment] || '', 'USUARIO': r.by || '',
+    }); }
   }
-  return csvDownload(rows, `StockVoz_ventas_${dateStamp()}.csv`);
+  return csvDownload(rows, name);
 }
 export const exportInventoryCSV = () => csvDownload(inventoryRows(), `StockVoz_${dateStamp()}.csv`);
 export const exportHistoryCSV = (rows = state.history, name = `StockVoz_historial_${dateStamp()}.csv`) => csvDownload(historyRows(rows), name);
